@@ -211,8 +211,13 @@ class OSMRepository:
         current_user: UserInfo,
         workspace_id: int,
     ):
+        # Postgres does not support parameter binding for `SET search_path`, so
+        # workspace_id is interpolated directly. The explicit int() cast guards
+        # against SQL injection if this method is ever called from outside of a
+        # FastAPI path handler (where the type annotation acts as a safeguard).
+        #
         await self.session.execute(
-            text(f"SET search_path TO 'workspace-{workspace_id}', public")
+            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
         )
 
         sql_query = text(
