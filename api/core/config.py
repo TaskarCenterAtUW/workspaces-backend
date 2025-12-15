@@ -18,8 +18,8 @@ class Settings(BaseSettings):
         "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-quests/refs/heads/main/schema/schema.json"
     )
 
-    # proxy destination--"osm-rails" is a virtual docker network endpoint
-    WS_OSM_HOST: str = "http://osm-rails:3000"
+    # proxy destination--"osm-web" is a virtual docker network endpoint
+    WS_OSM_HOST: str = "http://osm-web"
     #WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
 
     SENTRY_DSN: str = ""
