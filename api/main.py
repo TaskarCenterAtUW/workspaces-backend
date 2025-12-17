@@ -104,7 +104,8 @@ async def catch_all(
                 detail="Invalid authentication credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-            return
+
+        authorizedWorkspace = workspace_id
     else:
         if not any(
             re.search(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS
