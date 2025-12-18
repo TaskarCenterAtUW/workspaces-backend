@@ -100,9 +100,8 @@ async def catch_all(
 
         if not current_user.isWorkspaceContributor(workspace_id):
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this workspace",
             )
 
         authorizedWorkspace = workspace_id
@@ -111,10 +110,9 @@ async def catch_all(
             re.search(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS
         ):
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="You must set your workspace in the X-Workspace header to access OSM methods.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No X-Workspace header supplied",
             )
-            return
 
     url = httpx.URL(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
