@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.database import get_session
@@ -7,6 +7,7 @@ from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import (
     WorkspaceCreate,
+    WorkspaceLongQuestBase,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
@@ -97,4 +98,65 @@ async def delete_workspace(
         await service.delete_workspace(current_user.projectGroups, workspace_id)
     except Exception as e:
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
+        raise
+
+
+@router.get("/{workspace_id}/quests/long", response_model=WorkspaceResponse)
+async def get_long_quest(
+    workspace_id: int,
+    service: WorkspaceService = Depends(get_workspace_service),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceLongQuestBase | None:
+    try:
+        workspace = await service.get_workspace(
+            current_user.projectGroups, workspace_id
+        )
+        return workspace.longFormQuestDef
+    except Exception as e:
+        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
+        raise
+
+
+@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestBase)
+async def get_long_quest_settings(
+    workspace_id: int,
+    service: WorkspaceService = Depends(get_workspace_service),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceLongQuestBase | None:
+    try:
+        workspace = await service.get_workspace(
+            current_user.projectGroups, workspace_id
+        )
+
+        if(workspace.longFormQuestDef is None):
+            raise HTTPException(
+                status_code=status.HTTP_204_NO_CONTENT,
+                detail="No Content",
+            )
+
+        return workspace.longFormQuestDef
+    except Exception as e:
+        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
+        raise
+
+@router.patch("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestBase)
+async def update_long_quest_settings(
+    workspace_id: int,
+    workspace_data: WorkspaceUpdate,
+    service: WorkspaceService = Depends(get_workspace_service),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceLongQuestBase | None:
+    try:
+        workspace:WorkspaceUpdate = await service.get_workspace(
+            current_user.projectGroups, workspace_id
+        ) # type: ignore
+        
+#        workspace.longFormQuestDef = longform_quest_data
+
+        updatedWorkspace = await service.update_workspace(
+            current_user.projectGroups, workspace_id, workspace
+        )
+        return updatedWorkspace.longFormQuestDef
+    except Exception as e:
+        logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise

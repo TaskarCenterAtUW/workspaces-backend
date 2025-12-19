@@ -63,16 +63,20 @@ async def catch_all(
     current_user: UserInfo = Depends(validate_token),
     service: WorkspaceService = Depends(get_workspace_service),
 ):
-    validWorkspace = await service.get_workspace(
-        current_user.projectGroups, int(request.headers.get("X-Workspace") or "-1")
-    )
+    authorizedWorkspace = None
 
-    if validWorkspace is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+    if(request.headers.get("X-Workspace") is not None):
+        authorizedWorkspace = await service.get_workspace(
+            current_user.projectGroups, int(request.headers.get("X-Workspace") or "-1")
         )
+
+        # user specified a workspace they wanted access to, but didn't get it
+        if authorizedWorkspace is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     print(
         f"Path proxied: {request.url} workspace_id: {request.headers.get("X-Workspace")}"
@@ -87,9 +91,11 @@ async def catch_all(
     new_headers.append(
         (bytes("Authorization", "utf-8"), request.headers.get("Authorization"))
     )
-    new_headers.append(
-        (bytes("X-Workspace", "utf-8"), bytes(str(validWorkspace.id), "utf-8"))
-    )
+
+    if(authorizedWorkspace is not None):
+        new_headers.append(
+            (bytes("X-Workspace", "utf-8"), bytes(str(authorizedWorkspace.id), "utf-8"))
+        )
     new_headers.append((bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8")))
 
     rp_req = client.build_request(
