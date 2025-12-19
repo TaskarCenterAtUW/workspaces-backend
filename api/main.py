@@ -70,8 +70,8 @@ def get_workspace_repository(
 
 # Define paths that do not require X-Workspace header
 AUTH_WHITELIST_PATHS = [
-    "/api/0.6/user/*",  # used during authentication
-    "/api/0.6/workspaces/[0-9]*/bbox.json",  # used to get workspace bbox without workspace header, to be removed
+    r"^/api/0\.6/user/.*$",  # used during authentication
+    r"^/api/0\.6/workspaces/[0-9]+/bbox\.json$",  # used to get workspace bbox without workspace header, to be removed
 ]
 
 
@@ -107,7 +107,7 @@ async def catch_all(
         authorizedWorkspace = workspace_id
     else:
         if not any(
-            re.search(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS
+            re.fullmatch(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS
         ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
