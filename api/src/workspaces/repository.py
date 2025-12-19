@@ -3,8 +3,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.exceptions import AlreadyExistsException, NotFoundException
-from api.src.workspaces.models import Workspace
-from api.src.workspaces.schemas import WorkspaceCreate, WorkspaceUpdate
+from api.src.workspaces.schemas import Workspace
+from api.src.workspaces.models import WorkspaceCreate, WorkspaceUpdate
 
 
 class WorkspaceRepository:

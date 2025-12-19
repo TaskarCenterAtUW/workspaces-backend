@@ -5,7 +5,7 @@ from api.core.database import get_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.schemas import (
+from api.src.workspaces.models import (
     WorkspaceCreate,
     WorkspaceLongQuestBase,
     WorkspaceResponse,
@@ -18,13 +18,11 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
-
 def get_workspace_service(
     session: AsyncSession = Depends(get_session),
 ) -> WorkspaceService:
     repository = WorkspaceRepository(session)
     return WorkspaceService(repository)
-
 
 @router.get("/mine", response_model=list[WorkspaceResponse])
 async def get_my_workspaces(
@@ -37,7 +35,6 @@ async def get_my_workspaces(
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise
-
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
 async def get_workspace(
@@ -54,7 +51,6 @@ async def get_workspace(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
-
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
@@ -69,7 +65,6 @@ async def create_workspace(
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
-
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(
@@ -87,7 +82,6 @@ async def update_workspace(
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
 
-
 @router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workspace(
     workspace_id: int,
@@ -99,7 +93,6 @@ async def delete_workspace(
     except Exception as e:
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
         raise
-
 
 @router.get("/{workspace_id}/quests/long", response_model=WorkspaceResponse)
 async def get_long_quest(
@@ -115,7 +108,6 @@ async def get_long_quest(
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
-
 
 @router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestBase)
 async def get_long_quest_settings(

@@ -1,11 +1,9 @@
 from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.schemas import (
+from api.src.workspaces.models import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-
-
 class WorkspaceService:
 
     def __init__(self, repository: WorkspaceRepository):

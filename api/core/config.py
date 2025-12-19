@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     """Application settings."""
 
     PROJECT_NAME: str = "Workspaces API"
-    DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/dbname"
+    DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
     DEBUG: bool = False
 
     WS_LONGFORM_SCHEMA_URL: str = (
