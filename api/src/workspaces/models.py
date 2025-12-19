@@ -6,7 +6,7 @@ from uuid import UUID
 import requests
 from geoalchemy2 import WKBElement
 from jsonschema import ValidationError, validate
-from pydantic import BaseModel, ConfigDict, Field, Json, field_validator
+from pydantic import BaseModel, ConfigDict, Field, Json, field_serializer, field_validator
 from typing_extensions import Annotated
 
 from api.core.config import Settings
@@ -114,6 +114,12 @@ class WorkspaceBase(BaseModel):
     imageryListDef: Optional[WorkspaceImageryBase]
 
     model_config = ConfigDict(from_attributes=True)
+
+    # emulate the prior Tasking Manager's behavior of dumping JSON as a string and not an object (FIXME?)
+    @field_serializer('tdeiMetadata', when_used='json')
+    def serialize_data_as_string(self, data: dict[str, Any], _info) -> str:
+        """Serializes the dictionary data into a JSON string."""
+        return json.dumps(data)
 
     # there are some legacy records with '', which is not valid JSON, so map those to None
     @field_validator("*", mode="before")
