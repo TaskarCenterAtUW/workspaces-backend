@@ -4,19 +4,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings."""
 
-    PROJECT_NAME: str = "Hero API"
-    DATABASE_URL: str
+    PROJECT_NAME: str = "Workspaces API"
+    DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/dbname"
     DEBUG: bool = False
 
+    WS_LONGFORM_SCHEMA_URL: str = "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-imagery-list/refs/heads/main/schema/schema.json"
+    WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
+
     # JWT Settings
-    JWT_SECRET: str  # Change in production
+    JWT_SECRET: str = "your-secret-key" 
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRATION: int = 30  # minutes
+    JWT_EXPIRATION: int = 24 * 60 # 1d
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
     )
-
 
 settings = Settings()
