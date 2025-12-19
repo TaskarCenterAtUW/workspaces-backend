@@ -30,9 +30,11 @@ app = FastAPI(
 # Include routers
 app.include_router(workspaces_router)
 
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
 
 @app.get("/")
 async def root():
@@ -40,37 +42,54 @@ async def root():
     logger.debug("Root endpoint called")
     return {"message": "Welcome to Workspaces API!"}
 
-def get_workspace_service(session: AsyncSession = Depends(get_session)) -> WorkspaceService:
+
+def get_workspace_service(
+    session: AsyncSession = Depends(get_session),
+) -> WorkspaceService:
     repository = WorkspaceRepository(session)
     return WorkspaceService(repository)
+
 
 # This API route catches anything not otherwise defined above--MUST be last in this file
 #
 # h/t: https://stackoverflow.com/questions/70610266/proxy-an-external-website-using-python-fast-api-not-supporting-query-params
 #
-@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"])
+@app.api_route(
+    "/{full_path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"],
+)
 async def catch_all(
     request: Request,
     current_user: UserInfo = Depends(validate_token),
     service: WorkspaceService = Depends(get_workspace_service),
 ):
-    validWorkspace = await service.get_workspace(current_user.projectGroups, int(request.headers.get("X-Workspace") or "-1"))
+    validWorkspace = await service.get_workspace(
+        current_user.projectGroups, int(request.headers.get("X-Workspace") or "-1")
+    )
 
-    if(validWorkspace is None):
+    if validWorkspace is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    print(f"Path proxied: {request.url} workspace_id: {request.headers.get("X-Workspace")}")
+    print(
+        f"Path proxied: {request.url} workspace_id: {request.headers.get("X-Workspace")}"
+    )
 
-    url = httpx.URL(path=request.url.path.strip(), query=request.url.query.encode("utf-8"))
+    url = httpx.URL(
+        path=request.url.path.strip(), query=request.url.query.encode("utf-8")
+    )
     client = httpx.AsyncClient(base_url=settings.WS_OSM_HOST)
 
     new_headers = list()
-    new_headers.append((bytes("Authorization", "utf-8"), request.headers.get("Authorization")))
-    new_headers.append((bytes("X-Workspace", "utf-8"), bytes(str(validWorkspace.id), "utf-8")))
+    new_headers.append(
+        (bytes("Authorization", "utf-8"), request.headers.get("Authorization"))
+    )
+    new_headers.append(
+        (bytes("X-Workspace", "utf-8"), bytes(str(validWorkspace.id), "utf-8"))
+    )
     new_headers.append((bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8")))
 
     rp_req = client.build_request(

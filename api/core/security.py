@@ -7,12 +7,17 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 security = HTTPBearer()
+
+
 class UserInfo:
     scheme: str
     credentials: str
     projectGroups: list[str]
 
-async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> UserInfo:
+
+async def validate_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> UserInfo:
     """Dependency to get current authenticated user."""
 
     credentials_exception = HTTPException(
@@ -32,27 +37,34 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
         raise credentials_exception
 
     async with httpx.AsyncClient() as client:
-            headers = {
-                'Authorization': 'Bearer ' + credentials.credentials,
-                'Content-Type': 'application/json',
-            }
+        headers = {
+            "Authorization": "Bearer " + credentials.credentials,
+            "Content-Type": "application/json",
+        }
 
-            authorizationUrl = os.environ.get("TM_TDEI_BACKEND_URL", "https://portal-api-dev.tdei.us/api/v1/") + "/project-group-roles/" + user_id + "?page_no=1&page_size=50"
-            response = await client.get(authorizationUrl, headers=headers)
+        authorizationUrl = (
+            os.environ.get(
+                "TM_TDEI_BACKEND_URL", "https://portal-api-dev.tdei.us/api/v1/"
+            )
+            + "/project-group-roles/"
+            + user_id
+            + "?page_no=1&page_size=50"
+        )
+        response = await client.get(authorizationUrl, headers=headers)
 
-            # token is not valid or server unavailable
-            if response.status_code != 200:
-                raise credentials_exception
+        # token is not valid or server unavailable
+        if response.status_code != 200:
+            raise credentials_exception
 
-            try:
-                content = response.read()
-                j = json.loads(content)
-            except json.JSONDecodeError:
-                raise credentials_exception
+        try:
+            content = response.read()
+            j = json.loads(content)
+        except json.JSONDecodeError:
+            raise credentials_exception
 
-            pgs = []
-            for i in j: 
-                pgs.append(i["tdei_project_group_id"])
+        pgs = []
+        for i in j:
+            pgs.append(i["tdei_project_group_id"])
 
     r = UserInfo()
     r.scheme = credentials.scheme
@@ -60,7 +72,3 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     r.projectGroups = pgs
 
     return r
-
-
-
-

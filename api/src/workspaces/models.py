@@ -22,8 +22,9 @@ class ExternalAppsDefinitionType(Enum):
     PUBLIC = 1
     PROJECT_GROUP = 2
 
+
 class Workspace(Base):
-    """ Workspaces """
+    """Workspaces"""
 
     __tablename__ = "workspaces"
 
@@ -45,28 +46,26 @@ class Workspace(Base):
 
     geometry = Column(Geometry("MULTIPOLYGON", srid=4326))
 
-    externalAppAccess = Column(SmallInteger, nullable=False, default=ExternalAppsDefinitionType.NONE.value)
+    externalAppAccess = Column(
+        SmallInteger, nullable=False, default=ExternalAppsDefinitionType.NONE.value
+    )
 
     kartaViewToken = Column(Unicode)
 
     longFormQuestDef: Mapped[list["WorkspaceLongQuest"]] = relationship(
-        "WorkspaceLongQuest",
-        uselist=False,
-        lazy="joined",
-        cascade="all, delete"
+        "WorkspaceLongQuest", uselist=False, lazy="joined", cascade="all, delete"
     )
 
     imageryListDef: Mapped[list["WorkspaceImagery"]] = relationship(
-        "WorkspaceImagery",
-        uselist=False, 
-        lazy="joined",
-        cascade="all, delete"
+        "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete"
     )
+
 
 class QuestDefinitionType(Enum):
     NONE = 0
     JSON = 1
     URL = 2
+
 
 class WorkspaceLongQuest(Base):
     """Stores mobile app quest definitions for a workspace"""
@@ -79,9 +78,12 @@ class WorkspaceLongQuest(Base):
     type = Column(Integer, nullable=False, default=QuestDefinitionType.NONE.value)
     url = Column(Unicode, nullable=True, default=None)
 
-    modifiedAt = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    modifiedAt = Column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
     modifiedBy = Column(UUID(as_uuid=True), nullable=False)
     modifiedByName = Column(Unicode, nullable=False)
+
 
 class WorkspaceImagery(Base):
     """Stores imagery list for a workspace"""
@@ -91,6 +93,8 @@ class WorkspaceImagery(Base):
     workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
     definition = Column(JSON, nullable=True, default=None)
 
-    modifiedAt = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    modifiedAt = Column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
     modifiedBy = Column(UUID(as_uuid=True), nullable=False)
     modifiedByName = Column(Unicode, nullable=False)

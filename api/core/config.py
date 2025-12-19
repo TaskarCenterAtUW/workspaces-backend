@@ -8,17 +8,20 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/dbname"
     DEBUG: bool = False
 
-    WS_LONGFORM_SCHEMA_URL: str = "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-imagery-list/refs/heads/main/schema/schema.json"
+    WS_LONGFORM_SCHEMA_URL: str = (
+        "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-imagery-list/refs/heads/main/schema/schema.json"
+    )
     WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
 
     # JWT Settings
-    JWT_SECRET: str = "your-secret-key" 
+    JWT_SECRET: str = "your-secret-key"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRATION: int = 24 * 60 # 1d
+    JWT_EXPIRATION: int = 24 * 60  # 1d
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
     )
+
 
 settings = Settings()
