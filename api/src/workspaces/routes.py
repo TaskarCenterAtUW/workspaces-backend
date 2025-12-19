@@ -1,16 +1,13 @@
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.database import get_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
+from api.src.workspaces.models import WorkspaceCreate, WorkspaceLongQuestBase, WorkspaceLongQuestUpdate, WorkspaceResponse, WorkspaceUpdate
 from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.schemas import (
-    WorkspaceCreate,
-    WorkspaceLongQuestBase,
-    WorkspaceResponse,
-    WorkspaceUpdate,
-)
+
 from api.src.workspaces.service import WorkspaceService
 
 # Set up logger for this module
@@ -79,8 +76,11 @@ async def update_workspace(
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceResponse:
     try:
+        newWorkspaceRecord = await service.get_workspace(current_user.projectGroups, workspace_id)
+        newWorkspaceRecord.model_copy(update=workspace_data.model_dump(exclude_unset=True))
+
         workspace = await service.update_workspace(
-            current_user.projectGroups, workspace_id, workspace_data
+            current_user.projectGroups, workspace_id, newWorkspaceRecord
         )
         return workspace
     except Exception as e:
@@ -142,7 +142,7 @@ async def get_long_quest_settings(
 @router.patch("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestBase)
 async def update_long_quest_settings(
     workspace_id: int,
-    workspace_data: WorkspaceUpdate,
+    longform_quest_data: WorkspaceLongQuestUpdate,
     service: WorkspaceService = Depends(get_workspace_service),
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceLongQuestBase | None:
@@ -151,7 +151,10 @@ async def update_long_quest_settings(
             current_user.projectGroups, workspace_id
         ) # type: ignore
         
-#        workspace.longFormQuestDef = longform_quest_data
+        update_data = longform_quest_data.model_dump(exclude_unset=True)
+        
+        if(workspace.longFormQuestDef is not None):
+            workspace.longFormQuestDef.model_copy(update=update_data)
 
         updatedWorkspace = await service.update_workspace(
             current_user.projectGroups, workspace_id, workspace

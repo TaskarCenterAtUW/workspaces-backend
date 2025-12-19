@@ -34,7 +34,7 @@ class WorkspaceService:
         self,
         projectGroupIds: list[str],
         workspace_id: int,
-        workspace_data: WorkspaceUpdate,
+        workspace_data: WorkspaceResponse,
     ) -> WorkspaceResponse:
         workspace = await self.repository.update(
             projectGroupIds, workspace_id, workspace_data

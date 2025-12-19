@@ -1,151 +1,100 @@
-import json
-from datetime import datetime
-from typing import Any, Optional
-from uuid import UUID
+from enum import Enum
 
-import requests
-from geoalchemy2 import WKBElement
-from jsonschema import ValidationError, validate
-from pydantic import BaseModel, ConfigDict, Field, Json, field_validator
-from typing_extensions import Annotated
+from geoalchemy2 import Geometry
+from sqlalchemy import (
+    JSON,
+    UUID,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    Unicode,
+)
+from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.sql import func
 
-from api.core.config import Settings
-from api.src.workspaces.models import ExternalAppsDefinitionType, QuestDefinitionType
-
-
-class WorkspaceLongQuestBase(BaseModel):
-
-    workspace_id: int
-
-    definition: Optional[str]
-    type: QuestDefinitionType
-    url: Optional[str]
-
-    modifiedAt: datetime
-    modifiedBy: UUID
-    modifiedByName: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-    def validate_definition(self, data, value):
-        if QuestDefinitionType[data["type"]] == QuestDefinitionType.NONE:
-            if not value:
-                return None
-            raise ValidationError("'definition' field not allowed.")
-
-        if QuestDefinitionType[data["type"]] != QuestDefinitionType.JSON:
-            return value
-
-        if not value:
-            raise ValidationError("This field is required.")
-        if data["url"]:
-            raise ValidationError("'url' field not allowed.")
-
-        try:
-            parsed = json.loads(value)
-            if not parsed or not isinstance(parsed, dict):
-                raise ValidationError("must be a JSON object.")
-            validate_json_against_schema(parsed, Settings.WS_LONGFORM_SCHEMA_URL)
-        except json.JSONDecodeError as e:
-            return ValidationError(e)
-        except ValidationError as e:
-            raise ValidationError(f"{e}")
-
-        return value
-
-    def validate_url(self, data, value):
-        if QuestDefinitionType[data["type"]] == QuestDefinitionType.NONE:
-            if not value:
-                return None
-            raise ValidationError("'url' field not allowed.")
-
-        if QuestDefinitionType[data["type"]] != QuestDefinitionType.URL:
-            return value
-
-        if not value:
-            raise ValidationError("This field is required.")
-        if data["definition"]:
-            raise ValidationError("'definition' field not allowed.")
-
-        return value
+from api.core.database import Base
 
 
-class WorkspaceImageryBase(BaseModel):
-
-    workspace_id: int
-
-    # Note the below column is of the JSON *database* type vs string type, so we're not
-    # using pydantic's JSON mapping, hence this is not defined as Optional[Json[Any]]
-    definition: Optional[list[Any]]
-
-    modifiedAt: datetime
-    modifiedBy: UUID
-    modifiedByName: str
-
-    model_config = ConfigDict(from_attributes=True)
+class ExternalAppsDefinitionType(Enum):
+    NONE = 0
+    PUBLIC = 1
+    PROJECT_GROUP = 2
 
 
-class WorkspaceBase(BaseModel):
+class Workspace(Base):
+    """Workspaces"""
 
-    id: int
-    type: str = Field(...)
+    __tablename__ = "workspaces"
 
-    title: str = Field(...)
-    description: Optional[str]
+    id = Column(Integer, primary_key=True)
+    type = Column(Unicode, nullable=False)
 
-    tdeiProjectGroupId: UUID
-    tdeiRecordId: Optional[UUID]
-    tdeiServiceId: Optional[UUID]
+    title = Column(Unicode, nullable=False)
+    description = Column(Unicode)
 
-    tdeiMetadata: Optional[Json[Any]]
+    tdeiProjectGroupId = Column(UUID(as_uuid=True), nullable=False)
+    tdeiRecordId = Column(UUID(as_uuid=True))
+    tdeiServiceId = Column(UUID(as_uuid=True))
 
-    createdAt: datetime
-    createdBy: UUID
-    createdByName: str
+    tdeiMetadata = Column(JSON)
 
-    geometry: Optional[Annotated[str, WKBElement]]
+    createdAt = Column(DateTime, nullable=False, default=func.now())
+    createdBy = Column(UUID(as_uuid=True), nullable=False)
+    createdByName = Column(Unicode)
 
-    externalAppAccess: ExternalAppsDefinitionType
+    geometry = Column(Geometry("MULTIPOLYGON", srid=4326))
 
-    kartaViewToken: Optional[str]
+    externalAppAccess = Column(
+        SmallInteger, nullable=False, default=ExternalAppsDefinitionType.NONE.value
+    )
 
-    longFormQuestDef: Optional[WorkspaceLongQuestBase]
+    kartaViewToken = Column(Unicode)
 
-    imageryListDef: Optional[WorkspaceImageryBase]
+    longFormQuestDef: Mapped[list["WorkspaceLongQuest"]] = relationship(
+        "WorkspaceLongQuest", uselist=False, lazy="joined", cascade="all, delete"
+    )
 
-    model_config = ConfigDict(from_attributes=True)
-
-    # there are some legacy records with '', which is not valid JSON, so map those to None
-    @field_validator("*", mode="before")
-    @classmethod
-    def empty_str_to_none(cls, v):
-        if v == "":
-            return None
-        return v
-
-
-class WorkspaceCreate(WorkspaceBase):
-    pass
+    imageryListDef: Mapped[list["WorkspaceImagery"]] = relationship(
+        "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete"
+    )
 
 
-class WorkspaceUpdate(WorkspaceBase):
-    pass
+class QuestDefinitionType(Enum):
+    NONE = 0
+    JSON = 1
+    URL = 2
 
 
-class WorkspaceResponse(WorkspaceBase):
-    pass
+class WorkspaceLongQuest(Base):
+    """Stores mobile app quest definitions for a workspace"""
+
+    __tablename__ = "workspaces_long_quests"
+
+    workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
+
+    definition = Column(Unicode, nullable=True, default=None)
+    type = Column(Integer, nullable=False, default=QuestDefinitionType.NONE.value)
+    url = Column(Unicode, nullable=True, default=None)
+
+    modifiedAt = Column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
+    modifiedBy = Column(UUID(as_uuid=True), nullable=False)
+    modifiedByName = Column(Unicode, nullable=False)
 
 
-def validate_json_against_schema(json, schema_url) -> bool:
-    """
-    Validate a JSON string against a JSON schema from a URL.
-    Returns True if valid, raises ValidationError if not.
-    """
-    # Fetch the schema
-    response = requests.get(schema_url)
-    response.raise_for_status()
-    schema = response.json()
+class WorkspaceImagery(Base):
+    """Stores imagery list for a workspace"""
 
-    # Validate
-    validate(instance=json, schema=schema)
-    return True
+    __tablename__ = "workspaces_imagery"
+
+    workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
+    definition = Column(JSON, nullable=True, default=None)
+
+    modifiedAt = Column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
+    modifiedBy = Column(UUID(as_uuid=True), nullable=False)
+    modifiedByName = Column(Unicode, nullable=False)
