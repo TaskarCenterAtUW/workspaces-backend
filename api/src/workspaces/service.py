@@ -1,5 +1,10 @@
 from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate
+from api.src.workspaces.schemas import (
+    WorkspaceCreate,
+    WorkspaceResponse,
+    WorkspaceUpdate,
+)
+
 
 class WorkspaceService:
 

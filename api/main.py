@@ -1,8 +1,8 @@
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-
-import httpx
+from starlette.background import BackgroundTask
 
 from api.core.config import settings
 from api.core.database import get_session
@@ -12,7 +12,6 @@ from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.src.workspaces.service import WorkspaceService
 from api.utils.migrations import run_migrations
-from starlette.background import BackgroundTask
 
 # Set up logging configuration
 setup_logging()

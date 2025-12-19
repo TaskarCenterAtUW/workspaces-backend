@@ -6,6 +6,7 @@ from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.src.workspaces.models import Workspace
 from api.src.workspaces.schemas import WorkspaceCreate, WorkspaceUpdate
 
+
 class WorkspaceRepository:
 
     def __init__(self, session: AsyncSession):

@@ -5,7 +5,11 @@ from api.core.database import get_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate
+from api.src.workspaces.schemas import (
+    WorkspaceCreate,
+    WorkspaceResponse,
+    WorkspaceUpdate,
+)
 from api.src.workspaces.service import WorkspaceService
 
 # Set up logger for this module

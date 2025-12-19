@@ -1,10 +1,21 @@
 from enum import Enum
-from sqlalchemy import Column, JSON, ForeignKey, Integer,Unicode, UUID, DateTime, SmallInteger
+
+from geoalchemy2 import Geometry
+from sqlalchemy import (
+    JSON,
+    UUID,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    Unicode,
+)
 from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
-from geoalchemy2 import Geometry
 
 from api.core.database import Base
+
 
 class ExternalAppsDefinitionType(Enum):
     NONE = 0
