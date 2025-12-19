@@ -1,4 +1,3 @@
-from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +57,7 @@ class WorkspaceRepository:
         self,
         projectGroupIds: list[str],
         workspace_id: int,
-        workspace_data: Any,
+        workspace_data: WorkspaceUpdate,
     ) -> Workspace:
         update_data = workspace_data.model_dump(exclude_unset=True)
         if not update_data:
