@@ -69,7 +69,12 @@ class WorkspaceLongQuestBase(BaseModel):
 
         return value
 
-
+# don't remove the Field(None) bits, those are required for some reason
+class WorkspaceLongQuestUpdate(BaseModel):
+    definition: Optional[str] = Field(None)
+    type: Optional[QuestDefinitionType]  = Field(None)
+    url: Optional[str]  = Field(None)
+    
 class WorkspaceImageryBase(BaseModel):
 
     workspace_id: int
@@ -83,6 +88,11 @@ class WorkspaceImageryBase(BaseModel):
     modifiedByName: str
 
     model_config = ConfigDict(from_attributes=True)
+
+# don't remove the Field(None) bits, those are required for some reason
+class WorkspaceImageryUpdate(BaseModel):
+    definition: Optional[list[Any]] = Field(None)
+
 
 
 class WorkspaceBase(BaseModel):
@@ -134,8 +144,13 @@ class WorkspaceCreate(WorkspaceBase):
     pass
 
 
-class WorkspaceUpdate(WorkspaceBase):
-    pass
+# don't remove the Field(None) bits, those are required for some reason
+class WorkspaceUpdate(BaseModel):
+    title: Optional[str] = Field(None)
+    description: Optional[str] = Field(None)
+    externalAppAccess: Optional[ExternalAppsDefinitionType] = Field(None)
+    longFormQuestDef: Optional[WorkspaceLongQuestBase] = Field(None)
+    imageryListDef: Optional[WorkspaceImageryBase] = Field(None)
 
 
 class WorkspaceResponse(WorkspaceBase):
