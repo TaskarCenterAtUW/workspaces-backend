@@ -9,8 +9,8 @@ import cachetools
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import UUID
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
 from api.src.workspaces.schemas import WorkspaceUserRoleType

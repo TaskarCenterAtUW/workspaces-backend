@@ -5,7 +5,7 @@ import httpx
 import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.background import BackgroundTask
 
 from api.core import config

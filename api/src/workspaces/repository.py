@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
