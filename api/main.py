@@ -41,8 +41,7 @@ app = FastAPI(
 )
 
 # Include routers
-app.include_router(workspaces_router)
-
+app.include_router(workspaces_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health_check():
