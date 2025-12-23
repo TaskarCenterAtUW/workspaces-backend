@@ -122,7 +122,7 @@ class WorkspaceUserRole(SQLModel, table=True):
     __tablename__ = "user_workspace_roles"  # type: ignore[assignment]
 
     # this is the TDEI auth user UUID, from the token
-    auth_user_uid: UUID = Field(foreign_key="users.auth_uid", primary_key=True)
+    auth_user_uid: str = Field(foreign_key="users.auth_uid", primary_key=True)
     workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
 
     role: WorkspaceUserRoleType = Field(
@@ -135,10 +135,10 @@ class User(SQLModel, table=True):
 
     __tablename__ = "users"  # type: ignore[assignment]
 
-    id: UUID = Field(default=None, primary_key=True)
+    id: int = Field(default=None, primary_key=True)
 
     # this is the user ID from the TDEI authentication system
-    auth_uid: UUID = Field(unique=True, index=True)
+    auth_uid: str = Field(unique=True, index=True)
 
     email: str = Field(unique=True, index=True)
     display_name: str = Field(nullable=False)
