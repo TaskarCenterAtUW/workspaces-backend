@@ -135,7 +135,7 @@ class User(SQLModel, table=True):
 
     __tablename__ = "users"  # type: ignore[assignment]
 
-    id: UUID = Field(default=None, primary_key=True)
+    id: int = Field(default=None, primary_key=True)
 
     # this is the user ID from the TDEI authentication system
     auth_uid: UUID = Field(unique=True, index=True)

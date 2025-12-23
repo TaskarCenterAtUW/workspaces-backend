@@ -2,6 +2,7 @@ import json
 import os
 from enum import StrEnum
 import requests
+from uuid import UUID
 
 from api.core.logging import get_logger
 import jwt
@@ -9,7 +10,6 @@ import cachetools
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
-from sqlmodel import UUID
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
@@ -197,7 +197,7 @@ async def _validate_token_uncached(
 
     r = UserInfo()
     r.credentials = token
-    r.user_uuid = payload.get("sub", "unknown")
+    r.user_uuid = UUID(payload.get("sub", "unknown"))
     r.user_name = payload.get("preferred_username", "unknown")
 
     # project groups and roles from TDEI KeyCloak
