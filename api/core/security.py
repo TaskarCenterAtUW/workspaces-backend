@@ -1,5 +1,4 @@
 import json
-import os
 from enum import StrEnum
 import requests
 from uuid import UUID
@@ -235,7 +234,7 @@ async def _validate_token_uncached(
             "SELECT workspace_id, role FROM user_workspace_roles \
                                                WHERE user_auth_uid = :auth_uid"
         ),
-        {"auth_uid": r.user_uuid},
+        {"auth_uid": str(r.user_uuid)},
     )
     workspaceRoles = list(result.mappings().all())
 
