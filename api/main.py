@@ -13,6 +13,7 @@ from api.core.config import settings
 from api.core.database import get_task_session
 from api.core.logging import get_logger, setup_logging
 from api.core.security import UserInfo, validate_token
+from api.src.teams.routes import router as teams_router
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
@@ -41,6 +42,7 @@ app = FastAPI(
 )
 
 # Include routers
+app.include_router(teams_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 
 @app.get("/health")

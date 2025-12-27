@@ -1,12 +1,17 @@
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from uuid import UUID
 
 from geoalchemy2 import Geometry
 from sqlalchemy import JSON as SAJson
 from sqlalchemy import Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
+
+from api.src.teams.schemas import WorkspaceTeamUser
+
+if TYPE_CHECKING:
+    from api.src.teams.schemas import WorkspaceTeam
 
 
 class IntEnumType(TypeDecorator):
@@ -142,6 +147,10 @@ class User(SQLModel, table=True):
 
     email: str = Field(unique=True, index=True)
     display_name: str = Field(nullable=False)
+
+    teams: list["WorkspaceTeam"] = Relationship(
+        back_populates="users", link_model=WorkspaceTeamUser
+    )
 
 
 class Workspace(SQLModel, table=True):

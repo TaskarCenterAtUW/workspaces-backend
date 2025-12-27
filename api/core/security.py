@@ -1,18 +1,17 @@
 import json
-import os
 from enum import StrEnum
-import requests
 from uuid import UUID
 
-from api.core.logging import get_logger
-import jwt
 import cachetools
+import jwt
+import requests
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
+from api.core.logging import get_logger
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
 # Set up logger for this module
@@ -24,6 +23,7 @@ _token_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
 )
 
 security = HTTPBearer()
+
 
 class TdeiProjectGroupRole(StrEnum):
     MEMBER = "member"
@@ -235,7 +235,7 @@ async def _validate_token_uncached(
             "SELECT workspace_id, role FROM user_workspace_roles \
                                                WHERE user_auth_uid = :auth_uid"
         ),
-        {"auth_uid": r.user_uuid},
+        {"auth_uid": str(r.user_uuid)},
     )
     workspaceRoles = list(result.mappings().all())
 
