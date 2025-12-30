@@ -90,7 +90,13 @@ async def catch_all(
     authorizedWorkspace = None
 
     if request.headers.get("X-Workspace") is not None:
-        workspace_id = int(request.headers.get("X-Workspace") or "-1")
+        try:
+            workspace_id = int(request.headers.get("X-Workspace") or "-1")
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="X-Workspace header must be a valid integer",
+            )
 
         if not current_user.isWorkspaceContributor(workspace_id):
             raise HTTPException(
