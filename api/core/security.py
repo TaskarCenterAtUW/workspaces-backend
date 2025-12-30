@@ -3,7 +3,6 @@ from enum import StrEnum
 from uuid import UUID
 
 import cachetools
-import jwt
 import requests
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -12,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
+from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
@@ -129,19 +129,39 @@ async def validate_token(
     """
     token = credentials.credentials
 
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = validate_and_decode_token(token)
+    except Exception:
+        raise credentials_exception
+
+    user_id: str | None = payload.get("sub")
+    if user_id is None:
+        raise credentials_exception
+
     # Check cache first
     if token in _token_cache:
         logger.info("Token validation cache hit")
         return _token_cache[token]
 
     # Cache miss - perform full validation
-    user_info = await _validate_token_uncached(token, osm_db_session, task_db_session)
+    user_info = await _validate_token_uncached(
+        token, user_id, payload, osm_db_session, task_db_session
+    )
     _token_cache[token] = user_info
+
     return user_info
 
 
 async def _validate_token_uncached(
     token: str,
+    user_id: str,
+    payload: dict,
     osm_db_session: AsyncSession,
     task_db_session: AsyncSession,
 ) -> UserInfo:
@@ -152,25 +172,6 @@ async def _validate_token_uncached(
         detail="Invalid authentication credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-
-    jwks_client = jwt.PyJWKClient(
-        f"{settings.TDEI_OIDC_URL}realms/{settings.TDEI_OIDC_REALM}/protocol/openid-connect/certs"
-    )
-
-    signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-    jwtDecoded = jwt.decode_complete(
-        token,
-        key=signing_key.key,
-        algorithms=["RS256"],
-        # OIDC server does not currently differentiate tokens by audience
-        options={"verify_aud": False}
-    )
-    payload = jwtDecoded.get("payload", {})
-
-    user_id: str | None = payload.get("sub")
-    if user_id is None:
-        raise credentials_exception
 
     headers = {
         "Authorization": "Bearer " + token,
@@ -200,7 +201,7 @@ async def _validate_token_uncached(
 
     r = UserInfo()
     r.credentials = token
-    r.user_uuid = UUID(payload.get("sub", "unknown"))
+    r.user_uuid = UUID(user_id)
     r.user_name = payload.get("preferred_username", "unknown")
 
     # project groups and roles from TDEI KeyCloak
