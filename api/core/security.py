@@ -226,7 +226,7 @@ async def _validate_token_uncached(
     accessibleWorkspaces = list(result.mappings().all())
     r.accessibleWorkspaceIds = {}
     for i in accessibleWorkspaces:
-        pgid = i["tdeiProjectGroupId"]
+        pgid = str(i["tdeiProjectGroupId"])  # SQLAlchemy outputs UUID
         wsid = i["id"]
         if pgid not in r.accessibleWorkspaceIds:
             r.accessibleWorkspaceIds[pgid] = []
