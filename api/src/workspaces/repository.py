@@ -3,25 +3,28 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.exceptions import AlreadyExistsException, NotFoundException
-from api.src.workspaces.schemas import Workspace
-from api.src.workspaces.models import WorkspaceCreate, WorkspaceUpdate
-
-
+from api.core.security import UserInfo
+from api.src.workspaces.schemas import Workspace, WorkspaceImagery, WorkspaceLongQuest
+from api.src.workspaces.models import WorkspaceCreate, WorkspaceImageryUpdate, WorkspaceLongQuestUpdate, WorkspaceUpdate
 class WorkspaceRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
 
     async def create(
-        self, projectGroupIds: list[str], workspace_data: WorkspaceCreate
+        self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> Workspace:
-        workspace = Workspace(**workspace_data.model_dump())
+        workspace = Workspace(**workspace_data.model_dump(), 
+            createdBy=current_user.user_uuid,
+            createdByName=current_user.user_name,
+        )
+
         try:
-            if workspace.tdeiProjectGroupId not in projectGroupIds:
+            if workspace.tdeiProjectGroupId not in current_user.projectGroups:
                 raise ValueError(
                     "User does not have permissions to create a workspace in that project group."
                 )
-
+            
             self.session.add(workspace)
             await self.session.commit()
             await self.session.refresh(workspace)
@@ -33,11 +36,11 @@ class WorkspaceRepository:
             )
 
     async def get_by_id(
-        self, projectGroupIds: list[str], workspace_id: int
+        self, current_user: UserInfo, workspace_id: int
     ) -> Workspace:
         query = select(Workspace).where(
             Workspace.id == workspace_id
-            and Workspace.tdeiProjectGroupId.in_(projectGroupIds)
+            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
         )
         result = await self.session.execute(query)
         workspace = result.scalar_one_or_none()
@@ -46,28 +49,29 @@ class WorkspaceRepository:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
         return workspace
 
-    async def get_all(self, projectGroupIds: list[str]) -> list[Workspace]:
+    async def get_all(self, current_user: UserInfo) -> list[Workspace]:
         query = select(Workspace).where(
-            Workspace.tdeiProjectGroupId.in_(projectGroupIds)
+            Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    # FIXME: should we be tracking modifiedBy and modifiedByName here?
     async def update(
         self,
-        projectGroupIds: list[str],
+        current_user: UserInfo,
         workspace_id: int,
         workspace_data: WorkspaceUpdate,
     ) -> Workspace:
         update_data = workspace_data.model_dump(exclude_unset=True)
         if not update_data:
             raise ValueError("No fields to update")
-
+        
         query = (
             update(Workspace)
             .where(
                 Workspace.id == workspace_id
-                and Workspace.tdeiProjectGroupId.in_(projectGroupIds)
+                and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
             )
             .values(**update_data)
         )
@@ -77,12 +81,114 @@ class WorkspaceRepository:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
         await self.session.commit()
-        return await self.get_by_id(projectGroupIds, workspace_id)
+        return await self.get_by_id(current_user, workspace_id)
 
-    async def delete(self, projectGroupIds: list[str], workspace_id: int) -> None:
+    async def createLongformQuest(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        longform_quest_data: WorkspaceLongQuestUpdate,
+    ) -> Workspace:
+        query = select(Workspace).where(
+            Workspace.id == workspace_id
+            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+        )
+        result = await self.session.execute(query)
+        workspace = result.scalar_one_or_none()        
+        if workspace:
+            workspace.longFormQuestDef = WorkspaceLongQuest(**longform_quest_data.model_dump(),
+                modifiedBy=current_user.user_uuid,
+                modifiedByName=current_user.user_name,
+            )
+        await self.session.commit()
+        await self.session.refresh(workspace)
+        return workspace
+
+    async def updateLongformQuest(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        longform_quest_data: WorkspaceLongQuestUpdate,
+    ) -> Workspace:
+        update_data = longform_quest_data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise ValueError("No fields to update")
+
+        update_data["modifiedBy"] = current_user.user_uuid
+        update_data["modifiedByName"] = current_user.user_name
+
+        query = (
+            update(WorkspaceLongQuest)
+            .values(**update_data)
+            .where(Workspace.id == WorkspaceLongQuest.workspace_id)
+            .where(
+                Workspace.id == workspace_id
+                and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            )
+        )
+        result = await self.session.execute(query)
+
+        if result.rowcount == 0:
+            raise NotFoundException(f"Workspace with id {workspace_id} not found")
+
+        await self.session.commit()
+        return await self.get_by_id(current_user, workspace_id)
+
+    async def createImageryDef(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        imagery_def_data: WorkspaceImageryUpdate,
+    ) -> Workspace:
+        query = select(Workspace).where(
+            Workspace.id == workspace_id
+            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+        )
+        result = await self.session.execute(query)
+        workspace = result.scalar_one_or_none()        
+        if workspace:
+            workspace.imageryListDef = WorkspaceImagery(**imagery_def_data.model_dump(),
+                modifiedBy=current_user.user_uuid,
+                modifiedByName=current_user.user_name,
+            )
+        await self.session.commit()
+        await self.session.refresh(workspace)
+        return workspace
+
+    async def updateImageryDef(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        imagery_def_data: WorkspaceImageryUpdate,
+    ) -> Workspace:
+        update_data = imagery_def_data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise ValueError("No fields to update")
+
+        update_data["modifiedBy"] = current_user.user_uuid
+        update_data["modifiedByName"] = current_user.user_name
+
+        query = (
+            update(WorkspaceImagery)
+            .values(**update_data)
+            .where(Workspace.id == WorkspaceImagery.workspace_id)
+            .where(
+                Workspace.id == workspace_id
+                and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            )
+        )
+        result = await self.session.execute(query)
+
+        if result.rowcount == 0:
+            raise NotFoundException(f"Workspace with id {workspace_id} not found")
+
+        await self.session.commit()
+        return await self.get_by_id(current_user, workspace_id)
+    
+    async def delete(self, current_user: UserInfo, workspace_id: int) -> None:
         query = delete(Workspace).where(
             Workspace.id == workspace_id
-            and Workspace.tdeiProjectGroupId.in_(projectGroupIds)
+            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
         )
         result = await self.session.execute(query)
 

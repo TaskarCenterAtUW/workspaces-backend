@@ -7,7 +7,7 @@ from api.core.config import settings
 engine = create_async_engine(settings.DATABASE_URL, echo=False, future=True)
 
 # Create async session factory
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session = sessionmaker(class_=AsyncSession, expire_on_commit=False, bind=engine)
 
 # Create declarative base for models
 Base = declarative_base()

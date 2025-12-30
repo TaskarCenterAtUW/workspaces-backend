@@ -8,10 +8,14 @@ from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.models import (
     WorkspaceCreate,
     WorkspaceLongQuestBase,
+    WorkspaceLongQuestResponse,
+    WorkspaceLongQuestUpdate,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
 from api.src.workspaces.service import WorkspaceService
+
+# FIXME: make these consistent with response codes etc?
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -24,18 +28,20 @@ def get_workspace_service(
     repository = WorkspaceRepository(session)
     return WorkspaceService(repository)
 
+# Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
 @router.get("/mine", response_model=list[WorkspaceResponse])
 async def get_my_workspaces(
     service: WorkspaceService = Depends(get_workspace_service),
     current_user: UserInfo = Depends(validate_token),
 ) -> list[WorkspaceResponse]:
     try:
-        workspaces = await service.get_all_workspaces(current_user.projectGroups)
+        workspaces = await service.get_all_workspaces(current_user)
         return workspaces
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise
 
+# Returns JSON payload or 204 if not found
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
 async def get_workspace(
     workspace_id: int,
@@ -44,13 +50,21 @@ async def get_workspace(
 ) -> WorkspaceResponse:
     try:
         workspace = await service.get_workspace(
-            current_user.projectGroups, workspace_id
+            current_user, workspace_id
         )
+
+        if(workspace is None):
+            raise HTTPException(
+                status_code=status.HTTP_204_NO_CONTENT,
+                detail="No Content",
+            )
+
         return workspace
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+# Returns 201 on success? FIXME? Make consistent with all other methods?
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
@@ -59,13 +73,14 @@ async def create_workspace(
 ) -> WorkspaceResponse:
     try:
         workspace = await service.create_workspace(
-            current_user.projectGroups, workspace_data
+            current_user, workspace_data
         )
         return workspace
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
 
+# Returns the updated workspace on success. FIXME? Make consistent with all other methods?
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(
     workspace_id: int,
@@ -75,13 +90,14 @@ async def update_workspace(
 ) -> WorkspaceResponse:
     try:
         workspace = await service.update_workspace(
-            current_user.projectGroups, workspace_id, workspace_data
+            current_user, workspace_id, workspace_data
         )
         return workspace
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
 
+# Returns 204 on success
 @router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workspace(
     workspace_id: int,
@@ -89,11 +105,12 @@ async def delete_workspace(
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     try:
-        await service.delete_workspace(current_user.projectGroups, workspace_id)
+        await service.delete_workspace(current_user, workspace_id)
     except Exception as e:
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
         raise
 
+# Returns JSON payload or 204 if not set
 @router.get("/{workspace_id}/quests/long", response_model=WorkspaceResponse)
 async def get_long_quest(
     workspace_id: int,
@@ -102,22 +119,7 @@ async def get_long_quest(
 ) -> WorkspaceLongQuestBase | None:
     try:
         workspace = await service.get_workspace(
-            current_user.projectGroups, workspace_id
-        )
-        return workspace.longFormQuestDef
-    except Exception as e:
-        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
-        raise
-
-@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestBase)
-async def get_long_quest_settings(
-    workspace_id: int,
-    service: WorkspaceService = Depends(get_workspace_service),
-    current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceLongQuestBase | None:
-    try:
-        workspace = await service.get_workspace(
-            current_user.projectGroups, workspace_id
+            current_user, workspace_id
         )
 
         if(workspace.longFormQuestDef is None):
@@ -131,24 +133,41 @@ async def get_long_quest_settings(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
-@router.patch("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestBase)
-async def update_long_quest_settings(
+# Returns JSON payload or 204 if not set
+@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestResponse)
+async def get_long_quest_settings(
     workspace_id: int,
-    workspace_data: WorkspaceUpdate,
     service: WorkspaceService = Depends(get_workspace_service),
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceLongQuestBase | None:
     try:
-        workspace:WorkspaceUpdate = await service.get_workspace(
-            current_user.projectGroups, workspace_id
-        ) # type: ignore
-        
-#        workspace.longFormQuestDef = longform_quest_data
-
-        updatedWorkspace = await service.update_workspace(
-            current_user.projectGroups, workspace_id, workspace
+        workspace = await service.get_workspace(
+            current_user, workspace_id
         )
-        return updatedWorkspace.longFormQuestDef
+
+        if(workspace.longFormQuestDef is None):
+            raise HTTPException(
+                status_code=status.HTTP_204_NO_CONTENT,
+                detail="No Content",
+            )
+
+        return workspace.longFormQuestDef
+    except Exception as e:
+        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
+        raise
+
+# Returns 204 on success
+@router.patch("/{workspace_id}/quests/long/settings", status_code=status.HTTP_204_NO_CONTENT)
+async def update_long_quest_settings(
+    workspace_id: int,
+    long_quest_data: WorkspaceLongQuestUpdate,
+    service: WorkspaceService = Depends(get_workspace_service),
+    current_user: UserInfo = Depends(validate_token),
+) -> None:
+    try:
+        await service.set_longform_quest(
+            current_user, workspace_id, long_quest_data
+        )
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise

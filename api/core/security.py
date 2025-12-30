@@ -5,15 +5,15 @@ import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy import UUID
 
 security = HTTPBearer()
-
-
 class UserInfo:
     scheme: str
     credentials: str
+    user_uuid: UUID
+    user_name: str
     projectGroups: list[str]
-
 
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -27,7 +27,7 @@ async def validate_token(
     )
 
     try:
-        # FIXME: verify signature of JWT token
+        # FIXME: verify signature of JWT token. FIXME FIX ME FIX ME FIX ME, CRITICAL SECURITY BUG
         payload = jwt.get_unverified_claims(credentials.credentials)
         user_id: str | None = payload.get("sub")
         if user_id is None:
@@ -42,6 +42,7 @@ async def validate_token(
             "Content-Type": "application/json",
         }
 
+        # TODO: fix if user has > 50 PGs
         authorizationUrl = (
             os.environ.get(
                 "TM_TDEI_BACKEND_URL", "https://portal-api-dev.tdei.us/api/v1/"
@@ -69,6 +70,8 @@ async def validate_token(
     r = UserInfo()
     r.scheme = credentials.scheme
     r.credentials = credentials.credentials
+    r.user_uuid = payload.get("sub", "unknown")
+    r.user_name = payload.get("preferred_username", "unknown")
     r.projectGroups = pgs
 
     return r

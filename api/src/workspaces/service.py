@@ -1,6 +1,11 @@
+from api.core.security import UserInfo
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.models import (
     WorkspaceCreate,
+    WorkspaceImageryResponse,
+    WorkspaceImageryUpdate,
+    WorkspaceLongQuestResponse,
+    WorkspaceLongQuestUpdate,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
@@ -10,36 +15,61 @@ class WorkspaceService:
         self.repository = repository
 
     async def create_workspace(
-        self, projectGroupIds: list[str], workspace_data: WorkspaceCreate
+        self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> WorkspaceResponse:
-        workspace = await self.repository.create(projectGroupIds, workspace_data)
+        
+        workspace = await self.repository.create(current_user, workspace_data)
         return WorkspaceResponse.model_validate(workspace)
 
     async def get_workspace(
-        self, projectGroupIds: list[str], workspace_id: int
+        self, current_user: UserInfo, workspace_id: int
     ) -> WorkspaceResponse:
-        workspace = await self.repository.get_by_id(projectGroupIds, workspace_id)
+        workspace = await self.repository.get_by_id(current_user, workspace_id)
         return WorkspaceResponse.model_validate(workspace)
 
     async def get_all_workspaces(
         self,
-        projectGroupIds: list[str],
+        current_user: UserInfo,
     ) -> list[WorkspaceResponse]:
-        workspaces = await self.repository.get_all(projectGroupIds)
+        workspaces = await self.repository.get_all(current_user)
         return [WorkspaceResponse.model_validate(workspace) for workspace in workspaces]
 
     async def update_workspace(
         self,
-        projectGroupIds: list[str],
+        current_user: UserInfo,
         workspace_id: int,
         workspace_data: WorkspaceUpdate,
     ) -> WorkspaceResponse:
         workspace = await self.repository.update(
-            projectGroupIds, workspace_id, workspace_data
+            current_user, workspace_id, workspace_data
         )
         return WorkspaceResponse.model_validate(workspace)
 
     async def delete_workspace(
-        self, projectGroupIds: list[str], workspace_id: int
+        self, current_user: UserInfo, workspace_id: int
     ) -> None:
-        await self.repository.delete(projectGroupIds, workspace_id)
+        await self.repository.delete(current_user, workspace_id)
+
+    async def set_longform_quest(
+        self, current_user: UserInfo, workspace_id: int, longform_quest_data: WorkspaceLongQuestUpdate
+    ) -> WorkspaceLongQuestResponse:
+        workspace = await self.repository.get_by_id(current_user, workspace_id)
+
+        if workspace.longFormQuestDef:
+            workspace = await self.repository.updateLongformQuest(current_user, workspace_id, longform_quest_data)
+        else:
+            workspace = await self.repository.createLongformQuest(current_user, workspace_id, longform_quest_data)
+
+        return WorkspaceLongQuestResponse.model_validate(workspace.longFormQuestDef)
+
+    async def set_imagery(
+        self, current_user: UserInfo, workspace_id: int, imagery_data: WorkspaceImageryUpdate
+    ) -> WorkspaceImageryResponse:
+        workspace = await self.repository.get_by_id(current_user, workspace_id)
+
+        if workspace.longFormQuestDef:
+            workspace = await self.repository.updateImageryDef(current_user, workspace_id, imagery_data)
+        else:
+            workspace = await self.repository.createImageryDef(current_user, workspace_id, imagery_data)
+
+        return WorkspaceImageryResponse.model_validate(workspace.imageryListDef)

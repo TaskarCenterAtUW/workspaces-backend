@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -12,6 +11,9 @@ from typing_extensions import Annotated
 from api.core.config import Settings
 from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefinitionType
 
+#
+# These are DTOs used by the API to pass values to/from the client, NOT the schema definitions
+#
 
 class WorkspaceLongQuestBase(BaseModel):
 
@@ -21,19 +23,15 @@ class WorkspaceLongQuestBase(BaseModel):
     type: QuestDefinitionType
     url: Optional[str]
 
-    modifiedAt: datetime
-    modifiedBy: UUID
-    modifiedByName: str
-
     model_config = ConfigDict(from_attributes=True)
 
     def validate_definition(self, data, value):
-        if QuestDefinitionType[data["type"]] == QuestDefinitionType.NONE:
+        if data["type"] == QuestDefinitionType.NONE.value:
             if not value:
                 return None
             raise ValidationError("'definition' field not allowed.")
 
-        if QuestDefinitionType[data["type"]] != QuestDefinitionType.JSON:
+        if data["type"] != QuestDefinitionType.JSON.value:
             return value
 
         if not value:
@@ -54,12 +52,12 @@ class WorkspaceLongQuestBase(BaseModel):
         return value
 
     def validate_url(self, data, value):
-        if QuestDefinitionType[data["type"]] == QuestDefinitionType.NONE:
+        if data["type"] == QuestDefinitionType.NONE.value:
             if not value:
                 return None
             raise ValidationError("'url' field not allowed.")
 
-        if QuestDefinitionType[data["type"]] != QuestDefinitionType.URL:
+        if data["type"] != QuestDefinitionType.URL.value:
             return value
 
         if not value:
@@ -69,12 +67,19 @@ class WorkspaceLongQuestBase(BaseModel):
 
         return value
 
-# don't remove the Field(None) bits, those are required for some reason
+class WorkspaceLongQuestResponse(WorkspaceLongQuestBase):
+    pass
+
+class WorkspaceLongQuestCreate(WorkspaceLongQuestBase):
+    pass
+
 class WorkspaceLongQuestUpdate(BaseModel):
     definition: Optional[str] = Field(None)
     type: Optional[QuestDefinitionType]  = Field(None)
     url: Optional[str]  = Field(None)
-    
+
+    model_config = ConfigDict(from_attributes=True)
+
 class WorkspaceImageryBase(BaseModel):
 
     workspace_id: int
@@ -83,17 +88,16 @@ class WorkspaceImageryBase(BaseModel):
     # using pydantic's JSON mapping, hence this is not defined as Optional[Json[Any]]
     definition: Optional[list[Any]]
 
-    modifiedAt: datetime
-    modifiedBy: UUID
-    modifiedByName: str
-
     model_config = ConfigDict(from_attributes=True)
+    
+class WorkspaceImageryResponse(WorkspaceImageryBase):
+    pass
 
-# don't remove the Field(None) bits, those are required for some reason
+class WorkspaceImageryCreate(WorkspaceImageryBase):
+    pass
+
 class WorkspaceImageryUpdate(BaseModel):
     definition: Optional[list[Any]] = Field(None)
-
-
 
 class WorkspaceBase(BaseModel):
 
@@ -109,10 +113,6 @@ class WorkspaceBase(BaseModel):
 
     tdeiMetadata: Optional[Json[Any]]
 
-    createdAt: datetime
-    createdBy: UUID
-    createdByName: str
-
     geometry: Optional[Annotated[str, WKBElement]]
 
     externalAppAccess: ExternalAppsDefinitionType
@@ -122,6 +122,7 @@ class WorkspaceBase(BaseModel):
     longFormQuestDef: Optional[WorkspaceLongQuestBase]
 
     imageryListDef: Optional[WorkspaceImageryBase]
+
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -138,23 +139,17 @@ class WorkspaceBase(BaseModel):
         if v == "":
             return None
         return v
-
-
+    
 class WorkspaceCreate(WorkspaceBase):
     pass
 
+class WorkspaceResponse(WorkspaceBase):
+    pass
 
-# don't remove the Field(None) bits, those are required for some reason
 class WorkspaceUpdate(BaseModel):
     title: Optional[str] = Field(None)
     description: Optional[str] = Field(None)
     externalAppAccess: Optional[ExternalAppsDefinitionType] = Field(None)
-    longFormQuestDef: Optional[WorkspaceLongQuestBase] = Field(None)
-    imageryListDef: Optional[WorkspaceImageryBase] = Field(None)
-
-
-class WorkspaceResponse(WorkspaceBase):
-    pass
 
 
 def validate_json_against_schema(json, schema_url) -> bool:
@@ -162,6 +157,7 @@ def validate_json_against_schema(json, schema_url) -> bool:
     Validate a JSON string against a JSON schema from a URL.
     Returns True if valid, raises ValidationError if not.
     """
+
     # Fetch the schema
     response = requests.get(schema_url)
     response.raise_for_status()

@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     WS_LONGFORM_SCHEMA_URL: str = (
-        "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-imagery-list/refs/heads/main/schema/schema.json"
+        "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-quests/refs/heads/main/schema/schema.json"
     )
     WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
 

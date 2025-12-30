@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, IntEnum
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -15,7 +15,11 @@ from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
 
 from api.core.database import Base
-class ExternalAppsDefinitionType(Enum):
+
+#
+# These are the schema definitions for the database ORM, NOT DTOs used by the APIs
+#
+class ExternalAppsDefinitionType(IntEnum):
     NONE = 0
     PUBLIC = 1
     PROJECT_GROUP = 2
@@ -38,7 +42,7 @@ class Workspace(Base):
 
     createdAt = Column(DateTime, nullable=False, default=func.now())
     createdBy = Column(UUID(as_uuid=True), nullable=False)
-    createdByName = Column(Unicode)
+    createdByName = Column(Unicode, nullable=False)
 
     geometry = Column(Geometry("MULTIPOLYGON", srid=4326))
 
@@ -55,10 +59,11 @@ class Workspace(Base):
     imageryListDef: Mapped[list["WorkspaceImagery"]] = relationship(
         "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete"
     )
-class QuestDefinitionType(Enum):
+class QuestDefinitionType(IntEnum):
     NONE = 0
     JSON = 1
     URL = 2
+
 class WorkspaceLongQuest(Base):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -81,6 +86,7 @@ class WorkspaceImagery(Base):
     __tablename__ = "workspaces_imagery"
 
     workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
+
     definition = Column(JSON, nullable=True, default=None)
 
     modifiedAt = Column(
