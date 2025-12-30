@@ -84,7 +84,9 @@ class UserInfo:
 
         for pg in self.projectGroups:
             if TdeiProjectGroupRole.POINT_OF_CONTACT in pg.tdeiRoles:
-                if workspaceId in self.accessibleWorkspaceIds[pg.project_group_id]:
+                if workspaceId in self.accessibleWorkspaceIds.get(
+                    pg.project_group_id, []
+                ):
                     return True
 
         return False
