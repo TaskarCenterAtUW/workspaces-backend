@@ -99,6 +99,7 @@ class WorkspaceRepository:
             workspace.longFormQuestDef = WorkspaceLongQuest(**longform_quest_data.model_dump(),
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
+                workspace_id=workspace_id,
             )
         await self.session.commit()
         await self.session.refresh(workspace)
@@ -114,6 +115,7 @@ class WorkspaceRepository:
         if not update_data:
             raise ValueError("No fields to update")
 
+        update_data["workspace_id"] = workspace_id
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
 
@@ -147,9 +149,10 @@ class WorkspaceRepository:
         result = await self.session.execute(query)
         workspace = result.scalar_one_or_none()        
         if workspace:
-            workspace.imageryListDef = WorkspaceImagery(**imagery_def_data.model_dump(),
+            workspace.imageryListDef = WorkspaceImagery(**imagery_def_data.model_dump(exclude_unset=True),
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
+                workspace_id=workspace_id,
             )
         await self.session.commit()
         await self.session.refresh(workspace)
@@ -165,6 +168,7 @@ class WorkspaceRepository:
         if not update_data:
             raise ValueError("No fields to update")
 
+        update_data["workspace_id"] = workspace_id
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
 

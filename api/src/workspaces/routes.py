@@ -7,6 +7,8 @@ from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.models import (
     WorkspaceCreate,
+    WorkspaceImageryResponse,
+    WorkspaceImageryUpdate,
     WorkspaceLongQuestBase,
     WorkspaceLongQuestResponse,
     WorkspaceLongQuestUpdate,
@@ -167,6 +169,45 @@ async def update_long_quest_settings(
     try:
         await service.set_longform_quest(
             current_user, workspace_id, long_quest_data
+        )
+    except Exception as e:
+        logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
+        raise
+
+# Returns JSON payload or 204 if not set
+@router.get("/{workspace_id}/imagery/settings", response_model=WorkspaceImageryResponse)
+async def get_imagery_settings(
+    workspace_id: int,
+    service: WorkspaceService = Depends(get_workspace_service),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceImageryResponse | None:
+    try:
+        workspace = await service.get_workspace(
+            current_user, workspace_id
+        )
+
+        if(workspace.imageryListDef is None):
+            raise HTTPException(
+                status_code=status.HTTP_204_NO_CONTENT,
+                detail="No Content",
+            )
+
+        return workspace.imageryListDef
+    except Exception as e:
+        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
+        raise
+
+# Returns 204 on success
+@router.patch("/{workspace_id}/imagery/settings", status_code=status.HTTP_204_NO_CONTENT)
+async def update_imagery_settings(
+    workspace_id: int,
+    imagery_data: WorkspaceImageryUpdate,
+    service: WorkspaceService = Depends(get_workspace_service),
+    current_user: UserInfo = Depends(validate_token),
+) -> None:
+    try:
+        await service.set_imagery(
+            current_user, workspace_id, imagery_data
         )
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")

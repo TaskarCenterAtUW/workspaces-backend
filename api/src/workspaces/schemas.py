@@ -57,8 +57,9 @@ class Workspace(Base):
     )
 
     imageryListDef: Mapped[list["WorkspaceImagery"]] = relationship(
-        "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete"
+        "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete-orphan"
     )
+ 
 class QuestDefinitionType(IntEnum):
     NONE = 0
     JSON = 1
