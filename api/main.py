@@ -21,6 +21,8 @@ sentry_sdk.init(
     environment=os.getenv("ENV", "unknown"),
 )
 
+sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
+
 # Set up logging configuration
 setup_logging()
 
