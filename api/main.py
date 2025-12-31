@@ -1,9 +1,11 @@
+import os
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
+from api.core import config
 from api.core.config import settings
 from api.core.database import get_session
 from api.core.logging import get_logger, setup_logging
@@ -12,6 +14,12 @@ from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.src.workspaces.service import WorkspaceService
 from api.utils.migrations import run_migrations
+import sentry_sdk
+
+sentry_sdk.init(
+    dsn=config.settings.SENTRY_DSN,
+    environment=os.getenv("ENV", "unknown"),
+)
 
 # Set up logging configuration
 setup_logging()
@@ -102,6 +110,16 @@ async def catch_all(
         request.method, url, headers=new_headers, content=await request.body()
     )
     rp_resp = await client.send(rp_req, stream=True)
+
+    if rp_resp.status_code >= 400 and rp_resp.status_code < 600:
+        sentry_sdk.capture_message(
+            f"Upstream request to {rp_req.url} returned status code {rp_resp.status_code}"
+        )
+
+        logger.warning(
+            f"Upstream request to {rp_req.url} returned status code {rp_resp.status_code}"
+        )
+
     return StreamingResponse(
         rp_resp.aiter_raw(),
         status_code=rp_resp.status_code,
