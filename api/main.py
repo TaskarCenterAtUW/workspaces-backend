@@ -1,5 +1,6 @@
 import os
 import re
+from contextlib import asynccontextmanager
 
 import httpx
 import sentry_sdk
@@ -35,10 +36,28 @@ run_migrations()
 # Set up logger for this module
 logger = get_logger(__name__)
 
+# Shared HTTP client for OSM proxy. Reuses connection pool across requests:
+_osm_client: httpx.AsyncClient | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Run before app bootstrap:
+    global _osm_client
+    _osm_client = httpx.AsyncClient(base_url=settings.WS_OSM_HOST)
+
+    yield  # App runs
+
+    # Run after app cleanup:
+    await _osm_client.aclose()
+    _osm_client = None
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     debug=settings.DEBUG,
     swagger_ui_parameters={"syntaxHighlight": False},
+    lifespan=lifespan,
 )
 
 # Include routers
@@ -117,8 +136,8 @@ async def catch_all(
     url = httpx.URL(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
     )
-    client = httpx.AsyncClient(base_url=settings.WS_OSM_HOST)
 
+    client = _osm_client
     new_headers = list()
     new_headers.append(
         (bytes("Authorization", "utf-8"), request.headers.get("Authorization"))
@@ -126,24 +145,27 @@ async def catch_all(
 
     if authorizedWorkspace is not None:
         new_headers.append(
-            (bytes("X-Workspace", "utf-8"), bytes(str(authorizedWorkspace.id), "utf-8"))
+            (
+                bytes("X-Workspace", "utf-8"),
+                bytes(str(authorizedWorkspace), "utf-8"),
+            )
         )
-    new_headers.append((bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8")))
 
+    new_headers.append(
+        (bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8"))
+    )
     rp_req = client.build_request(
         request.method, url, headers=new_headers, content=await request.body()
     )
-
     rp_resp = await client.send(rp_req, stream=True)
 
     if rp_resp.status_code >= 400 and rp_resp.status_code < 600:
-        sentry_sdk.capture_message(
-            f"Upstream request to {rp_req.url} returned status code {rp_resp.status_code}"
+        msg = (
+            f"Upstream request to {rp_req.url} returned "
+            f"status code {rp_resp.status_code}"
         )
-
-        logger.warning(
-            f"Upstream request to {rp_req.url} returned status code {rp_resp.status_code}"
-        )
+        sentry_sdk.capture_message(msg)
+        logger.warning(msg)
 
     return StreamingResponse(
         rp_resp.aiter_raw(),
