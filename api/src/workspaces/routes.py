@@ -24,11 +24,13 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
+
 def get_workspace_service(
     session: AsyncSession = Depends(get_session),
 ) -> WorkspaceService:
     repository = WorkspaceRepository(session)
     return WorkspaceService(repository)
+
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
 @router.get("/mine", response_model=list[WorkspaceResponse])
@@ -43,6 +45,7 @@ async def get_my_workspaces(
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise
 
+
 # Returns JSON payload or 204 if not found
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
 async def get_workspace(
@@ -51,11 +54,9 @@ async def get_workspace(
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceResponse:
     try:
-        workspace = await service.get_workspace(
-            current_user, workspace_id
-        )
+        workspace = await service.get_workspace(current_user, workspace_id)
 
-        if(workspace is None):
+        if workspace is None:
             raise HTTPException(
                 status_code=status.HTTP_204_NO_CONTENT,
                 detail="No Content",
@@ -66,6 +67,7 @@ async def get_workspace(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # Returns 201 on success? FIXME? Make consistent with all other methods?
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
@@ -74,13 +76,12 @@ async def create_workspace(
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceResponse:
     try:
-        workspace = await service.create_workspace(
-            current_user, workspace_data
-        )
+        workspace = await service.create_workspace(current_user, workspace_data)
         return workspace
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
+
 
 # Returns the updated workspace on success. FIXME? Make consistent with all other methods?
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
@@ -99,6 +100,7 @@ async def update_workspace(
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
 
+
 # Returns 204 on success
 @router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workspace(
@@ -112,6 +114,7 @@ async def delete_workspace(
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
         raise
 
+
 # Returns JSON payload or 204 if not set
 @router.get("/{workspace_id}/quests/long", response_model=WorkspaceResponse)
 async def get_long_quest(
@@ -120,11 +123,9 @@ async def get_long_quest(
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceLongQuestBase | None:
     try:
-        workspace = await service.get_workspace(
-            current_user, workspace_id
-        )
+        workspace = await service.get_workspace(current_user, workspace_id)
 
-        if(workspace.longFormQuestDef is None):
+        if workspace.longFormQuestDef is None:
             raise HTTPException(
                 status_code=status.HTTP_204_NO_CONTENT,
                 detail="No Content",
@@ -135,19 +136,20 @@ async def get_long_quest(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # Returns JSON payload or 204 if not set
-@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestResponse)
+@router.get(
+    "/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestResponse
+)
 async def get_long_quest_settings(
     workspace_id: int,
     service: WorkspaceService = Depends(get_workspace_service),
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceLongQuestBase | None:
     try:
-        workspace = await service.get_workspace(
-            current_user, workspace_id
-        )
+        workspace = await service.get_workspace(current_user, workspace_id)
 
-        if(workspace.longFormQuestDef is None):
+        if workspace.longFormQuestDef is None:
             raise HTTPException(
                 status_code=status.HTTP_204_NO_CONTENT,
                 detail="No Content",
@@ -158,8 +160,11 @@ async def get_long_quest_settings(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # Returns 204 on success
-@router.patch("/{workspace_id}/quests/long/settings", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/{workspace_id}/quests/long/settings", status_code=status.HTTP_204_NO_CONTENT
+)
 async def update_long_quest_settings(
     workspace_id: int,
     long_quest_data: WorkspaceLongQuestUpdate,
@@ -167,12 +172,11 @@ async def update_long_quest_settings(
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     try:
-        await service.set_longform_quest(
-            current_user, workspace_id, long_quest_data
-        )
+        await service.set_longform_quest(current_user, workspace_id, long_quest_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
+
 
 # Returns JSON payload or 204 if not set
 @router.get("/{workspace_id}/imagery/settings", response_model=WorkspaceImageryResponse)
@@ -182,11 +186,9 @@ async def get_imagery_settings(
     current_user: UserInfo = Depends(validate_token),
 ) -> WorkspaceImageryResponse | None:
     try:
-        workspace = await service.get_workspace(
-            current_user, workspace_id
-        )
+        workspace = await service.get_workspace(current_user, workspace_id)
 
-        if(workspace.imageryListDef is None):
+        if workspace.imageryListDef is None:
             raise HTTPException(
                 status_code=status.HTTP_204_NO_CONTENT,
                 detail="No Content",
@@ -197,8 +199,11 @@ async def get_imagery_settings(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # Returns 204 on success
-@router.patch("/{workspace_id}/imagery/settings", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/{workspace_id}/imagery/settings", status_code=status.HTTP_204_NO_CONTENT
+)
 async def update_imagery_settings(
     workspace_id: int,
     imagery_data: WorkspaceImageryUpdate,
@@ -206,9 +211,7 @@ async def update_imagery_settings(
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     try:
-        await service.set_imagery(
-            current_user, workspace_id, imagery_data
-        )
+        await service.set_imagery(current_user, workspace_id, imagery_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise

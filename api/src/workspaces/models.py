@@ -24,10 +24,12 @@ from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefiniti
 # These are DTOs used by the API to pass values to/from the client, NOT the schema definitions
 #
 
+
 class QuestDefinitionTypeModel(Enum):
     NONE = "NONE"
     JSON = "JSON"
     URL = "URL"
+
 
 # map the value from the database enum to the model enum if necessary
 # FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
@@ -36,9 +38,11 @@ def map_db_to_model(value) -> QuestDefinitionTypeModel:
         return QuestDefinitionTypeModel[QuestDefinitionTypeDB(value).name]
     else:
         return value
-    
+
+
 # Create a type alias using Annotated and the validator
 QuestDefinitionType = Annotated[str, BeforeValidator(map_db_to_model)]
+
 
 class WorkspaceLongQuestBase(BaseModel):
 
@@ -92,18 +96,22 @@ class WorkspaceLongQuestBase(BaseModel):
 
         return value
 
+
 class WorkspaceLongQuestResponse(WorkspaceLongQuestBase):
     pass
+
 
 class WorkspaceLongQuestCreate(WorkspaceLongQuestBase):
     pass
 
+
 class WorkspaceLongQuestUpdate(BaseModel):
     definition: Optional[str] = Field(None)
-    type: Optional[QuestDefinitionType]  = Field(None)
-    url: Optional[str]  = Field(None)
+    type: Optional[QuestDefinitionType] = Field(None)
+    url: Optional[str] = Field(None)
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class WorkspaceImageryBase(BaseModel):
 
@@ -114,15 +122,19 @@ class WorkspaceImageryBase(BaseModel):
     definition: Optional[list[Any]]
 
     model_config = ConfigDict(from_attributes=True)
-    
+
+
 class WorkspaceImageryResponse(WorkspaceImageryBase):
     pass
+
 
 class WorkspaceImageryCreate(WorkspaceImageryBase):
     pass
 
+
 class WorkspaceImageryUpdate(BaseModel):
     definition: Optional[list[Any]] = Field(None)
+
 
 class WorkspaceBase(BaseModel):
 
@@ -148,11 +160,10 @@ class WorkspaceBase(BaseModel):
 
     imageryListDef: Optional[WorkspaceImageryBase]
 
-
     model_config = ConfigDict(from_attributes=True)
 
     # emulate the prior Tasking Manager's behavior of dumping JSON as a string and not an object (FIXME?)
-    @field_serializer('tdeiMetadata', when_used='json')
+    @field_serializer("tdeiMetadata", when_used="json")
     def serialize_data_as_string(self, data: dict[str, Any], _info) -> str:
         """Serializes the dictionary data into a JSON string."""
         return json.dumps(data)
@@ -164,12 +175,15 @@ class WorkspaceBase(BaseModel):
         if v == "":
             return None
         return v
-    
+
+
 class WorkspaceCreate(WorkspaceBase):
     pass
 
+
 class WorkspaceResponse(WorkspaceBase):
     pass
+
 
 class WorkspaceUpdate(BaseModel):
     title: Optional[str] = Field(None)

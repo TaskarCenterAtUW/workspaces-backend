@@ -26,7 +26,8 @@ class WorkspaceRepository:
     async def create(
         self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> Workspace:
-        workspace = Workspace(**workspace_data.model_dump(), 
+        workspace = Workspace(
+            **workspace_data.model_dump(),
             createdBy=current_user.user_uuid,
             createdByName=current_user.user_name,
         )
@@ -36,7 +37,7 @@ class WorkspaceRepository:
                 raise ValueError(
                     "User does not have permissions to create a workspace in that project group."
                 )
-            
+
             self.session.add(workspace)
             await self.session.commit()
             await self.session.refresh(workspace)
@@ -47,9 +48,7 @@ class WorkspaceRepository:
                 f"Workspace with ID {workspace_data.id} already exists"
             )
 
-    async def get_by_id(
-        self, current_user: UserInfo, workspace_id: int
-    ) -> Workspace:
+    async def get_by_id(self, current_user: UserInfo, workspace_id: int) -> Workspace:
         query = select(Workspace).where(
             Workspace.id == workspace_id
             and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
@@ -78,7 +77,7 @@ class WorkspaceRepository:
         update_data = workspace_data.model_dump(exclude_unset=True)
         if not update_data:
             raise ValueError("No fields to update")
-        
+
         query = (
             update(Workspace)
             .where(
@@ -106,9 +105,10 @@ class WorkspaceRepository:
             and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
         )
         result = await self.session.execute(query)
-        workspace = result.scalar_one_or_none()        
+        workspace = result.scalar_one_or_none()
         if workspace:
-            workspace.longFormQuestDef = WorkspaceLongQuest(**longform_quest_data.model_dump(),
+            workspace.longFormQuestDef = WorkspaceLongQuest(
+                **longform_quest_data.model_dump(),
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
@@ -131,9 +131,11 @@ class WorkspaceRepository:
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
 
-        # map the type from model enum to DB enum 
+        # map the type from model enum to DB enum
         # FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
-        update_data["type"] = QuestDefinitionTypeDB[longform_quest_data.type or "NONE"].value
+        update_data["type"] = QuestDefinitionTypeDB[
+            longform_quest_data.type or "NONE"
+        ].value
 
         query = (
             update(WorkspaceLongQuest)
@@ -163,9 +165,10 @@ class WorkspaceRepository:
             and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
         )
         result = await self.session.execute(query)
-        workspace = result.scalar_one_or_none()        
+        workspace = result.scalar_one_or_none()
         if workspace:
-            workspace.imageryListDef = WorkspaceImagery(**imagery_def_data.model_dump(exclude_unset=True),
+            workspace.imageryListDef = WorkspaceImagery(
+                **imagery_def_data.model_dump(exclude_unset=True),
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
@@ -204,7 +207,7 @@ class WorkspaceRepository:
 
         await self.session.commit()
         return await self.get_by_id(current_user, workspace_id)
-    
+
     async def delete(self, current_user: UserInfo, workspace_id: int) -> None:
         query = delete(Workspace).where(
             Workspace.id == workspace_id

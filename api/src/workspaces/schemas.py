@@ -24,6 +24,8 @@ class ExternalAppsDefinitionType(IntEnum):
     NONE = 0
     PUBLIC = 1
     PROJECT_GROUP = 2
+
+
 class Workspace(Base):
     """Workspaces"""
 
@@ -60,11 +62,13 @@ class Workspace(Base):
     imageryListDef: Mapped[list["WorkspaceImagery"]] = relationship(
         "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete-orphan"
     )
- 
+
+
 class QuestDefinitionTypeDB(IntEnum):
     NONE = 0
     JSON = 1
-    URL = 2    
+    URL = 2
+
 
 class WorkspaceLongQuest(Base):
     """Stores mobile app quest definitions for a workspace"""
@@ -82,6 +86,8 @@ class WorkspaceLongQuest(Base):
     )
     modifiedBy = Column(UUID(as_uuid=True), nullable=False)
     modifiedByName = Column(Unicode, nullable=False)
+
+
 class WorkspaceImagery(Base):
     """Stores imagery list for a workspace"""
 

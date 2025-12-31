@@ -19,7 +19,7 @@ class WorkspaceService:
     async def create_workspace(
         self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> WorkspaceResponse:
-        
+
         workspace = await self.repository.create(current_user, workspace_data)
         return WorkspaceResponse.model_validate(workspace)
 
@@ -47,31 +47,43 @@ class WorkspaceService:
         )
         return WorkspaceResponse.model_validate(workspace)
 
-    async def delete_workspace(
-        self, current_user: UserInfo, workspace_id: int
-    ) -> None:
+    async def delete_workspace(self, current_user: UserInfo, workspace_id: int) -> None:
         await self.repository.delete(current_user, workspace_id)
 
     async def set_longform_quest(
-        self, current_user: UserInfo, workspace_id: int, longform_quest_data: WorkspaceLongQuestUpdate
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        longform_quest_data: WorkspaceLongQuestUpdate,
     ) -> WorkspaceLongQuestResponse:
         workspace = await self.repository.get_by_id(current_user, workspace_id)
 
         if workspace.longFormQuestDef:
-            workspace = await self.repository.updateLongformQuest(current_user, workspace_id, longform_quest_data)
+            workspace = await self.repository.updateLongformQuest(
+                current_user, workspace_id, longform_quest_data
+            )
         else:
-            workspace = await self.repository.createLongformQuest(current_user, workspace_id, longform_quest_data)
+            workspace = await self.repository.createLongformQuest(
+                current_user, workspace_id, longform_quest_data
+            )
 
         return WorkspaceLongQuestResponse.model_validate(workspace.longFormQuestDef)
 
     async def set_imagery(
-        self, current_user: UserInfo, workspace_id: int, imagery_data: WorkspaceImageryUpdate
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        imagery_data: WorkspaceImageryUpdate,
     ) -> WorkspaceImageryResponse:
         workspace = await self.repository.get_by_id(current_user, workspace_id)
 
         if workspace.longFormQuestDef:
-            workspace = await self.repository.updateImageryDef(current_user, workspace_id, imagery_data)
+            workspace = await self.repository.updateImageryDef(
+                current_user, workspace_id, imagery_data
+            )
         else:
-            workspace = await self.repository.createImageryDef(current_user, workspace_id, imagery_data)
+            workspace = await self.repository.createImageryDef(
+                current_user, workspace_id, imagery_data
+            )
 
         return WorkspaceImageryResponse.model_validate(workspace.imageryListDef)

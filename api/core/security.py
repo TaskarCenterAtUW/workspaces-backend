@@ -8,12 +8,15 @@ from jose import JWTError, jwt
 from sqlalchemy import UUID
 
 security = HTTPBearer()
+
+
 class UserInfo:
     scheme: str
     credentials: str
     user_uuid: UUID
     user_name: str
     projectGroups: list[str]
+
 
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),

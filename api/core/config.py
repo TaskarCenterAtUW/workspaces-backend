@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     )
     WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
 
-    SENTRY_DSN: str = "https://ee0b098ee77451fb4a3f01c77eb2546e@o4510431738200064.ingest.us.sentry.io/4510630433980416"
+    SENTRY_DSN: str = (
+        "https://ee0b098ee77451fb4a3f01c77eb2546e@o4510431738200064.ingest.us.sentry.io/4510630433980416"
+    )
 
     # JWT Settings
     JWT_SECRET: str = "your-secret-key"

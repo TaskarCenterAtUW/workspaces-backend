@@ -76,7 +76,7 @@ async def catch_all(
 ):
     authorizedWorkspace = None
 
-    if(request.headers.get("X-Workspace") is not None):
+    if request.headers.get("X-Workspace") is not None:
         authorizedWorkspace = await service.get_workspace(
             current_user, int(request.headers.get("X-Workspace") or "-1")
         )
@@ -103,7 +103,7 @@ async def catch_all(
         (bytes("Authorization", "utf-8"), request.headers.get("Authorization"))
     )
 
-    if(authorizedWorkspace is not None):
+    if authorizedWorkspace is not None:
         new_headers.append(
             (bytes("X-Workspace", "utf-8"), bytes(str(authorizedWorkspace.id), "utf-8"))
         )
