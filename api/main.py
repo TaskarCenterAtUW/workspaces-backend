@@ -67,7 +67,7 @@ async def catch_all(
 
     if(request.headers.get("X-Workspace") is not None):
         authorizedWorkspace = await service.get_workspace(
-            current_user.projectGroups, int(request.headers.get("X-Workspace") or "-1")
+            current_user, int(request.headers.get("X-Workspace") or "-1")
         )
 
         # user specified a workspace they wanted access to, but didn't get it

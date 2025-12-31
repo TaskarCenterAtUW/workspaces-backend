@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.database import get_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
-from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.models import (
     WorkspaceCreate,
     WorkspaceImageryResponse,
@@ -15,6 +14,7 @@ from api.src.workspaces.models import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
+from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.service import WorkspaceService
 
 # FIXME: make these consistent with response codes etc?

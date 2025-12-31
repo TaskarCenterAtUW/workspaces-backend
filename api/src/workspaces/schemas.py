@@ -1,4 +1,4 @@
-from enum import Enum, IntEnum
+from enum import IntEnum
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
 
 from api.core.database import Base
+
 
 #
 # These are the schema definitions for the database ORM, NOT DTOs used by the APIs
