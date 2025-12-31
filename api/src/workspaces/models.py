@@ -1,12 +1,20 @@
-from enum import Enum
 import json
+from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
 
 import requests
 from geoalchemy2 import WKBElement
 from jsonschema import ValidationError, validate
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, Json, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    Json,
+    field_serializer,
+    field_validator,
+)
 from typing_extensions import Annotated
 
 from api.core.config import Settings

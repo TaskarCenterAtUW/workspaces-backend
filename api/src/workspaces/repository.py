@@ -4,8 +4,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
-from api.src.workspaces.schemas import QuestDefinitionTypeDB, Workspace, WorkspaceImagery, WorkspaceLongQuest
-from api.src.workspaces.models import WorkspaceCreate, WorkspaceImageryUpdate, WorkspaceLongQuestUpdate, WorkspaceUpdate
+from api.src.workspaces.models import (
+    WorkspaceCreate,
+    WorkspaceImageryUpdate,
+    WorkspaceLongQuestUpdate,
+    WorkspaceUpdate,
+)
+from api.src.workspaces.schemas import (
+    QuestDefinitionTypeDB,
+    Workspace,
+    WorkspaceImagery,
+    WorkspaceLongQuest,
+)
+
+
 class WorkspaceRepository:
 
     def __init__(self, session: AsyncSession):

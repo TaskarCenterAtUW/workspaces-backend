@@ -1,5 +1,7 @@
 import os
+
 import httpx
+import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +16,6 @@ from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.src.workspaces.service import WorkspaceService
 from api.utils.migrations import run_migrations
-import sentry_sdk
 
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,

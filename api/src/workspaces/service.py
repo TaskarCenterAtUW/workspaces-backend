@@ -1,5 +1,4 @@
 from api.core.security import UserInfo
-from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.models import (
     WorkspaceCreate,
     WorkspaceImageryResponse,
@@ -9,6 +8,9 @@ from api.src.workspaces.models import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
+from api.src.workspaces.repository import WorkspaceRepository
+
+
 class WorkspaceService:
 
     def __init__(self, repository: WorkspaceRepository):
