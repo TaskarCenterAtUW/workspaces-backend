@@ -61,10 +61,10 @@ class Workspace(Base):
         "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete-orphan"
     )
  
-class QuestDefinitionType(IntEnum):
+class QuestDefinitionTypeDB(IntEnum):
     NONE = 0
     JSON = 1
-    URL = 2
+    URL = 2    
 
 class WorkspaceLongQuest(Base):
     """Stores mobile app quest definitions for a workspace"""
@@ -74,7 +74,7 @@ class WorkspaceLongQuest(Base):
     workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
 
     definition = Column(Unicode, nullable=True, default=None)
-    type = Column(Integer, nullable=False, default=QuestDefinitionType.NONE.value)
+    type = Column(Integer, nullable=False, default=QuestDefinitionTypeDB.NONE)
     url = Column(Unicode, nullable=True, default=None)
 
     modifiedAt = Column(

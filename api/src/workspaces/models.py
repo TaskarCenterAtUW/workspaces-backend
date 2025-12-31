@@ -1,3 +1,4 @@
+from enum import Enum
 import json
 from typing import Any, Optional
 from uuid import UUID
@@ -5,15 +6,31 @@ from uuid import UUID
 import requests
 from geoalchemy2 import WKBElement
 from jsonschema import ValidationError, validate
-from pydantic import BaseModel, ConfigDict, Field, Json, field_serializer, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, Json, field_serializer, field_validator
 from typing_extensions import Annotated
 
 from api.core.config import Settings
-from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefinitionType
+from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefinitionTypeDB
 
 #
 # These are DTOs used by the API to pass values to/from the client, NOT the schema definitions
 #
+
+class QuestDefinitionTypeModel(Enum):
+    NONE = "NONE"
+    JSON = "JSON"
+    URL = "URL"
+
+# map the value from the database enum to the model enum if necessary
+# FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
+def map_db_to_model(value) -> QuestDefinitionTypeModel:
+    if value in QuestDefinitionTypeDB:
+        return QuestDefinitionTypeModel[QuestDefinitionTypeDB(value).name]
+    else:
+        return value
+    
+# Create a type alias using Annotated and the validator
+QuestDefinitionType = Annotated[str, BeforeValidator(map_db_to_model)]
 
 class WorkspaceLongQuestBase(BaseModel):
 
@@ -26,12 +43,12 @@ class WorkspaceLongQuestBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     def validate_definition(self, data, value):
-        if data["type"] == QuestDefinitionType.NONE.value:
+        if data["type"] == QuestDefinitionTypeModel.NONE:
             if not value:
                 return None
             raise ValidationError("'definition' field not allowed.")
 
-        if data["type"] != QuestDefinitionType.JSON.value:
+        if data["type"] != QuestDefinitionTypeModel.JSON:
             return value
 
         if not value:
@@ -52,12 +69,12 @@ class WorkspaceLongQuestBase(BaseModel):
         return value
 
     def validate_url(self, data, value):
-        if data["type"] == QuestDefinitionType.NONE.value:
+        if data["type"] == QuestDefinitionTypeModel.NONE:
             if not value:
                 return None
             raise ValidationError("'url' field not allowed.")
 
-        if data["type"] != QuestDefinitionType.URL.value:
+        if data["type"] != QuestDefinitionTypeModel.URL:
             return value
 
         if not value:

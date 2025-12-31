@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
-from api.src.workspaces.schemas import Workspace, WorkspaceImagery, WorkspaceLongQuest
+from api.src.workspaces.schemas import QuestDefinitionTypeDB, Workspace, WorkspaceImagery, WorkspaceLongQuest
 from api.src.workspaces.models import WorkspaceCreate, WorkspaceImageryUpdate, WorkspaceLongQuestUpdate, WorkspaceUpdate
 class WorkspaceRepository:
 
@@ -118,6 +118,10 @@ class WorkspaceRepository:
         update_data["workspace_id"] = workspace_id
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
+
+        # map the type from model enum to DB enum 
+        # FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
+        update_data["type"] = QuestDefinitionTypeDB[longform_quest_data.type or "NONE"].value
 
         query = (
             update(WorkspaceLongQuest)
