@@ -1,9 +1,8 @@
-import json
 from enum import StrEnum
 from uuid import UUID
 
 import cachetools
-import requests
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
@@ -177,42 +176,39 @@ async def _validate_token_uncached(
         "Content-Type": "application/json",
     }
 
-    # get user's project groups and roles from TDEI
-    # TODO: fix if user has > 50 PGs
-    authorizationUrl = (
-        settings.TDEI_BACKEND_URL
-        + "/project-group-roles/"
-        + user_id
-        + "?page_no=1&page_size=50"
-    )
-
-    response = requests.get(authorizationUrl, headers=headers)
-
-    # token is not valid or server unavailable
-    if response.status_code != 200:
-        raise credentials_exception
-
-    try:
-        content = response.text
-        j = json.loads(content)
-    except json.JSONDecodeError:
-        raise credentials_exception
-
     r = UserInfo()
     r.credentials = token
     r.user_uuid = UUID(user_id)
     r.user_name = payload.get("preferred_username", "unknown")
 
-    # project groups and roles from TDEI KeyCloak
+    # get user's project groups and roles from TDEI
+    pg_base_url = f"{settings.TDEI_BACKEND_URL}/project-group-roles/{user_id}"
     pgs = []
-    for i in j:
-        pgs.append(
-            UserInfoPGMembership(
-                project_group_id=i["tdei_project_group_id"],
-                project_group_name=i["project_group_name"],
-                tdeiRoles=i["roles"],
-            )
+    async with httpx.AsyncClient() as http_client:
+        response = await http_client.get(
+            pg_base_url,
+            headers=headers,
+            params={"page_no": 1, "page_size": 1000},
         )
+
+        # token is not valid or server unavailable
+        if response.status_code != 200:
+            raise credentials_exception
+
+        try:
+            pg_data = response.json()
+        except Exception:
+            raise credentials_exception
+
+        for i in pg_data:
+            pgs.append(
+                UserInfoPGMembership(
+                    project_group_id=i["tdei_project_group_id"],
+                    project_group_name=i["project_group_name"],
+                    tdeiRoles=i["roles"],
+                )
+            )
+
     r.projectGroups = pgs
 
     # workspaces within our set of PGs from tasking manager DB
