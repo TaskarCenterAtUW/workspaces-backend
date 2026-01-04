@@ -1,5 +1,4 @@
-from typing import Any, cast
-from uuid import UUID
+from typing import Any
 
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -9,12 +8,9 @@ from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
 from api.src.workspaces.schemas import (
     QuestDefinitionType,
-    User,
     Workspace,
     WorkspaceImagery,
     WorkspaceLongQuest,
-    WorkspaceUserRole,
-    WorkspaceUserRoleType,
 )
 
 
@@ -232,61 +228,3 @@ class OSMRepository:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
         return retVal
-
-    async def getAllUsers(
-        self,
-    ):
-        query = select(User)
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
-
-    async def get_current_user(self, current_user: UserInfo) -> User:
-        result = await self.session.exec(
-            select(User).where(User.auth_uid == str(current_user.user_uuid))
-        )
-
-        # Current user should exist--throw if it doesn't:
-        return result.scalar_one()
-
-    async def addUserToWorkspaceWithRole(
-        self,
-        current_user: UserInfo,
-        workspace_id: int,
-        user_id: UUID,
-        role: WorkspaceUserRoleType,
-    ) -> None:
-
-        userRole = WorkspaceUserRole(
-            auth_user_uid=cast(UUID, user_id),
-            workspace_id=workspace_id,
-            role=role,
-        )
-
-        try:
-            self.session.add(userRole)
-            await self.session.commit()
-        except IntegrityError:
-            await self.session.rollback()
-            raise AlreadyExistsException(
-                "User association with that workspace already exists"
-            )
-
-    async def removeUserFromWorkspace(
-        self,
-        current_user: UserInfo,
-        workspace_id: int,
-        user_id: UUID,
-    ) -> None:
-        query = delete(WorkspaceUserRole).where(
-            (WorkspaceUserRole.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
-            & (WorkspaceUserRole.auth_user_uid == user_id)
-        )
-
-        result = await self.session.execute(query)
-
-        if result.rowcount != 1:  # type: ignore[attr-defined]
-            raise NotFoundException(
-                f"User association removal failed for workspace {workspace_id} and user {user_id}"
-            )
-
-        await self.session.commit()

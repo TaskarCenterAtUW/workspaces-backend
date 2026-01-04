@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Self
 from uuid import UUID
 
 from geoalchemy2 import Geometry
@@ -8,10 +8,8 @@ from sqlalchemy import JSON as SAJson
 from sqlalchemy import Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
 
-from api.src.teams.schemas import WorkspaceTeamUser
-
 if TYPE_CHECKING:
-    from api.src.teams.schemas import WorkspaceTeam
+    from api.core.security import UserInfo
 
 
 class IntEnumType(TypeDecorator):
@@ -74,12 +72,6 @@ class QuestDefinitionType(IntEnum):
     URL = 2
 
 
-class WorkspaceUserRoleType(StrEnum):
-    LEAD = "lead"
-    VALIDATOR = "validator"
-    CONTRIBUTOR = "contributor"
-
-
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -121,36 +113,45 @@ class WorkspaceImagery(SQLModel, table=True):
     modifiedByName: str
 
 
-class WorkspaceUserRole(SQLModel, table=True):
-    """Associates users with workspaces and their roles"""
+class WorkspaceResponse(SQLModel):
+    """
+    Workspace serialized for API responses. Includes the effective role for the
+    user making the request.
+    """
 
-    __tablename__ = "user_workspace_roles"  # type: ignore[assignment]
+    id: int
+    type: WorkspaceType
+    title: str
+    description: Optional[str] = None
+    tdeiProjectGroupId: UUID
+    tdeiRecordId: Optional[UUID] = None
+    tdeiServiceId: Optional[UUID] = None
+    tdeiMetadata: Optional[Any] = None
+    createdAt: datetime
+    createdBy: UUID
+    createdByName: str
+    externalAppAccess: ExternalAppsDefinitionType
+    kartaViewToken: Optional[str] = None
+    role: str
 
-    # this is the TDEI auth user UUID, from the token
-    auth_user_uid: str = Field(foreign_key="users.auth_uid", primary_key=True)
-    workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
-
-    role: WorkspaceUserRoleType = Field(
-        sa_column=Column(StrEnumType(WorkspaceUserRoleType), nullable=False)
-    )
-
-
-class User(SQLModel, table=True):
-    """Users"""
-
-    __tablename__ = "users"  # type: ignore[assignment]
-
-    id: int = Field(default=None, primary_key=True)
-
-    # this is the user ID from the TDEI authentication system
-    auth_uid: str = Field(unique=True, index=True)
-
-    email: str = Field(unique=True, index=True)
-    display_name: str = Field(nullable=False)
-
-    teams: list["WorkspaceTeam"] = Relationship(
-        back_populates="users", link_model=WorkspaceTeamUser
-    )
+    @classmethod
+    def from_workspace(cls, workspace: "Workspace", user: "UserInfo") -> Self:
+        return cls(
+            id=workspace.id,
+            type=workspace.type,
+            title=workspace.title,
+            description=workspace.description,
+            tdeiProjectGroupId=workspace.tdeiProjectGroupId,
+            tdeiRecordId=workspace.tdeiRecordId,
+            tdeiServiceId=workspace.tdeiServiceId,
+            tdeiMetadata=workspace.tdeiMetadata,
+            createdAt=workspace.createdAt,
+            createdBy=workspace.createdBy,
+            createdByName=workspace.createdByName,
+            externalAppAccess=workspace.externalAppAccess,
+            kartaViewToken=workspace.kartaViewToken,
+            role=user.effective_role(workspace.id),
+        )
 
 
 class Workspace(SQLModel, table=True):

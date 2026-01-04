@@ -12,7 +12,7 @@ from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
 from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
-from api.src.workspaces.schemas import WorkspaceUserRoleType
+from api.src.users.schemas import WorkspaceUserRoleType
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -124,6 +124,13 @@ class UserInfo:
             if workspaceId in wsids:
                 return True
         return False
+
+    def effective_role(self, workspaceId: int) -> WorkspaceUserRoleType:
+        if self.isWorkspaceLead(workspaceId):
+            return WorkspaceUserRoleType.LEAD
+        if self.isWorkspaceValidator(workspaceId):
+            return WorkspaceUserRoleType.VALIDATOR
+        return WorkspaceUserRoleType.CONTRIBUTOR
 
 
 # can't use the ORM here since the ORM uses us! (circular dependency)

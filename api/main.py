@@ -22,6 +22,7 @@ from api.core.security import (
     validate_token,
 )
 from api.src.teams.routes import router as teams_router
+from api.src.users.routes import router as users_router
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
@@ -85,6 +86,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(teams_router, prefix="/api/v1")
+app.include_router(users_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 
 
