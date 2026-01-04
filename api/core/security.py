@@ -12,7 +12,7 @@ from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
 from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
-from api.src.workspaces.schemas import WorkspaceUserRoleType
+from api.src.users.schemas import WorkspaceUserRoleType
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -99,12 +99,22 @@ class UserInfo:
             return True
         return False
 
-    # user has has any association with a project group that owns the workspace
+    # user has has any association with a project group that owns the workspace,
+    # OR has any explicit role granted in the OSM DB for that workspace
     def isWorkspaceContributor(self, workspaceId: int) -> bool:
         for pgid, wsids in self.accessibleWorkspaceIds.items():
             if workspaceId in wsids:
                 return True
+        if workspaceId in self.osmWorkspaceRoles:
+            return True
         return False
+
+    def effectiveRole(self, workspaceId: int) -> str:
+        if self.isWorkspaceLead(workspaceId):
+            return "lead"
+        if self.isWorkspaceValidator(workspaceId):
+            return "validator"
+        return "contributor"
 
 
 # can't use the ORM here since the ORM uses us! (circular dependency)

@@ -1,5 +1,4 @@
 from typing import Any
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -7,19 +6,42 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
+from api.src.users.repository import UserRepository
+from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
 from api.src.workspaces.schemas import (
     QuestDefinitionType,
     Workspace,
     WorkspaceImagery,
     WorkspaceLongQuest,
-    WorkspaceUserRoleType,
+    WorkspaceResponse,
 )
+
 
 # Set up logger for this module
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+def _to_response(workspace: Workspace, user: "UserInfo") -> WorkspaceResponse:
+    """Convert a Workspace ORM object to a response model with the user's effective role."""
+    return WorkspaceResponse(
+        id=workspace.id,
+        type=workspace.type,
+        title=workspace.title,
+        description=workspace.description,
+        tdeiProjectGroupId=workspace.tdeiProjectGroupId,
+        tdeiRecordId=workspace.tdeiRecordId,
+        tdeiServiceId=workspace.tdeiServiceId,
+        tdeiMetadata=workspace.tdeiMetadata,
+        createdAt=workspace.createdAt,
+        createdBy=workspace.createdBy,
+        createdByName=workspace.createdByName,
+        externalAppAccess=workspace.externalAppAccess,
+        kartaViewToken=workspace.kartaViewToken,
+        role=user.effectiveRole(workspace.id),
+    )
 
 
 def get_workspace_repository(
@@ -36,27 +58,33 @@ def get_osm_repository(
     return repository
 
 
+def get_user_repository(
+    session: AsyncSession = Depends(get_osm_session),
+) -> UserRepository:
+    return UserRepository(session)
+
+
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
-@router.get("/mine", response_model=list[Workspace])
+@router.get("/mine", response_model=list[WorkspaceResponse])
 async def get_my_workspaces(
     repository: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> list[Workspace]:
+) -> list[WorkspaceResponse]:
     try:
         workspaces = await repository.getAll(current_user)
-        return workspaces
+        return [_to_response(ws, current_user) for ws in workspaces]
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise
 
 
 # Returns JSON payload or 204 if not found
-@router.get("/{workspace_id}", response_model=Workspace)
+@router.get("/{workspace_id}", response_model=WorkspaceResponse)
 async def get_workspace(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> Workspace:
+) -> WorkspaceResponse:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
 
@@ -66,7 +94,7 @@ async def get_workspace(
                 detail="No Content",
             )
 
-        return workspace
+        return _to_response(workspace, current_user)
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -106,10 +134,22 @@ async def get_workspace_bbox(
 async def create_workspace(
     workspace_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    repository_users: UserRepository = Depends(get_user_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> Workspace:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
+
+        # Assign the creator as lead so that non-POC members can manage their
+        # own workspace:
+        #
+        await repository_users.addUserToWorkspaceWithRole(
+            current_user,
+            workspace.id,
+            current_user.user_uuid,
+            WorkspaceUserRoleType.LEAD,
+        )
+
         return workspace
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
@@ -145,6 +185,7 @@ async def update_workspace(
 async def delete_workspace(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    repository_users: UserRepository = Depends(get_user_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     if current_user.isWorkspaceLead(workspace_id) is False:
@@ -154,6 +195,7 @@ async def delete_workspace(
         )
 
     try:
+        await repository_users.deleteRolesForWorkspace(workspace_id)
         await repository_ws.delete(current_user, workspace_id)
     except Exception as e:
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
@@ -264,52 +306,3 @@ async def update_imagery_settings(
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
-
-
-### USERS
-
-
-@router.get("/{workspace_id}/users")
-async def get_users(
-    workspace_id: int,
-    current_user: UserInfo = Depends(validate_token),
-    repository_osm: OSMRepository = Depends(get_osm_repository),
-):
-    return await repository_osm.getAllUsers()
-
-
-@router.post("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def add_user_with_role(
-    workspace_id: int,
-    user_id: UUID,
-    role: WorkspaceUserRoleType,
-    current_user: UserInfo = Depends(validate_token),
-    repository_osm: OSMRepository = Depends(get_osm_repository),
-):
-    if current_user.isWorkspaceLead(workspace_id) is False:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User does not have permission to edit this workspace",
-        )
-
-    return await repository_osm.addUserToWorkspaceWithRole(
-        current_user, workspace_id, user_id, role
-    )
-
-
-@router.delete("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_user_with_role(
-    workspace_id: int,
-    user_id: UUID,
-    current_user: UserInfo = Depends(validate_token),
-    repository_osm: OSMRepository = Depends(get_osm_repository),
-):
-    if current_user.isWorkspaceLead(workspace_id) is False:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User does not have permission to edit this workspace",
-        )
-
-    return await repository_osm.removeUserFromWorkspace(
-        current_user, workspace_id, user_id
-    )
