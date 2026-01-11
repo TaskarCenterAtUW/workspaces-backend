@@ -1,11 +1,12 @@
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
-from api.core.security import UserInfo, validate_token
+from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
@@ -129,6 +130,12 @@ async def create_workspace(
             WorkspaceUserRoleType.LEAD,
         )
 
+        # Evict the creator's cache so their next request reflects the new
+        # workspace and lead role rather than serving stale data for up to
+        # an hour:
+        #
+        evict_user_from_cache(current_user.user_uuid)
+
         return workspace
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
@@ -174,8 +181,11 @@ async def delete_workspace(
         )
 
     try:
+        members = await repository_users.get_privileged_workspace_members(workspace_id)
         await repository_ws.delete(current_user, workspace_id)
         await repository_users.remove_all_member_roles(workspace_id)
+        for member in members:
+            evict_user_from_cache(UUID(member.auth_uid))
     except Exception as e:
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
         raise
