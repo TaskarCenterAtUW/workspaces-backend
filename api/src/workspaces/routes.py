@@ -5,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
-from api.core.security import UserInfo, validate_token
+from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
@@ -149,6 +149,12 @@ async def create_workspace(
             current_user.user_uuid,
             WorkspaceUserRoleType.LEAD,
         )
+
+        # Evict the creator's cache so their next request reflects the new
+        # workspace and lead role rather than serving stale data for up to
+        # an hour:
+        #
+        evict_user_from_cache(str(current_user.user_uuid))
 
         return workspace
     except Exception as e:

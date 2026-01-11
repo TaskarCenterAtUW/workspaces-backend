@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session
-from api.core.security import UserInfo, validate_token
+from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import (
     SetRoleRequest,
@@ -54,6 +54,7 @@ async def set_user_role(
     await user_repo.addUserToWorkspaceWithRole(
         current_user, workspace_id, user_id, body.role
     )
+    evict_user_from_cache(str(user_id))
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -70,3 +71,4 @@ async def remove_user_with_role(
         )
 
     await user_repo.removeUserFromWorkspace(current_user, workspace_id, user_id)
+    evict_user_from_cache(str(user_id))

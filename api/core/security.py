@@ -17,10 +17,24 @@ from api.src.users.schemas import WorkspaceUserRoleType
 # Set up logger for this module
 logger = get_logger(__name__)
 
-# TTL cache for token validation (1 hour TTL, max 1000 entries)
-_token_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
+# TTL cache keyed by a user's OIDC subject. Evict entries when roles change. We
+# still validate the JWT signature and expiry on every request before reading a
+# cached record.
+_user_info_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
     maxsize=1000, ttl=60 * 60
 )
+
+
+def evict_user_from_cache(auth_uid: str) -> None:
+    """
+    Evict a user's cached UserInfo object so that their next request re-fetches
+    permissions.
+
+    Call this after modifying a user's roles in the OSM DB to ensure the change
+    takes effect on their next request rather than after the cache TTL expires.
+    """
+    _user_info_cache.pop(auth_uid, None)
+
 
 security = HTTPBearer()
 
@@ -129,6 +143,7 @@ def get_task_db_session(
 ) -> AsyncSession:
     return session
 
+
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     osm_db_session: AsyncSession = Depends(get_osm_db_session),
@@ -136,12 +151,12 @@ async def validate_token(
 ) -> UserInfo:
     """Dependency to get current authenticated user from TDEI/KeyCloak token and APIs.
 
-    Results are cached by token for 1 hour to avoid repeated validation calls.
+    The JWT signature and expiry are validated on every request. The expensive
+    TDEI API and DB lookups are cached for 1 hour and should be evicted when a
+    user's role changes via evict_user_from_cache().
     """
     token = credentials.credentials
 
-    # Check cache first
-    if token in _token_cache:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication credentials",
@@ -152,17 +167,22 @@ async def validate_token(
         payload = validate_and_decode_token(token)
     except Exception:
         raise credentials_exception
+
     user_id: str | None = payload.get("sub")
     if user_id is None:
         raise credentials_exception
-        logger.info("Token validation cache hit")
-        return _token_cache[token]
 
-    # Cache miss - perform full validation
-    _token_cache[token] = user_info
+    # Cache keyed by user ID so roles take effect immediately after eviction:
+    if user_id in _user_info_cache:
+        logger.info("Token validation cache hit")
+        return _user_info_cache[user_id]
+
+    # Cache miss: fetch TDEI roles and DB data:
     user_info = await _validate_token_uncached(
         token, user_id, payload, osm_db_session, task_db_session
     )
+    _user_info_cache[user_id] = user_info
+
     return user_info
 
 
