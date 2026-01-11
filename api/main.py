@@ -155,7 +155,7 @@ async def catch_all(
         (bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8"))
     )
     rp_req = client.build_request(
-        request.method, url, headers=new_headers, content=await request.body()
+        request.method, url, headers=new_headers, content=request.stream()
     )
     rp_resp = await client.send(rp_req, stream=True)
 
