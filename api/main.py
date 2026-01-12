@@ -87,6 +87,20 @@ def get_workspace_repository(
 # h/t: https://stackoverflow.com/questions/70610266/proxy-an-external-website-using-python-fast-api-not-supporting-query-params
 #
 
+# According to HTTP/1.1, a proxy must not forward these "hop-by-hop" headers:
+HOP_BY_HOP_HEADERS = frozenset(
+    [
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+    ]
+)
+
 # Define paths that do not require X-Workspace header
 AUTH_WHITELIST_PATHS = [
     r"^/api/0\.6/user/.*$",  # used during authentication
@@ -151,9 +165,7 @@ async def catch_all(
             )
         )
 
-    new_headers.append(
-        (bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8"))
-    )
+    new_headers.append((bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8")))
     rp_req = client.build_request(
         request.method, url, headers=new_headers, content=request.stream()
     )
@@ -167,9 +179,13 @@ async def catch_all(
         sentry_sdk.capture_message(msg)
         logger.warning(msg)
 
+    forwarded_headers = {
+        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+    }
+
     return StreamingResponse(
         rp_resp.aiter_raw(),
         status_code=rp_resp.status_code,
-        headers=rp_resp.headers,
+        headers=forwarded_headers,
         background=BackgroundTask(rp_resp.aclose),
     )
