@@ -44,7 +44,11 @@ _osm_client: httpx.AsyncClient | None = None
 async def lifespan(_app: FastAPI):
     # Run before app bootstrap:
     global _osm_client
-    _osm_client = httpx.AsyncClient(base_url=settings.WS_OSM_HOST)
+    _osm_client = httpx.AsyncClient(
+        base_url=settings.WS_OSM_HOST,
+        # 2 hour timeout for long-running OSM imports:
+        timeout=httpx.Timeout(connect=10, read=7200, write=7200, pool=10),
+    )
 
     yield  # App runs
 
