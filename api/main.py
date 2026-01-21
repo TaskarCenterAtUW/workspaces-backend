@@ -141,8 +141,12 @@ STRIP_REQUEST_HEADERS = HOP_BY_HOP_HEADERS | {
 AUTH_WHITELIST_PATTERNS = [
     re.compile(p)
     for p in [
-        r"^/api/0\.6/user/.*$",  # used during authentication
-        r"^/api/0\.6/workspaces/[0-9]+/bbox\.json$",  # used to get workspace bbox without workspace header, to be removed
+        # Creating/deleting workspaces and JOSM path rewriting:
+        r"^/api/0\.6/workspaces.*$",
+        # Provisioning users during authentication:
+        r"^/api/0\.6/user/.*$",
+        # Used to get workspace bbox without workspace header, to be removed:
+        r"^/api/0\.6/workspaces/[0-9]+/bbox\.json$",
     ]
 ]
 
