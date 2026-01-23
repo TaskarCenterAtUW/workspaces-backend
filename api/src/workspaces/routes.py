@@ -111,7 +111,7 @@ async def get_workspace_bbox(
 
 
 # Returns 201 on success?
-@router.post("/", response_model=Workspace, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Workspace, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
