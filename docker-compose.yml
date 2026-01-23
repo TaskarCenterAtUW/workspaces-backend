@@ -1,0 +1,73 @@
+services:
+
+  # Backend
+  workspaces-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - 8000:8000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://workspaces-tasks-dev:Possum123!!!@opensidewalks-dev.postgres.database.azure.com:5432/workspaces-tasks-dev      
+
+  # C-accelerated OSM API
+  osm-cgimap:
+    build:
+      context: workspaces-cgimap
+      dockerfile: docker/ubuntu/Dockerfile2404
+    restart: always
+    environment:
+      CGIMAP_INSTANCES: 10
+      CGIMAP_HOST: opensidewalks-dev.postgres.database.azure.com
+      CGIMAP_USERNAME: workspaces-osm-dev
+      CGIMAP_PASSWORD: q+_<]us)@rV6kbB2f7a$.3
+      CGIMAP_DBNAME:  workspaces-osm-dev
+      CGIMAP_MAX_CHANGESET_ELEMENTS: 100000000 # max features per import or save
+      CGIMAP_MAX_PAYLOAD: 1000000000 # max size of dataset uploads
+      CGIMAP_MAP_NODES: 100000000 # max number of nodes per requeset
+      CGIMAP_MAP_AREA: 1 # max area per request in square degrees
+
+  # Rails OSM API
+  osm-rails:
+    build:
+      context: workspaces-openstreetmap-website
+      dockerfile: Dockerfile.prod
+    restart: always
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: 28155324199e0a6073cee857ac0dfbefcad70178deb05e45634aee5146652579d73523628898f54a70684832a442a5653
+      WS_OSM_HOST: osm.workspaces-dev.sidewalks.washington.edu
+      WS_OSM_DB_HOST: opensidewalks-dev.postgres.database.azure.com
+      WS_OSM_DB_USER: workspaces-osm-dev
+      WS_OSM_DB_PASS: q+_<]us)@rV6kbB2f7a$.3
+      WS_OSM_DB_NAME: workspaces-osm-dev
+      RAILS_MAX_THREADS: 5
+    volumes:
+        - /tmp:/tmp
+        - /tmp:/app/tmp
+        - /tmp/storage:/app/storage
+    stdin_open: true
+    tty: true
+    command: bundle exec rails s -p 3000 -b '0.0.0.0'
+  
+  osm-rails-worker:
+      build:
+        context: workspaces-openstreetmap-website
+        dockerfile: Dockerfile.prod
+      restart: always
+      environment:
+        RAILS_ENV: production
+        SECRET_KEY_BASE: 28155324199e0a6073cee857ac0dfbefcad70178deb05e45634aee5146652579d73523628898f54a70684832a442a5653
+        WS_OSM_HOST: osm.workspaces-dev.sidewalks.washington.edu
+        WS_OSM_DB_HOST: opensidewalks-dev.postgres.database.azure.com
+        WS_OSM_DB_USER: workspaces-osm-dev
+        WS_OSM_DB_PASS: q+_<]us)@rV6kbB2f7a$.3
+        WS_OSM_DB_NAME: workspaces-osm-dev
+      volumes:
+        - /tmp:/tmp
+        - /tmp:/app/tmp
+        - /tmp/storage:/app/storage
+      stdin_open: true
+      tty: true
+      command: bundle exec rake jobs:work

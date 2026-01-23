@@ -89,10 +89,6 @@ async def catch_all(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-    print(
-        f"Path proxied: {request.url} workspace_id: {request.headers.get("X-Workspace")}"
-    )
-
     url = httpx.URL(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
     )
