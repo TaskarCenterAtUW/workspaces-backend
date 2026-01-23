@@ -37,12 +37,10 @@ services:
     environment:
       RAILS_ENV: production
       SECRET_KEY_BASE: 28155324199e0a6073cee857ac0dfbefcad70178deb05e45634aee5146652579d73523628898f54a70684832a442a5653
-      WS_OSM_HOST: osm.workspaces-dev.sidewalks.washington.edu
       WS_OSM_DB_HOST: opensidewalks-dev.postgres.database.azure.com
       WS_OSM_DB_USER: workspaces-osm-dev
       WS_OSM_DB_PASS: q+_<]us)@rV6kbB2f7a$.3
       WS_OSM_DB_NAME: workspaces-osm-dev
-      RAILS_MAX_THREADS: 5
     volumes:
         - /tmp:/tmp
         - /tmp:/app/tmp
@@ -59,7 +57,6 @@ services:
       environment:
         RAILS_ENV: production
         SECRET_KEY_BASE: 28155324199e0a6073cee857ac0dfbefcad70178deb05e45634aee5146652579d73523628898f54a70684832a442a5653
-        WS_OSM_HOST: osm.workspaces-dev.sidewalks.washington.edu
         WS_OSM_DB_HOST: opensidewalks-dev.postgres.database.azure.com
         WS_OSM_DB_USER: workspaces-osm-dev
         WS_OSM_DB_PASS: q+_<]us)@rV6kbB2f7a$.3

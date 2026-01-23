@@ -1,5 +1,6 @@
 import json
 import os
+import requests_cache
 
 import httpx
 from fastapi import Depends, HTTPException, status
@@ -8,8 +9,7 @@ from jose import JWTError, jwt
 from sqlalchemy import UUID
 
 security = HTTPBearer()
-
-
+session = requests_cache.CachedSession('auth_cache', expire_after=300)
 class UserInfo:
     scheme: str
     credentials: str
@@ -54,14 +54,15 @@ async def validate_token(
             + user_id
             + "?page_no=1&page_size=50"
         )
-        response = await client.get(authorizationUrl, headers=headers)
+
+        response = session.get(authorizationUrl, headers=headers)
 
         # token is not valid or server unavailable
         if response.status_code != 200:
             raise credentials_exception
 
         try:
-            content = response.read()
+            content = response.text
             j = json.loads(content)
         except json.JSONDecodeError:
             raise credentials_exception
