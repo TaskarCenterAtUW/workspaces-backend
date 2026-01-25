@@ -106,9 +106,12 @@ HOP_BY_HOP_HEADERS = frozenset(
 )
 
 # Define paths that do not require X-Workspace header
-AUTH_WHITELIST_PATHS = [
-    r"^/api/0\.6/user/.*$",  # used during authentication
-    r"^/api/0\.6/workspaces/[0-9]+/bbox\.json$",  # used to get workspace bbox without workspace header, to be removed
+AUTH_WHITELIST_PATTERNS = [
+    re.compile(p)
+    for p in [
+        r"^/api/0\.6/user/.*$",  # used during authentication
+        r"^/api/0\.6/workspaces/[0-9]+/bbox\.json$",  # used to get workspace bbox without workspace header, to be removed
+    ]
 ]
 
 
@@ -143,9 +146,7 @@ async def catch_all(
 
         authorizedWorkspace = workspace_id
     else:
-        if not any(
-            re.fullmatch(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS
-        ):
+        if not any(p.fullmatch(request.url.path) for p in AUTH_WHITELIST_PATTERNS):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No X-Workspace header supplied",
