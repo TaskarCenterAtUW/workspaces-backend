@@ -114,7 +114,7 @@ AUTH_WHITELIST_PATHS = [
 
 @app.api_route(
     "/{full_path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
 )
 async def catch_all(
     request: Request,
