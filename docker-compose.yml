@@ -11,7 +11,7 @@ services:
     volumes:
       - .:/app
     environment:
-      TASK_DATABASE_URL: postgresql+asyncpg://workspaces-tasks-dev:XXXXXXXXXXXXXXXX@opensidewalks-dev.postgres.database.azure.com:5432/workspaces-tasks-dev      
+      TASK_DATABASE_URL: postgresql+asyncpg://workspaces-tasks-${ENV}:${WS_TASKS_DB_PASS}@opensidewalks-${ENV}.postgres.database.azure.com:5432/workspaces-tasks-${ENV}      
 
   # C-accelerated OSM API
   osm-cgimap:
@@ -21,10 +21,10 @@ services:
     restart: always
     environment:
       CGIMAP_INSTANCES: 10
-      CGIMAP_HOST: opensidewalks-dev.postgres.database.azure.com
-      CGIMAP_USERNAME: workspaces-osm-dev
-      CGIMAP_PASSWORD: XXXXXXXXXXXXXXXX
-      CGIMAP_DBNAME:  workspaces-osm-dev
+      CGIMAP_HOST: opensidewalks-${ENV}.postgres.database.azure.com
+      CGIMAP_USERNAME: workspaces-osm-${ENV}
+      CGIMAP_PASSWORD: ${WS_OSM_DB_PASS}
+      CGIMAP_DBNAME: workspaces-osm-${ENV}
       CGIMAP_MAX_CHANGESET_ELEMENTS: 100000000 # max features per import or save
       CGIMAP_MAX_PAYLOAD: 1000000000 # max size of dataset uploads
       CGIMAP_MAP_NODES: 100000000 # max number of nodes per requeset
@@ -38,11 +38,11 @@ services:
     restart: always
     environment:
       RAILS_ENV: production
-      SECRET_KEY_BASE: 28155324199e0a6073cee857ac0dfbefcad70178deb05e45634aee5146652579d73523628898f54a70684832a442a5653
-      WS_OSM_DB_HOST: opensidewalks-dev.postgres.database.azure.com
-      WS_OSM_DB_USER: workspaces-osm-dev
-      WS_OSM_DB_PASS: XXXXXXXXXXXXXXXX
-      WS_OSM_DB_NAME: workspaces-osm-dev
+      SECRET_KEY_BASE: ${WS_OSM_SECRET_KEY_BASE}
+      WS_OSM_DB_HOST: opensidewalks-${ENV}.postgres.database.azure.com
+      WS_OSM_DB_USER: workspaces-osm-${ENV}
+      WS_OSM_DB_PASS: ${WS_OSM_DB_PASS}
+      WS_OSM_DB_NAME: workspaces-osm-${ENV}
     volumes:
         - /tmp:/tmp
         - /tmp:/app/tmp
@@ -58,11 +58,11 @@ services:
       restart: always
       environment:
         RAILS_ENV: production
-        SECRET_KEY_BASE: 28155324199e0a6073cee857ac0dfbefcad70178deb05e45634aee5146652579d73523628898f54a70684832a442a5653
-        WS_OSM_DB_HOST: opensidewalks-dev.postgres.database.azure.com
-        WS_OSM_DB_USER: workspaces-osm-dev
-        WS_OSM_DB_PASS: XXXXXXXXXXXXXXXX
-        WS_OSM_DB_NAME: workspaces-osm-dev
+        SECRET_KEY_BASE: ${WS_OSM_SECRET_KEY_BASE}
+        WS_OSM_DB_HOST: opensidewalks-${ENV}.postgres.database.azure.com
+        WS_OSM_DB_USER: workspaces-osm-${ENV}
+        WS_OSM_DB_PASS: ${WS_OSM_DB_PASS}
+        WS_OSM_DB_NAME: workspaces-osm-${ENV}
       volumes:
         - /tmp:/tmp
         - /tmp:/app/tmp
