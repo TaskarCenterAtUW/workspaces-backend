@@ -9,7 +9,7 @@ from starlette.background import BackgroundTask
 
 from api.core import config
 from api.core.config import settings
-from api.core.database import get_session
+from api.core.database import get_task_session
 from api.core.logging import get_logger, setup_logging
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
@@ -55,7 +55,7 @@ async def root():
 
 
 def get_workspace_service(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_task_session),
 ) -> WorkspaceService:
     repository = WorkspaceRepository(session)
     return WorkspaceService(repository)

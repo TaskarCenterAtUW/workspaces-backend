@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.database import get_session
+from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.models import (
@@ -14,8 +14,8 @@ from api.src.workspaces.models import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.service import WorkspaceService
+from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
+from api.src.workspaces.service import OSMService, WorkspaceService
 
 # FIXME: make these consistent with response codes etc?
 
@@ -26,10 +26,16 @@ router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
 
 def get_workspace_service(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_task_session),
 ) -> WorkspaceService:
     repository = WorkspaceRepository(session)
     return WorkspaceService(repository)
+
+def get_osm_service(
+    session: AsyncSession = Depends(get_osm_session),
+) -> OSMService:
+    repository = OSMRepository(session)
+    return OSMService(repository)
 
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
@@ -63,6 +69,28 @@ async def get_workspace(
             )
 
         return workspace
+    except Exception as e:
+        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
+        raise
+
+
+@router.get("/{workspace_id}/bbox", response_model=None)
+async def get_workspace_bbox(
+    workspace_id: int,
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    osm_service: OSMService = Depends(get_osm_service),
+    current_user: UserInfo = Depends(validate_token),
+):
+    try:
+        workspace = await workspace_service.get_workspace(current_user, workspace_id)
+        if workspace is None:
+            raise HTTPException(
+                status_code=status.HTTP_204_NO_CONTENT,
+                detail="No Content",
+            )
+
+        await osm_service.get_workspace_bbox(current_user, workspace_id)
+        pass
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise

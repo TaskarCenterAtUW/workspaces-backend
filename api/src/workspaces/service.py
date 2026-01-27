@@ -8,7 +8,7 @@ from api.src.workspaces.models import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from api.src.workspaces.repository import WorkspaceRepository
+from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
 
 
 class WorkspaceService:
@@ -87,3 +87,17 @@ class WorkspaceService:
             )
 
         return WorkspaceImageryResponse.model_validate(workspace.imageryListDef)
+
+
+
+class OSMService:
+
+    def __init__(self, repository: OSMRepository):
+        self.repository = repository
+
+    async def get_workspace_bbox(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+    ):
+        return self.repository.getWorkspaceBBox(current_user, workspace_id)

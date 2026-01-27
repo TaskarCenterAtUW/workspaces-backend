@@ -61,7 +61,8 @@ jobs:
     - name: Run tests
       run: uv run pytest tests
       env:
-        DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
+        TASK_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
+        OSM_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
         JWT_SECRET: "test_secret_key"
         JWT_ALGORITHM: "HS256"
 

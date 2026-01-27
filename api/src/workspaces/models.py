@@ -1,3 +1,5 @@
+from datetime import datetime
+from decimal import Decimal
 import json
 from enum import Enum
 from typing import Any, Optional
@@ -150,14 +152,16 @@ class WorkspaceBase(BaseModel):
 
     tdeiMetadata: Optional[Json[Any]]
 
+    createdAt: datetime
+    createdBy: UUID
+    createdByName: str
+
     geometry: Optional[Annotated[str, WKBElement]]
 
     externalAppAccess: ExternalAppsDefinitionType
-
     kartaViewToken: Optional[str]
 
     longFormQuestDef: Optional[WorkspaceLongQuestBase]
-
     imageryListDef: Optional[WorkspaceImageryBase]
 
     model_config = ConfigDict(from_attributes=True)
@@ -183,7 +187,6 @@ class WorkspaceCreate(WorkspaceBase):
 
 class WorkspaceResponse(WorkspaceBase):
     pass
-
 
 class WorkspaceUpdate(BaseModel):
     title: Optional[str] = Field(None)

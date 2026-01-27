@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, update, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +16,6 @@ from api.src.workspaces.schemas import (
     WorkspaceImagery,
     WorkspaceLongQuest,
 )
-
 
 class WorkspaceRepository:
 
@@ -219,3 +218,18 @@ class WorkspaceRepository:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
         await self.session.commit()
+
+
+class OSMRepository:
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def getWorkspaceBBox(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+    ):
+        sql_query = text('select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, MIN(latitude) AS min_lat, MIN(longitude) AS min_lon')
+        result = await self.session.execute(sql_query)
+        return result.first()

@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from sqlalchemy import UUID
 
 security = HTTPBearer()
-session = requests_cache.CachedSession('auth_cache', expire_after=300)
+session = requests_cache.CachedSession('pg_user_cache', expire_after=300)
 class UserInfo:
     scheme: str
     credentials: str

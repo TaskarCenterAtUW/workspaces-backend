@@ -12,6 +12,7 @@ services:
       - .:/app
     environment:
       TASK_DATABASE_URL: postgresql+asyncpg://workspaces-tasks-${ENV}:${WS_TASKS_DB_PASS}@opensidewalks-${ENV}.postgres.database.azure.com:5432/workspaces-tasks-${ENV}      
+      OSM_DATABASE_URL: postgresql+asyncpg://workspaces-osm-${ENV}:${WS_OSM_DB_PASS}@opensidewalks-${ENV}.postgres.database.azure.com:5432/workspaces-osm-${ENV}      
 
   # C-accelerated OSM API
   osm-cgimap:

@@ -161,3 +161,6 @@ cython_debug/
 alembic/versions/.DS_Store
 /workspaces-cgimap
 /workspaces-openstreetmap-website
+pg_user_cache.sqlite
+
+.env**
