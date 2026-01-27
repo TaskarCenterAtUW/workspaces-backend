@@ -111,13 +111,13 @@ async def get_workspace_bbox(
 
 
 # Returns 201 on success?
-@router.post("", response_model=Workspace, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     repository_users: UserRepository = Depends(get_user_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> Workspace:
+) -> dict[str, int]:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
 
@@ -136,7 +136,7 @@ async def create_workspace(
         #
         evict_user_from_cache(current_user.user_uuid)
 
-        return workspace
+        return {"workspaceId": workspace.id}
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
