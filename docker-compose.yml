@@ -2,6 +2,7 @@ services:
 
   # Backend
   workspaces-backend:
+    image: opensidewalksdev.azurecr.io/workspaces-backend-v2:${ENV}
     build:
       context: .
       dockerfile: Dockerfile
@@ -16,6 +17,7 @@ services:
 
   # C-accelerated OSM API
   osm-cgimap:
+    image: opensidewalksdev.azurecr.io/workspaces-osm-cgimap-v2:${ENV}
     build:
       context: workspaces-cgimap
       dockerfile: docker/ubuntu/Dockerfile2404
@@ -33,6 +35,7 @@ services:
 
   # Rails OSM API
   osm-rails:
+    image: opensidewalksdev.azurecr.io/workspaces-osm-rails-v2:${ENV}
     build:
       context: workspaces-openstreetmap-website
       dockerfile: Dockerfile.prod
@@ -53,6 +56,7 @@ services:
     command: bundle exec rails s -p 3000 -b '0.0.0.0'
   
   osm-rails-worker:
+      image: opensidewalksdev.azurecr.io/workspaces-osm-rails-v2:${ENV}
       build:
         context: workspaces-openstreetmap-website
         dockerfile: Dockerfile.prod
