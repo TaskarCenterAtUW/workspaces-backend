@@ -36,6 +36,7 @@ logger = get_logger(__name__)
 app = FastAPI(
     title=settings.PROJECT_NAME,
     debug=settings.DEBUG,
+    swagger_ui_parameters={"syntaxHighlight": False},
 )
 
 # Include routers
@@ -74,6 +75,9 @@ async def catch_all(
     current_user: UserInfo = Depends(validate_token),
     service: WorkspaceService = Depends(get_workspace_service),
 ):
+    """
+    Catch-all route to proxy requests to the OSM service.
+    """
     authorizedWorkspace = None
 
     if request.headers.get("X-Workspace") is not None:
