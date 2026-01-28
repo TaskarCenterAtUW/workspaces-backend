@@ -1,4 +1,5 @@
 import os
+import re
 
 import httpx
 import sentry_sdk
@@ -11,7 +12,7 @@ from api.core import config
 from api.core.config import settings
 from api.core.database import get_task_session
 from api.core.logging import get_logger, setup_logging
-from api.core.security import UserInfo, validate_token, validate_workspace_role_for_call
+from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.src.workspaces.service import WorkspaceService
@@ -51,8 +52,7 @@ async def health_check():
 @app.get("/")
 async def root():
     """Root endpoint."""
-    logger.debug("Root endpoint called")
-    return {"message": "Welcome to Workspaces API!"}
+    return {"message": "Welcome to Workspaces API! Docs are available at /docs."}
 
 
 def get_workspace_service(
@@ -66,6 +66,13 @@ def get_workspace_service(
 #
 # h/t: https://stackoverflow.com/questions/70610266/proxy-an-external-website-using-python-fast-api-not-supporting-query-params
 #
+
+# Define paths that do not require X-Workspace header
+WHITELIST_PATHS = [
+    "/api/0.6/user/*", # used during authentication
+    "/api/0.6/workspaces/[0-9]*/bbox.json", # used to get workspace bbox without workspace header 
+]
+
 @app.api_route(
     "/{full_path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE"],
@@ -92,13 +99,15 @@ async def catch_all(
                 detail="Invalid authentication credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-
-    if validate_workspace_role_for_call(current_user, request, authorizedWorkspace) is False:   
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User does not have permissions to access this OSM method for that workspace.",
-        )
-
+            return
+    else:
+        if(not any(re.search(pattern, request.url.path) for pattern in WHITELIST_PATHS)):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="You must set your workspace in the X-Workspace header to access OSM methods.",
+            )
+            return
+    
     url = httpx.URL(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
     )
