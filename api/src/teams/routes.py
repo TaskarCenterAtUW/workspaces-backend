@@ -28,40 +28,45 @@ def get_osm_service(
     return OSMService(repository)
 
 
-# Returns JSON payload or 204 if not found
 @router.get("/{team_id}")
 async def get_team(
     team_id: int,
     current_user: UserInfo = Depends(validate_token),
 ):
+    """ Return members of the team and the team name. """
     pass
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_team(
     current_user: UserInfo = Depends(validate_token),
 ):
+    """ Create a team and set initial members. """
     pass
 
-@router.post("/{team_id}", status_code=status.HTTP_201_CREATED)
+@router.post("/{team_id}/{user_id}", status_code=status.HTTP_201_CREATED)
 async def add_user_to_team(
     current_user: UserInfo = Depends(validate_token),
 ):
+    """ Add a user with a given role to an existing team. """
     pass
 
 @router.patch("/{team_id}", status_code=status.HTTP_201_CREATED)
 async def update_team(
     current_user: UserInfo = Depends(validate_token),
 ):
+    """ Rename a team. To add or remove members, use the appropriate endpoints. """
     pass
 
 @router.delete("/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_team(
     current_user: UserInfo = Depends(validate_token),
 ):
+    """ Delete a team and remove all associated members. """
     pass
 
 @router.delete("/{team_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user_from_team(
     current_user: UserInfo = Depends(validate_token),
 ):
+    """ Remove a user from a team. """
     pass

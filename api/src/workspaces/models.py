@@ -50,69 +50,55 @@ class WorkspaceLongQuestBase(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_validator('definition')
-    @classmethod
-    def validate_definition(cls, data, value):
-        if data["type"] == QuestDefinitionTypeModel.NONE:
-            if not value:
-                return None
-            raise ValidationError("'definition' field not allowed.")
-
-        if data["type"] != QuestDefinitionTypeModel.JSON:
-            return value
-
-        if not value:
-            raise ValidationError("This field is required.")
-
-        if data["url"]:
-            raise ValidationError("'url' field not allowed.")
-
-        try:
-            parsed = json.loads(value)
-            if not parsed or not isinstance(parsed, dict):
-                raise ValidationError("must be a JSON object.")
-            validate_json_against_schema(parsed, Settings.WS_LONGFORM_SCHEMA_URL)
-        except json.JSONDecodeError as e:
-            raise ValidationError(f"{e}")
-        except ValidationError as e:
-            raise ValidationError(f"{e}")
-
-        return value
-
-    @field_validator('definition')
-    @classmethod
-    def validate_url(cls, data, value):
-        if data["type"] == QuestDefinitionTypeModel.NONE:
-            if not value:
-                return None
-            raise ValidationError("'url' field not allowed.")
-
-        if data["type"] != QuestDefinitionTypeModel.URL:
-            return value
-
-        if not value:
-            raise ValidationError("This field is required.")
-        if data["definition"]:
-            raise ValidationError("'definition' field not allowed.")
-
-        return value
-
 
 class WorkspaceLongQuestResponse(WorkspaceLongQuestBase):
     pass
 
 
 class WorkspaceLongQuestCreate(WorkspaceLongQuestBase):
-    pass
-
-
-class WorkspaceLongQuestUpdate(BaseModel):
-    definition: Optional[str] = Field(None)
-    type: Optional[QuestDefinitionType] = Field(None)
-    url: Optional[str] = Field(None)
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator('definition')
+    @classmethod
+    def validate_definition(cls, value, data):
+        if data.data.get("type") == QuestDefinitionTypeModel.JSON:
+            if not value:
+                raise ValidationError("This field is required when type is set to JSON.")
+            else:
+                try:
+                    parsedValue = json.loads(value)
+                    
+                    if not parsedValue or not isinstance(parsedValue, dict):
+                        raise ValidationError("must be a JSON object.")
+                    
+                    validate_json_against_schema(parsedValue, Settings.WS_LONGFORM_SCHEMA_URL)
+                except json.JSONDecodeError as e:
+                    raise ValidationError(f"Error parsing JSON: {e}")
+                except ValidationError as e:
+                    raise ValidationError(f"Error parsing JSON: {e}")
+
+                return value
+        else:
+            if not value:
+                return None
+            raise ValidationError("'definition' field not allowed.")
+
+    @field_validator('url')
+    @classmethod
+    def validate_url(cls, value, data):
+        if data.data.get("type") == QuestDefinitionTypeModel.URL:
+            if not value:
+                raise ValidationError("This field is required when type is set to URL.")
+            else:
+                return value
+        else:
+            if not value:
+                return None
+            raise ValidationError("'url' field not allowed.") 
+
+class WorkspaceLongQuestUpdate(WorkspaceLongQuestCreate):
+    pass
 
 class WorkspaceImageryBase(BaseModel):
 
@@ -130,10 +116,27 @@ class WorkspaceImageryResponse(WorkspaceImageryBase):
 
 
 class WorkspaceImageryCreate(WorkspaceImageryBase):
-    pass
 
+    model_config = ConfigDict(from_attributes=True)
 
-class WorkspaceImageryUpdate(BaseModel):
+    @field_validator('definition')
+    @classmethod
+    def validate_definition(cls, value, data):
+        try:
+            parsedValue = json.loads(value)
+            
+            if not parsedValue or not isinstance(parsedValue, dict):
+                raise ValidationError("must be a JSON object.")
+            
+            validate_json_against_schema(parsedValue, Settings.WS_LONGFORM_SCHEMA_URL)
+        except json.JSONDecodeError as e:
+            raise ValidationError(f"Error parsing JSON: {e}")
+        except ValidationError as e:
+            raise ValidationError(f"Error parsing JSON: {e}")
+
+        return value
+
+class WorkspaceImageryUpdate(WorkspaceImageryCreate):
     definition: Optional[list[Any]] = Field(None)
 
 

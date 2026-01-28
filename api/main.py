@@ -5,7 +5,7 @@ import re
 import httpx
 import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
@@ -16,6 +16,7 @@ from api.core.logging import get_logger, setup_logging
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
+from api.src.teams.routes import router as teams_router
 from api.src.workspaces.service import WorkspaceService
 from api.utils.migrations import run_migrations
 
@@ -44,17 +45,19 @@ app = FastAPI(
 
 # Include routers
 app.include_router(workspaces_router)
+app.include_router(teams_router)
 
 
 @app.get("/health")
 async def health_check():
+    """Health check endpoint. Used for Docker. """
     return {"status": "ok"}
 
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
-    return {"message": "Welcome to Workspaces API! Docs are available at /docs."}
+    """Root endpoint. Redirects to the API documentation."""
+    return RedirectResponse(url="/docs")
 
 
 def get_workspace_service(
