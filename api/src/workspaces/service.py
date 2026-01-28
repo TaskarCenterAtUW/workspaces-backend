@@ -100,4 +100,4 @@ class OSMService:
         current_user: UserInfo,
         workspace_id: int,
     ):
-        return self.repository.getWorkspaceBBox(current_user, workspace_id)
+        return await self.repository.getWorkspaceBBox(current_user, workspace_id)

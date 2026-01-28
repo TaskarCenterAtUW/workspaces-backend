@@ -89,8 +89,8 @@ async def get_workspace_bbox(
                 detail="No Content",
             )
 
-        await osm_service.get_workspace_bbox(current_user, workspace_id)
-        pass
+        result = await osm_service.get_workspace_bbox(current_user, workspace_id)
+        return result
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise

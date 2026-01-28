@@ -230,6 +230,7 @@ class OSMRepository:
         current_user: UserInfo,
         workspace_id: int,
     ):
-        sql_query = text('select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, MIN(latitude) AS min_lat, MIN(longitude) AS min_lon')
+        sql_query = text('select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes')
+        await self.session.execute(text(f"SET search_path TO 'workspace-{workspace_id}', public"))
         result = await self.session.execute(sql_query)
-        return result.first()
+        return result.mappings().first()

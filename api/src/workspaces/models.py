@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 import json
 from enum import Enum
 from typing import Any, Optional
@@ -40,7 +39,6 @@ def map_db_to_model(value) -> QuestDefinitionTypeModel:
         return QuestDefinitionTypeModel[QuestDefinitionTypeDB(value).name]
     else:
         return value
-
 
 # Create a type alias using Annotated and the validator
 QuestDefinitionType = Annotated[str, BeforeValidator(map_db_to_model)]
