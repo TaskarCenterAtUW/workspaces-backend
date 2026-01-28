@@ -32,7 +32,7 @@ class WorkspaceRepository:
         )
 
         try:
-            if workspace.tdeiProjectGroupId not in current_user.projectGroups:
+            if workspace.tdeiProjectGroupId not in current_user.getProjectGroupIds():
                 raise ValueError(
                     "User does not have permissions to create a workspace in that project group."
                 )
@@ -50,7 +50,7 @@ class WorkspaceRepository:
     async def get_by_id(self, current_user: UserInfo, workspace_id: int) -> Workspace:
         query = select(Workspace).where(
             Workspace.id == workspace_id
-            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
         )
         result = await self.session.execute(query)
         workspace = result.scalar_one_or_none()
@@ -61,7 +61,7 @@ class WorkspaceRepository:
 
     async def get_all(self, current_user: UserInfo) -> list[Workspace]:
         query = select(Workspace).where(
-            Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
@@ -81,7 +81,7 @@ class WorkspaceRepository:
             update(Workspace)
             .where(
                 Workspace.id == workspace_id
-                and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+                and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
             )
             .values(**update_data)
         )
@@ -101,7 +101,7 @@ class WorkspaceRepository:
     ) -> Workspace:
         query = select(Workspace).where(
             Workspace.id == workspace_id
-            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
         )
         result = await self.session.execute(query)
         workspace = result.scalar_one_or_none()
@@ -142,7 +142,7 @@ class WorkspaceRepository:
             .where(Workspace.id == WorkspaceLongQuest.workspace_id)
             .where(
                 Workspace.id == workspace_id
-                and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+                and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
             )
         )
         result = await self.session.execute(query)
@@ -161,7 +161,7 @@ class WorkspaceRepository:
     ) -> Workspace:
         query = select(Workspace).where(
             Workspace.id == workspace_id
-            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
         )
         result = await self.session.execute(query)
         workspace = result.scalar_one_or_none()
@@ -196,7 +196,7 @@ class WorkspaceRepository:
             .where(Workspace.id == WorkspaceImagery.workspace_id)
             .where(
                 Workspace.id == workspace_id
-                and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+                and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
             )
         )
         result = await self.session.execute(query)
@@ -210,7 +210,7 @@ class WorkspaceRepository:
     async def delete(self, current_user: UserInfo, workspace_id: int) -> None:
         query = delete(Workspace).where(
             Workspace.id == workspace_id
-            and Workspace.tdeiProjectGroupId.in_(current_user.projectGroups)
+            and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
         )
         result = await self.session.execute(query)
 

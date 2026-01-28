@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     WS_OSM_HOST: str = "http://osm-rails:3000"
 
     SENTRY_DSN: str = (
-        "https://ee0b098ee77451fb4a3f01c77eb2546e@o4510431738200064.ingest.us.sentry.io/4510630433980416"
+        ""
     )
 
     model_config = SettingsConfigDict(

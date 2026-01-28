@@ -21,6 +21,7 @@ from api.utils.migrations import run_migrations
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,
     environment=os.getenv("ENV", "unknown"),
+    debug=os.getenv("ENV", "unknown") == "unknown"
 )
 
 sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))

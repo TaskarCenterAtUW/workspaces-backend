@@ -1,9 +1,7 @@
 import json
 import os
-import requests
 import requests_cache
 
-import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
@@ -29,6 +27,13 @@ class UserInfo:
     user_name: str
     projectGroups: list[UserInfoPG]
 
+    def getProjectGroupIds(self, withRole = "any") -> list[str]:
+        pgids = []
+        for pg in self.projectGroups:
+            if(withRole == "any" or pg.roles.__contains__(withRole)):
+                pgids.append(pg.project_group_id)
+        return pgids
+
 
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -51,7 +56,7 @@ async def validate_token(
     )
 
     payload = jwtDecoded.get("payload", {})
-    
+
     user_id: str | None = payload.get("sub")
     if user_id is None:
         raise credentials_exception
