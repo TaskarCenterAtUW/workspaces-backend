@@ -1,5 +1,7 @@
 import json
 import os
+from urllib.request import Request
+import starlette.requests
 import requests_cache
 
 import httpx
@@ -79,3 +81,14 @@ async def validate_token(
     r.projectGroups = pgs
 
     return r
+
+async def validate_workspace_role_for_call(
+    current_user: UserInfo,
+    request: starlette.requests.Request,
+    workspace_id: int,
+) -> bool:
+
+    method = request.method
+    path_params = request.path_params
+
+    return True  # FIXME: implement actual role validation logic here

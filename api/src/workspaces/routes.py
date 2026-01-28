@@ -222,7 +222,7 @@ async def get_imagery_settings(
                 detail="No Content",
             )
 
-        return workspace.imageryListDef
+        return WorkspaceImageryResponse(**workspace.imageryListDef.model_dump())
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise

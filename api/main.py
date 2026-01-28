@@ -11,7 +11,7 @@ from api.core import config
 from api.core.config import settings
 from api.core.database import get_task_session
 from api.core.logging import get_logger, setup_logging
-from api.core.security import UserInfo, validate_token
+from api.core.security import UserInfo, validate_token, validate_workspace_role_for_call
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.src.workspaces.service import WorkspaceService
@@ -92,6 +92,12 @@ async def catch_all(
                 detail="Invalid authentication credentials",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+    if authorizedWorkspace is None or validate_workspace_role_for_call(current_user, request, authorizedWorkspace.id) is False:   
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permissions to access this OSM method for that workspace.",
+        )
 
     url = httpx.URL(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
