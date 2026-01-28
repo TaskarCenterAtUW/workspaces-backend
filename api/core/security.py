@@ -8,6 +8,8 @@ import jwt
 from sqlalchemy import UUID
 
 security = HTTPBearer()
+
+# cache for TDEI user/PG info requests
 session = requests_cache.CachedSession('pg_user_cache', expire_after=300)
 
 class UserInfoPG:
@@ -38,7 +40,7 @@ class UserInfo:
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> UserInfo:
-    """Dependency to get current authenticated user."""
+    """Dependency to get current authenticated user from TDEI/KeyCloak token and APIs."""
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -47,6 +49,7 @@ async def validate_token(
     )
 
     jwks_client = jwt.PyJWKClient("https://account-dev.tdei.us/realms/tdei/protocol/openid-connect/certs")
+
     signing_key = jwks_client.get_signing_key_from_jwt(credentials.credentials)
 
     jwtDecoded = jwt.decode_complete(
@@ -54,7 +57,6 @@ async def validate_token(
         key=signing_key.key,
         algorithms=["RS256"],
     )
-
     payload = jwtDecoded.get("payload", {})
 
     user_id: str | None = payload.get("sub")
@@ -66,6 +68,7 @@ async def validate_token(
         "Content-Type": "application/json",
     }
 
+    # get user's project groups and roles from TDEI
     # TODO: fix if user has > 50 PGs
     authorizationUrl = (
         os.environ.get(

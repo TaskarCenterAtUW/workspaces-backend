@@ -24,13 +24,10 @@ from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefiniti
 #
 # These are DTOs used by the API to pass values to/from the client, NOT the schema definitions
 #
-
-
 class QuestDefinitionTypeModel(Enum):
     NONE = "NONE"
     JSON = "JSON"
     URL = "URL"
-
 
 # map the value from the database enum to the model enum if necessary
 # FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
@@ -42,7 +39,6 @@ def map_db_to_model(value) -> QuestDefinitionTypeModel:
 
 # Create a type alias using Annotated and the validator
 QuestDefinitionType = Annotated[str, BeforeValidator(map_db_to_model)]
-
 
 class WorkspaceLongQuestBase(BaseModel):
 
@@ -65,6 +61,7 @@ class WorkspaceLongQuestBase(BaseModel):
 
         if not value:
             raise ValidationError("This field is required.")
+
         if data["url"]:
             raise ValidationError("'url' field not allowed.")
 
@@ -170,7 +167,7 @@ class WorkspaceBase(BaseModel):
         """Serializes the dictionary data into a JSON string."""
         return json.dumps(data)
 
-    # there are some legacy records with '', which is not valid JSON, so map those to None
+    # there are some legacy records with '', which is not valid JSON, so map those to None (FIXME?)
     @field_validator("*", mode="before")
     @classmethod
     def empty_str_to_none(cls, v):

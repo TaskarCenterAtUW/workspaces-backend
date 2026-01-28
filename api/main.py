@@ -1,3 +1,4 @@
+from contextlib import suppress
 import os
 import re
 
@@ -21,7 +22,7 @@ from api.utils.migrations import run_migrations
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,
     environment=os.getenv("ENV", "unknown"),
-    debug=os.getenv("ENV", "unknown") == "unknown"
+    debug=settings.DEBUG,
 )
 
 sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
@@ -69,9 +70,9 @@ def get_workspace_service(
 #
 
 # Define paths that do not require X-Workspace header
-WHITELIST_PATHS = [
+AUTH_WHITELIST_PATHS = [
     "/api/0.6/user/*", # used during authentication
-    "/api/0.6/workspaces/[0-9]*/bbox.json", # used to get workspace bbox without workspace header 
+    "/api/0.6/workspaces/[0-9]*/bbox.json", # used to get workspace bbox without workspace header, to be removed
 ]
 
 @app.api_route(
@@ -102,7 +103,7 @@ async def catch_all(
             )
             return
     else:
-        if(not any(re.search(pattern, request.url.path) for pattern in WHITELIST_PATHS)):
+        if(not any(re.search(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="You must set your workspace in the X-Workspace header to access OSM methods.",
@@ -128,6 +129,7 @@ async def catch_all(
     rp_req = client.build_request(
         request.method, url, headers=new_headers, content=await request.body()
     )
+
     rp_resp = await client.send(rp_req, stream=True)
 
     if rp_resp.status_code >= 400 and rp_resp.status_code < 600:
