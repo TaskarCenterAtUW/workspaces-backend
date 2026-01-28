@@ -10,6 +10,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import UUID
 
+from api.src.workspaces.models import WorkspaceResponse
+
 security = HTTPBearer()
 session = requests_cache.CachedSession('pg_user_cache', expire_after=300)
 class UserInfo:
@@ -85,7 +87,7 @@ async def validate_token(
 async def validate_workspace_role_for_call(
     current_user: UserInfo,
     request: starlette.requests.Request,
-    workspace_id: int,
+    workspace: WorkspaceResponse | None,
 ) -> bool:
 
     method = request.method

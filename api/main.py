@@ -93,7 +93,7 @@ async def catch_all(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-    if authorizedWorkspace is None or validate_workspace_role_for_call(current_user, request, authorizedWorkspace.id) is False:   
+    if validate_workspace_role_for_call(current_user, request, authorizedWorkspace) is False:   
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User does not have permissions to access this OSM method for that workspace.",
