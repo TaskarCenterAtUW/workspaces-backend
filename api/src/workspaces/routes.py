@@ -5,6 +5,7 @@ from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.models import (
+    QuestDefinitionTypeModel,
     WorkspaceCreate,
     WorkspaceImageryResponse,
     WorkspaceImageryUpdate,
@@ -89,14 +90,14 @@ async def get_workspace_bbox(
                 detail="No Content",
             )
 
-        result = await osm_service.get_workspace_bbox(current_user, workspace_id)
-        return result
+        return await osm_service.get_workspace_bbox(current_user, workspace_id)
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
 
-# Returns 201 on success? FIXME? Make consistent with all other methods?
+# Returns 201 on success? 
+# FIXME? Make consistent with all other methods re: HTTP response?
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
@@ -111,7 +112,8 @@ async def create_workspace(
         raise
 
 
-# Returns the updated workspace on success. FIXME? Make consistent with all other methods?
+# Returns the updated workspace on success. 
+# FIXME? Make consistent with all other methods re: 204 response?
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(
     workspace_id: int,
@@ -144,28 +146,6 @@ async def delete_workspace(
 
 
 # Returns JSON payload or 204 if not set
-@router.get("/{workspace_id}/quests/long", response_model=WorkspaceResponse)
-async def get_long_quest(
-    workspace_id: int,
-    service: WorkspaceService = Depends(get_workspace_service),
-    current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceLongQuestBase | None:
-    try:
-        workspace = await service.get_workspace(current_user, workspace_id)
-
-        if workspace.longFormQuestDef is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
-
-        return workspace.longFormQuestDef
-    except Exception as e:
-        logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
-        raise
-
-
-# Returns JSON payload or 204 if not set
 @router.get(
     "/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestResponse
 )
@@ -178,12 +158,14 @@ async def get_long_quest_settings(
         workspace = await service.get_workspace(current_user, workspace_id)
 
         if workspace.longFormQuestDef is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
+            return WorkspaceLongQuestResponse(
+                workspace_id=workspace_id,
+                type = QuestDefinitionTypeModel.NONE.value,    
+                definition = None,
+                url = None,
             )
-
-        return workspace.longFormQuestDef
+        else:
+            return workspace.longFormQuestDef
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -217,12 +199,12 @@ async def get_imagery_settings(
         workspace = await service.get_workspace(current_user, workspace_id)
 
         if workspace.imageryListDef is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
+            return WorkspaceImageryResponse(
+                workspace_id=workspace_id, 
+                definition=[]
             )
-
-        return WorkspaceImageryResponse(**workspace.imageryListDef.model_dump())
+        else:
+            return WorkspaceImageryResponse(**workspace.imageryListDef.model_dump())
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise

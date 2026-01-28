@@ -29,7 +29,7 @@ class QuestDefinitionTypeModel(Enum):
     JSON = "JSON"
     URL = "URL"
 
-# map the value from the database enum to the model enum if necessary
+# map the value from the database enum to the model enum when necessary
 # FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
 def map_db_to_model(value) -> QuestDefinitionTypeModel:
     if value in QuestDefinitionTypeDB:
@@ -50,7 +50,9 @@ class WorkspaceLongQuestBase(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    def validate_definition(self, data, value):
+    @field_validator('definition')
+    @classmethod
+    def validate_definition(cls, data, value):
         if data["type"] == QuestDefinitionTypeModel.NONE:
             if not value:
                 return None
@@ -71,13 +73,15 @@ class WorkspaceLongQuestBase(BaseModel):
                 raise ValidationError("must be a JSON object.")
             validate_json_against_schema(parsed, Settings.WS_LONGFORM_SCHEMA_URL)
         except json.JSONDecodeError as e:
-            return ValidationError(f"{e}")
+            raise ValidationError(f"{e}")
         except ValidationError as e:
             raise ValidationError(f"{e}")
 
         return value
 
-    def validate_url(self, data, value):
+    @field_validator('definition')
+    @classmethod
+    def validate_url(cls, data, value):
         if data["type"] == QuestDefinitionTypeModel.NONE:
             if not value:
                 return None
@@ -196,10 +200,11 @@ def validate_json_against_schema(json, schema_url) -> bool:
     """
 
     # Fetch the schema
-    response = requests.get(schema_url)
+    response = requests.get(schema_url, timeout=10)
     response.raise_for_status()
     schema = response.json()
 
     # Validate
     validate(instance=json, schema=schema)
+
     return True

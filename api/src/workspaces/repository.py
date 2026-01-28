@@ -77,6 +77,9 @@ class WorkspaceRepository:
         if not update_data:
             raise ValueError("No fields to update")
 
+        update_data["modifiedBy"] = current_user.user_uuid
+        update_data["modifiedByName"] = current_user.user_name
+
         query = (
             update(Workspace)
             .where(
