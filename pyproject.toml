@@ -33,6 +33,7 @@ dependencies = [
     "requests-cache>=1.2.1",
     "pyjwt",
     "sqlmodel>=0.0.8",
+    "cachetools"
 ]
 
 [tool.pytest.ini_options]

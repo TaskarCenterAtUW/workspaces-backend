@@ -1,9 +1,11 @@
 import json
 import os
 from enum import StrEnum
+import requests
 
+from api.core.logging import get_logger
 import jwt
-import requests_cache
+import cachetools.func
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
@@ -13,11 +15,10 @@ from sqlmodel import UUID
 from api.core.database import get_osm_session, get_task_session
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
+# Set up logger for this module
+logger = get_logger(__name__)
+    
 security = HTTPBearer()
-
-# cache for TDEI user/PG info requests
-session = requests_cache.CachedSession("pg_user_cache", expire_after=300)
-
 
 class TdeiProjectGroupRole(StrEnum):
     MEMBER = "member"
@@ -44,7 +45,6 @@ class UserInfoPGMembership:
 
 
 class UserInfo:
-    scheme: str
     credentials: str
     user_uuid: UUID
     user_name: str
@@ -112,13 +112,25 @@ def get_task_db_session(
 ) -> AsyncSession:
     return session
 
-
+# HTTPAuthorizationCredentials isn't serializable, so we extract the token string here and pass
+# to the method below that is cached
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     osm_db_session: AsyncSession = Depends(get_osm_db_session),
     task_db_session: AsyncSession = Depends(get_task_db_session),
 ) -> UserInfo:
+    return await real_validate_token(credentials.credentials, osm_db_session, task_db_session)
+
+# see above as to why this is split out / renamed real_*
+@cachetools.func.ttl_cache(ttl=60 * 60)
+async def real_validate_token(
+    token: str,
+    osm_db_session: AsyncSession,
+    task_db_session: AsyncSession,
+) -> UserInfo:
     """Dependency to get current authenticated user from TDEI/KeyCloak token and APIs."""
+
+    logger.info("Starting validation of token")
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -130,10 +142,10 @@ async def validate_token(
         "https://account-dev.tdei.us/realms/tdei/protocol/openid-connect/certs"
     )
 
-    signing_key = jwks_client.get_signing_key_from_jwt(credentials.credentials)
+    signing_key = jwks_client.get_signing_key_from_jwt(token)
 
     jwtDecoded = jwt.decode_complete(
-        credentials.credentials,
+        token,
         key=signing_key.key,
         algorithms=["RS256"],
     )
@@ -144,7 +156,7 @@ async def validate_token(
         raise credentials_exception
 
     headers = {
-        "Authorization": "Bearer " + credentials.credentials,
+        "Authorization": "Bearer " + token,
         "Content-Type": "application/json",
     }
 
@@ -157,7 +169,7 @@ async def validate_token(
         + "?page_no=1&page_size=50"
     )
 
-    response = session.get(authorizationUrl, headers=headers)
+    response = requests.get(authorizationUrl, headers=headers)
 
     # token is not valid or server unavailable
     if response.status_code != 200:
@@ -170,8 +182,7 @@ async def validate_token(
         raise credentials_exception
 
     r = UserInfo()
-    r.scheme = credentials.scheme
-    r.credentials = credentials.credentials
+    r.credentials = token
     r.user_uuid = payload.get("sub", "unknown")
     r.user_name = payload.get("preferred_username", "unknown")
 
@@ -220,5 +231,7 @@ async def validate_token(
             osmRoles[i["workspace_id"]] = []
         osmRoles[i["workspace_id"]].append(i["role"])
     r.osmWorkspaceRoles = osmRoles
+
+    logger.info("Finished validation of token")
 
     return r
