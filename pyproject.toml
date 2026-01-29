@@ -31,7 +31,8 @@ dependencies = [
     "requests>=2.32.5",
     "sentry-sdk[fastapi]>=2.48.0",
     "requests-cache>=1.2.1",
-    "pyjwt"
+    "pyjwt",
+    "sqlmodel>=0.0.8",
 ]
 
 [tool.pytest.ini_options]

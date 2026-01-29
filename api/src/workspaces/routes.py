@@ -4,19 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
-from api.src.workspaces.models import (
-    WorkspaceCreate,
-    WorkspaceImageryResponse,
-    WorkspaceImageryUpdate,
-    WorkspaceLongQuestBase,
-    WorkspaceLongQuestResponse,
-    WorkspaceLongQuestUpdate,
-    WorkspaceResponse,
-    WorkspaceUpdate,
-)
+
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
-from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceUserRoleType
-from api.src.workspaces.service import OSMService, WorkspaceService
+from api.src.workspaces.schemas import QuestDefinitionType, Workspace, WorkspaceImagery, WorkspaceLongQuest, WorkspaceUserRoleType
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -24,27 +14,27 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
 
 
-def get_workspace_service(
+def get_workspace_repository(
     session: AsyncSession = Depends(get_task_session),
-) -> WorkspaceService:
+) -> WorkspaceRepository:
     repository = WorkspaceRepository(session)
-    return WorkspaceService(repository)
+    return repository
 
-def get_osm_service(
+def get_osm_repository(
     session: AsyncSession = Depends(get_osm_session),
-) -> OSMService:
+) -> OSMRepository:
     repository = OSMRepository(session)
-    return OSMService(repository)
+    return repository
 
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
-@router.get("/mine", response_model=list[WorkspaceResponse])
+@router.get("/mine", response_model=list[Workspace])
 async def get_my_workspaces(
-    service: WorkspaceService = Depends(get_workspace_service),
+    repository: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> list[WorkspaceResponse]:
+) -> list[Workspace]:
     try:
-        workspaces = await service.get_all_workspaces(current_user)
+        workspaces = await repository.getAll(current_user)
         return workspaces
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
@@ -52,14 +42,14 @@ async def get_my_workspaces(
 
 
 # Returns JSON payload or 204 if not found
-@router.get("/{workspace_id}", response_model=WorkspaceResponse)
+@router.get("/{workspace_id}", response_model=Workspace)
 async def get_workspace(
     workspace_id: int,
-    service: WorkspaceService = Depends(get_workspace_service),
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceResponse:
+) -> Workspace:
     try:
-        workspace = await service.get_workspace(current_user, workspace_id)
+        workspace = await repository_ws.getById(current_user, workspace_id)
 
         if workspace is None:
             raise HTTPException(
@@ -76,19 +66,19 @@ async def get_workspace(
 @router.get("/{workspace_id}/bbox", response_model=None)
 async def get_workspace_bbox(
     workspace_id: int,
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    osm_service: OSMService = Depends(get_osm_service),
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    repository_osm: OSMRepository = Depends(get_osm_repository),
     current_user: UserInfo = Depends(validate_token),
 ):
     try:
-        workspace = await workspace_service.get_workspace(current_user, workspace_id)
+        workspace = await repository_ws.getById(current_user, workspace_id)
         if workspace is None:
             raise HTTPException(
                 status_code=status.HTTP_204_NO_CONTENT,
                 detail="No Content",
             )
 
-        bbox = await osm_service.get_workspace_bbox(current_user, workspace_id)
+        bbox = await repository_osm.getWorkspaceBBox(current_user, workspace_id)
 
         if bbox is None:
             raise HTTPException(
@@ -102,14 +92,14 @@ async def get_workspace_bbox(
 
 
 # Returns 201 on success? 
-@router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=Workspace, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
-    workspace_data: WorkspaceCreate,
-    service: WorkspaceService = Depends(get_workspace_service),
+    workspace_data: Workspace,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceResponse:
+) -> Workspace:
     try:
-        workspace = await service.create_workspace(current_user, workspace_data)
+        workspace = await repository_ws.create(current_user, workspace_data)
         return workspace
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
@@ -117,17 +107,15 @@ async def create_workspace(
 
 
 # Returns the updated workspace on success. 
-@router.patch("/{workspace_id}", response_model=WorkspaceResponse)
+@router.patch("/{workspace_id}", response_model=Workspace)
 async def update_workspace(
     workspace_id: int,
-    workspace_data: WorkspaceUpdate,
-    service: WorkspaceService = Depends(get_workspace_service),
+    workspace_data,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceResponse:
+) -> Workspace:
     try:
-        workspace = await service.update_workspace(
-            current_user, workspace_id, workspace_data
-        )
+        workspace = await repository_ws.update(current_user, workspace_id, workspace_data)
         return workspace
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
@@ -138,11 +126,11 @@ async def update_workspace(
 @router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workspace(
     workspace_id: int,
-    service: WorkspaceService = Depends(get_workspace_service),
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     try:
-        await service.delete_workspace(current_user, workspace_id)
+        await repository_ws.delete(current_user, workspace_id)
     except Exception as e:
         logger.error(f"Failed to delete workspace {workspace_id}: {str(e)}")
         raise
@@ -152,22 +140,24 @@ async def delete_workspace(
 
 # Returns JSON payload or 204 if not set
 @router.get(
-    "/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestResponse
+    "/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuest
 )
 async def get_long_quest_settings(
     workspace_id: int,
-    service: WorkspaceService = Depends(get_workspace_service),
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceLongQuestBase | None:
+) -> WorkspaceLongQuest | None:
     try:
-        workspace = await service.get_workspace(current_user, workspace_id)
-
+        workspace = await repository_ws.getById(current_user, workspace_id)
         if workspace.longFormQuestDef is None:
-            return WorkspaceLongQuestResponse(
+            return WorkspaceLongQuest(
                 workspace_id=workspace_id,
                 type = QuestDefinitionType.NONE,    
                 definition = None,
                 url = None,
+                modifiedAt=workspace.createdAt,
+                modifiedBy=workspace.createdBy,
+                modifiedByName="",
             )
         else:
             return workspace.longFormQuestDef
@@ -182,12 +172,12 @@ async def get_long_quest_settings(
 )
 async def update_long_quest_settings(
     workspace_id: int,
-    long_quest_data: WorkspaceLongQuestUpdate,
-    service: WorkspaceService = Depends(get_workspace_service),
+    long_quest_data,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     try:
-        await service.set_longform_quest(current_user, workspace_id, long_quest_data)
+        await repository_ws.updateLongformQuest(current_user, workspace_id, long_quest_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
@@ -196,22 +186,25 @@ async def update_long_quest_settings(
 ### IMAGERY
 
 # Returns JSON payload or 204 if not set
-@router.get("/{workspace_id}/imagery/settings", response_model=WorkspaceImageryResponse)
+@router.get("/{workspace_id}/imagery/settings")
 async def get_imagery_settings(
     workspace_id: int,
-    service: WorkspaceService = Depends(get_workspace_service),
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceImageryResponse | None:
+) -> WorkspaceImagery | None:
     try:
-        workspace = await service.get_workspace(current_user, workspace_id)
+        workspace = await repository_ws.getById(current_user, workspace_id)
 
         if workspace.imageryListDef is None:
-            return WorkspaceImageryResponse(
+            return WorkspaceImagery(
                 workspace_id=workspace_id, 
-                definition=[]
+                definition=[],
+                modifiedAt=workspace.createdAt,
+                modifiedBy=workspace.createdBy,
+                modifiedByName="",
             )
         else:
-            return WorkspaceImageryResponse(**workspace.imageryListDef.model_dump())
+            return WorkspaceImagery(**workspace.imageryListDef.model_dump())
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -223,12 +216,12 @@ async def get_imagery_settings(
 )
 async def update_imagery_settings(
     workspace_id: int,
-    imagery_data: WorkspaceImageryUpdate,
-    service: WorkspaceService = Depends(get_workspace_service),
+    imagery_data,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
     try:
-        await service.set_imagery(current_user, workspace_id, imagery_data)
+        await repository_ws.updateImageryDef(current_user, workspace_id, imagery_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
@@ -240,9 +233,9 @@ async def update_imagery_settings(
 async def get_users(
     workspace_id: int,
     current_user: UserInfo = Depends(validate_token),
-    osm_service: OSMService = Depends(get_osm_service),
+    repository_osm: OSMRepository = Depends(get_osm_repository),
 ):
-    return await osm_service.get_all_users(current_user)
+    return await repository_osm.getAllUsers()
 
 
 @router.post("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -252,16 +245,16 @@ async def add_user_with_role(
     role: WorkspaceUserRoleType,
 
     current_user: UserInfo = Depends(validate_token),
-    osm_service: OSMService = Depends(get_osm_service),
+    repository_osm: OSMRepository = Depends(get_osm_repository),
 
 ):
-    return await osm_service.add_user_to_workspace(current_user, workspace_id, user_id, role)
+    return await repository_osm.addUserToWorkspaceWithRole(current_user, workspace_id, user_id, role)
 
 @router.delete("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_user_with_role(
     workspace_id: int,
     user_id: int,   
     current_user: UserInfo = Depends(validate_token),
-    osm_service: OSMService = Depends(get_osm_service),
+    repository_osm: OSMRepository = Depends(get_osm_repository),
 ):
-    return await osm_service.remove_user_from_workspace(current_user, workspace_id, user_id)
+    return await repository_osm.removeUserFromWorkspace(current_user, workspace_id, user_id)

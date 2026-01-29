@@ -5,7 +5,7 @@ import requests_cache
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
-from sqlalchemy import UUID
+from sqlmodel import UUID
 
 security = HTTPBearer()
 

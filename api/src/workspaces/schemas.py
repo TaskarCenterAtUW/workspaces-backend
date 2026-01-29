@@ -1,26 +1,13 @@
+from datetime import datetime
 from enum import IntEnum, StrEnum
+from typing import Any, Optional
+from uuid import UUID
 
 from geoalchemy2 import Geometry
-from sqlalchemy import (
-    JSON,
-    UUID,
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    SmallInteger,
-    TypeDecorator,
-    Unicode,
-)
-from sqlalchemy.orm import Mapped, relationship
-from sqlalchemy.sql import func
-
-from api.core.database import Base
+from sqlalchemy import JSON as SAJson, Column, SmallInteger, TypeDecorator, Unicode
+from sqlmodel import Field, Relationship, SQLModel
 
 
-#
-# These are the schema definitions for the database ORM, NOT DTOs used by the APIs
-#
 class IntEnumType(TypeDecorator):
     """Stores IntEnum as integer, returns as enum."""
     impl = SmallInteger
@@ -66,47 +53,11 @@ class ExternalAppsDefinitionType(IntEnum):
     PUBLIC = 1
     PROJECT_GROUP = 2
 
+
 class WorkspaceType(StrEnum):
     OSW = "osw"
     PATHWAYS = "pathways"
-    FLEX  = "flex"
-
-class Workspace(Base):
-    """Workspaces"""
-
-    __tablename__ = "workspaces"
-
-    id = Column(Integer, primary_key=True)
-    type = Column(StrEnumType(WorkspaceType), nullable=False)
-
-    title = Column(Unicode, nullable=False)
-    description = Column(Unicode)
-
-    tdeiProjectGroupId = Column(UUID(as_uuid=True), nullable=False)
-    tdeiRecordId = Column(UUID(as_uuid=True))
-    tdeiServiceId = Column(UUID(as_uuid=True))
-
-    tdeiMetadata = Column(JSON)
-
-    createdAt = Column(DateTime, nullable=False, default=func.now())
-    createdBy = Column(UUID(as_uuid=True), nullable=False)
-    createdByName = Column(Unicode, nullable=False)
-
-    geometry = Column(Geometry("MULTIPOLYGON", srid=4326))
-
-    externalAppAccess = Column(
-        IntEnumType(ExternalAppsDefinitionType), nullable=False, default=ExternalAppsDefinitionType.NONE
-    )
-
-    kartaViewToken = Column(Unicode)
-
-    longFormQuestDef: Mapped[list["WorkspaceLongQuest"]] = relationship(
-        "WorkspaceLongQuest", uselist=False, lazy="joined", cascade="all, delete"
-    )
-
-    imageryListDef: Mapped[list["WorkspaceImagery"]] = relationship(
-        "WorkspaceImagery", uselist=False, lazy="joined", cascade="all, delete-orphan"
-    )
+    FLEX = "flex"
 
 
 class QuestDefinitionType(IntEnum):
@@ -114,52 +65,98 @@ class QuestDefinitionType(IntEnum):
     JSON = 1
     URL = 2
 
-class WorkspaceLongQuest(Base):
-    """Stores mobile app quest definitions for a workspace"""
-
-    __tablename__ = "workspaces_long_quests"
-
-    workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
-
-    type = Column(IntEnumType(QuestDefinitionType), nullable=False, default=QuestDefinitionType.NONE)
-
-    definition = Column(Unicode, nullable=True, default=None)
-    url = Column(Unicode, nullable=True, default=None)
-
-    modifiedAt = Column(
-        DateTime, nullable=False, default=func.now(), onupdate=func.now()
-    )
-    modifiedBy = Column(UUID(as_uuid=True), nullable=False)
-    modifiedByName = Column(Unicode, nullable=False)
-
-
-class WorkspaceImagery(Base):
-    """Stores imagery list for a workspace"""
-
-    __tablename__ = "workspaces_imagery"
-
-    workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
-
-    definition = Column(JSON, nullable=False, default=None)
-
-    modifiedAt = Column(
-        DateTime, nullable=False, default=func.now(), onupdate=func.now()
-    )
-    modifiedBy = Column(UUID(as_uuid=True), nullable=False)
-    modifiedByName = Column(Unicode, nullable=False)
-
 
 class WorkspaceUserRoleType(StrEnum):
     LEAD = "lead"
     VALIDATOR = "validator"
     CONTRIBUTOR = "contributor"
 
-class WorkspaceUserRole(Base):
+
+class WorkspaceLongQuest(SQLModel, table=True):
+    """Stores mobile app quest definitions for a workspace"""
+
+    __tablename__ = "workspaces_long_quests"  # type: ignore[assignment]
+
+    workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
+    type: QuestDefinitionType = Field(
+        default=QuestDefinitionType.NONE,
+        sa_column=Column(IntEnumType(QuestDefinitionType), nullable=False, default=QuestDefinitionType.NONE)
+    )
+    definition: Optional[str] = None
+    url: Optional[str] = None
+
+    modifiedAt: datetime = Field(
+        sa_column=Column(nullable=False, default=datetime.now, onupdate=datetime.now)
+    )
+    modifiedBy: UUID
+    modifiedByName: str
+
+
+class WorkspaceImagery(SQLModel, table=True):
+    """Stores imagery list for a workspace"""
+
+    __tablename__ = "workspaces_imagery"  # type: ignore[assignment]
+
+    workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
+    definition: Optional[list[Any]] = Field(default=None, sa_column=Column(SAJson, nullable=False))
+
+    modifiedAt: datetime = Field(
+        sa_column=Column(nullable=False, default=datetime.now, onupdate=datetime.now)
+    )
+    modifiedBy: UUID
+    modifiedByName: str
+
+
+class WorkspaceUserRole(SQLModel, table=True):
     """Associates users with workspaces and their roles"""
 
-    __tablename__ = "user_workspace_roles"
+    __tablename__ = "user_workspace_roles"  # type: ignore[assignment]
 
-    user_id = Column(UUID(as_uuid=True), primary_key=True)
-    workspace_id = Column(Integer, ForeignKey(Workspace.id), primary_key=True)
+    user_id: UUID = Field(primary_key=True)
+    workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
+    role: WorkspaceUserRoleType = Field(
+        sa_column=Column(StrEnumType(WorkspaceUserRoleType), nullable=False)
+    )
 
-    role = Column(StrEnumType(WorkspaceUserRoleType), nullable=False)
+
+class Workspace(SQLModel, table=True):
+    """Workspaces"""
+
+    __tablename__ = "workspaces"  # type: ignore[assignment]
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    type: WorkspaceType = Field(
+        sa_column=Column(StrEnumType(WorkspaceType), nullable=False)
+    )
+
+    title: str
+    description: Optional[str] = None
+
+    tdeiProjectGroupId: UUID
+    tdeiRecordId: Optional[UUID] = None
+    tdeiServiceId: Optional[UUID] = None
+
+    tdeiMetadata: Optional[Any] = Field(default=None, sa_column=Column(SAJson))
+
+    createdAt: datetime = Field(sa_column=Column(nullable=False, default=datetime.now))
+    createdBy: UUID
+    createdByName: str
+
+    geometry: Optional[Any] = Field(
+        default=None,
+        sa_column=Column(Geometry("MULTIPOLYGON", srid=4326))
+    )
+
+    externalAppAccess: ExternalAppsDefinitionType = Field(
+        default=ExternalAppsDefinitionType.NONE,
+        sa_column=Column(IntEnumType(ExternalAppsDefinitionType), nullable=False, default=ExternalAppsDefinitionType.NONE)
+    )
+
+    kartaViewToken: Optional[str] = None
+
+    longFormQuestDef: Optional[WorkspaceLongQuest] = Relationship(
+        sa_relationship_kwargs={"uselist": False, "lazy": "joined", "cascade": "all, delete"}
+    )
+    imageryListDef: Optional[WorkspaceImagery] = Relationship(
+        sa_relationship_kwargs={"uselist": False, "lazy": "joined", "cascade": "all, delete-orphan"}
+    )

@@ -15,8 +15,7 @@ from api.core.logging import get_logger, setup_logging
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
-from api.src.teams.routes import router as teams_router
-from api.src.workspaces.service import WorkspaceService
+
 from api.utils.migrations import run_migrations
 
 sentry_sdk.init(
@@ -44,7 +43,6 @@ app = FastAPI(
 
 # Include routers
 app.include_router(workspaces_router)
-app.include_router(teams_router)
 
 
 @app.get("/health")
@@ -59,11 +57,10 @@ async def root():
     return RedirectResponse(url="/docs")
 
 
-def get_workspace_service(
+def get_workspace_repository(
     session: AsyncSession = Depends(get_task_session),
-) -> WorkspaceService:
-    repository = WorkspaceRepository(session)
-    return WorkspaceService(repository)
+) -> WorkspaceRepository:
+    return WorkspaceRepository(session)
 
 
 # This API route catches anything not otherwise defined above--MUST be last in this file
@@ -84,7 +81,7 @@ AUTH_WHITELIST_PATHS = [
 async def catch_all(
     request: Request,
     current_user: UserInfo = Depends(validate_token),
-    service: WorkspaceService = Depends(get_workspace_service),
+    repository: WorkspaceRepository = Depends(get_workspace_repository),
 ):
     """
     Catch-all route to proxy requests to the OSM service.
@@ -92,7 +89,7 @@ async def catch_all(
     authorizedWorkspace = None
 
     if request.headers.get("X-Workspace") is not None:
-        authorizedWorkspace = await service.get_workspace(
+        authorizedWorkspace = await repository.getById(
             current_user, int(request.headers.get("X-Workspace") or "-1")
         )
 
