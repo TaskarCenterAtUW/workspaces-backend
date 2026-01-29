@@ -1,7 +1,7 @@
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, select, update, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ from api.src.workspaces.schemas import (
     WorkspaceUserRoleType,
 )
 
+
 class WorkspaceRepository:
 
     def __init__(self, session: AsyncSession):
@@ -27,7 +28,7 @@ class WorkspaceRepository:
     ) -> Workspace:
         workspace = Workspace(
             **workspace_data,
-            createdBy=current_user.user_uuid, # type: ignore[reportArgumentType]
+            createdBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
             createdByName=current_user.user_name,
         )
 
@@ -61,7 +62,7 @@ class WorkspaceRepository:
 
     async def getAll(self, current_user: UserInfo) -> list[Workspace]:
         query = select(Workspace).where(
-            Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds()) # type: ignore[attr-defined]
+            Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())  # type: ignore[attr-defined]
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
@@ -103,7 +104,7 @@ class WorkspaceRepository:
         if workspace:
             workspace.longFormQuestDef = WorkspaceLongQuest(
                 **longform_quest_data,
-                modifiedBy=current_user.user_uuid, # type: ignore[reportArgumentType]
+                modifiedBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
             )
@@ -122,12 +123,14 @@ class WorkspaceRepository:
         update_data["modifiedByName"] = current_user.user_name
 
         quest_type = longform_quest_data.get("type")
-        update_data["type"] = QuestDefinitionType[quest_type.name if quest_type else "NONE"].value
+        update_data["type"] = QuestDefinitionType[
+            quest_type.name if quest_type else "NONE"
+        ].value
 
         query = (
             update(WorkspaceLongQuest)
             .values(**update_data)
-            .where(WorkspaceLongQuest.workspace_id == workspace_id) # type: ignore[reportArgumentType]
+            .where(WorkspaceLongQuest.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
         )
         result = await self.session.execute(query)
 
@@ -152,7 +155,7 @@ class WorkspaceRepository:
         if workspace:
             workspace.imageryListDef = WorkspaceImagery(
                 **imagery_def_data,
-                modifiedBy=current_user.user_uuid, # type: ignore[reportArgumentType]
+                modifiedBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
             )
@@ -173,7 +176,7 @@ class WorkspaceRepository:
         query = (
             update(WorkspaceImagery)
             .values(**update_data)
-            .where(WorkspaceImagery.workspace_id == workspace_id) # type: ignore[reportArgumentType]
+            .where(WorkspaceImagery.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
         )
 
         result = await self.session.execute(query)
@@ -208,26 +211,29 @@ class OSMRepository:
         current_user: UserInfo,
         workspace_id: int,
     ):
-        await self.session.execute(text(f"SET search_path TO 'workspace-{workspace_id}', public"))
+        await self.session.execute(
+            text(f"SET search_path TO 'workspace-{workspace_id}', public")
+        )
 
-        sql_query = text('select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, \
-                         MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes')
+        sql_query = text(
+            "select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, \
+                         MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes"
+        )
 
-        result = await self.session.execute(sql_query)        
+        result = await self.session.execute(sql_query)
         retVal = result.mappings().first()
 
         if retVal is None:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
         return retVal
-    
+
     async def getAllUsers(
         self,
     ):
         query = select(User)
         result = await self.session.execute(query)
         return list(result.scalars().all())
-
 
     async def addUserToWorkspaceWithRole(
         self,
@@ -259,13 +265,15 @@ class OSMRepository:
         user_id: UUID,
     ) -> None:
         query = delete(WorkspaceUserRole).where(
-            (WorkspaceUserRole.workspace_id == workspace_id) # type: ignore[reportArgumentType]
-            & (WorkspaceUserRole.auth_user_uid == user_id) 
+            (WorkspaceUserRole.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
+            & (WorkspaceUserRole.auth_user_uid == user_id)
         )
 
         result = await self.session.execute(query)
 
         if result.rowcount != 1:
-            raise NotFoundException(f"User association removal failed for workspace {workspace_id} and user {user_id}")
+            raise NotFoundException(
+                f"User association removal failed for workspace {workspace_id} and user {user_id}"
+            )
 
         await self.session.commit()

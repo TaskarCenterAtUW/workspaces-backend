@@ -4,12 +4,14 @@ from typing import Any, Optional
 from uuid import UUID
 
 from geoalchemy2 import Geometry
-from sqlalchemy import JSON as SAJson, Column, SmallInteger, TypeDecorator, Unicode
+from sqlalchemy import JSON as SAJson
+from sqlalchemy import Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
 
 
 class IntEnumType(TypeDecorator):
     """Stores IntEnum as integer, returns as enum."""
+
     impl = SmallInteger
     cache_ok = True
 
@@ -30,6 +32,7 @@ class IntEnumType(TypeDecorator):
 
 class StrEnumType(TypeDecorator):
     """Stores StrEnum as string, returns as enum."""
+
     impl = Unicode
     cache_ok = True
 
@@ -71,6 +74,7 @@ class WorkspaceUserRoleType(StrEnum):
     VALIDATOR = "validator"
     CONTRIBUTOR = "contributor"
 
+
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -79,7 +83,11 @@ class WorkspaceLongQuest(SQLModel, table=True):
     workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
     type: QuestDefinitionType = Field(
         default=QuestDefinitionType.NONE,
-        sa_column=Column(IntEnumType(QuestDefinitionType), nullable=False, default=QuestDefinitionType.NONE)
+        sa_column=Column(
+            IntEnumType(QuestDefinitionType),
+            nullable=False,
+            default=QuestDefinitionType.NONE,
+        ),
     )
     definition: Optional[str] = None
     url: Optional[str] = None
@@ -97,7 +105,9 @@ class WorkspaceImagery(SQLModel, table=True):
     __tablename__ = "workspaces_imagery"  # type: ignore[assignment]
 
     workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
-    definition: Optional[list[Any]] = Field(default=None, sa_column=Column(SAJson, nullable=False))
+    definition: Optional[list[Any]] = Field(
+        default=None, sa_column=Column(SAJson, nullable=False)
+    )
 
     modifiedAt: datetime = Field(
         sa_column=Column(nullable=False, default=datetime.now, onupdate=datetime.now)
@@ -111,13 +121,14 @@ class WorkspaceUserRole(SQLModel, table=True):
 
     __tablename__ = "user_workspace_roles"  # type: ignore[assignment]
 
-    # this is the TDEI auth user UUID, from the token 
+    # this is the TDEI auth user UUID, from the token
     auth_user_uid: UUID = Field(foreign_key="users.auth_uid", primary_key=True)
     workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
 
     role: WorkspaceUserRoleType = Field(
         sa_column=Column(StrEnumType(WorkspaceUserRoleType), nullable=False)
     )
+
 
 class User(SQLModel, table=True):
     """Users"""
@@ -131,6 +142,7 @@ class User(SQLModel, table=True):
 
     email: str = Field(unique=True, index=True)
     display_name: str = Field(nullable=False)
+
 
 class Workspace(SQLModel, table=True):
     """Workspaces"""
@@ -156,20 +168,31 @@ class Workspace(SQLModel, table=True):
     createdByName: str
 
     geometry: Optional[Any] = Field(
-        default=None,
-        sa_column=Column(Geometry("MULTIPOLYGON", srid=4326))
+        default=None, sa_column=Column(Geometry("MULTIPOLYGON", srid=4326))
     )
 
     externalAppAccess: ExternalAppsDefinitionType = Field(
         default=ExternalAppsDefinitionType.NONE,
-        sa_column=Column(IntEnumType(ExternalAppsDefinitionType), nullable=False, default=ExternalAppsDefinitionType.NONE)
+        sa_column=Column(
+            IntEnumType(ExternalAppsDefinitionType),
+            nullable=False,
+            default=ExternalAppsDefinitionType.NONE,
+        ),
     )
 
     kartaViewToken: Optional[str] = None
 
     longFormQuestDef: Optional[WorkspaceLongQuest] = Relationship(
-        sa_relationship_kwargs={"uselist": False, "lazy": "joined", "cascade": "all, delete"}
+        sa_relationship_kwargs={
+            "uselist": False,
+            "lazy": "joined",
+            "cascade": "all, delete",
+        }
     )
     imageryListDef: Optional[WorkspaceImagery] = Relationship(
-        sa_relationship_kwargs={"uselist": False, "lazy": "joined", "cascade": "all, delete-orphan"}
+        sa_relationship_kwargs={
+            "uselist": False,
+            "lazy": "joined",
+            "cascade": "all, delete-orphan",
+        }
     )

@@ -15,7 +15,6 @@ from api.core.logging import get_logger, setup_logging
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
-
 from api.utils.migrations import run_migrations
 
 sentry_sdk.init(
@@ -47,7 +46,7 @@ app.include_router(workspaces_router)
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint. Used for Docker. """
+    """Health check endpoint. Used for Docker."""
     return {"status": "ok"}
 
 
@@ -70,9 +69,10 @@ def get_workspace_repository(
 
 # Define paths that do not require X-Workspace header
 AUTH_WHITELIST_PATHS = [
-    "/api/0.6/user/*", # used during authentication
-    "/api/0.6/workspaces/[0-9]*/bbox.json", # used to get workspace bbox without workspace header, to be removed
+    "/api/0.6/user/*",  # used during authentication
+    "/api/0.6/workspaces/[0-9]*/bbox.json",  # used to get workspace bbox without workspace header, to be removed
 ]
+
 
 @app.api_route(
     "/{full_path:path}",
@@ -89,12 +89,9 @@ async def catch_all(
     authorizedWorkspace = None
 
     if request.headers.get("X-Workspace") is not None:
-        authorizedWorkspace = await repository.getById(
-            current_user, int(request.headers.get("X-Workspace") or "-1")
-        )
+        workspace_id = int(request.headers.get("X-Workspace") or "-1")
 
-        # user specified a workspace they wanted access to, but didn't get it
-        if authorizedWorkspace is None:
+        if not current_user.isWorkspaceContributor(workspace_id):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
@@ -102,13 +99,15 @@ async def catch_all(
             )
             return
     else:
-        if(not any(re.search(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS)):
+        if not any(
+            re.search(pattern, request.url.path) for pattern in AUTH_WHITELIST_PATHS
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="You must set your workspace in the X-Workspace header to access OSM methods.",
             )
             return
-    
+
     url = httpx.URL(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
     )

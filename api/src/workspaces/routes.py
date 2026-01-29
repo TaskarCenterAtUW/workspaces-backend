@@ -1,14 +1,20 @@
 from typing import Any
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
-
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
-from api.src.workspaces.schemas import QuestDefinitionType, Workspace, WorkspaceImagery, WorkspaceLongQuest, WorkspaceUserRoleType
+from api.src.workspaces.schemas import (
+    QuestDefinitionType,
+    Workspace,
+    WorkspaceImagery,
+    WorkspaceLongQuest,
+    WorkspaceUserRoleType,
+)
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -21,6 +27,7 @@ def get_workspace_repository(
 ) -> WorkspaceRepository:
     repository = WorkspaceRepository(session)
     return repository
+
 
 def get_osm_repository(
     session: AsyncSession = Depends(get_osm_session),
@@ -94,7 +101,7 @@ async def get_workspace_bbox(
         raise
 
 
-# Returns 201 on success? 
+# Returns 201 on success?
 @router.post("/", response_model=Workspace, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: dict[str, Any],
@@ -109,7 +116,7 @@ async def create_workspace(
         raise
 
 
-# Returns the updated workspace on success. 
+# Returns the updated workspace on success.
 @router.patch("/{workspace_id}", response_model=Workspace)
 async def update_workspace(
     workspace_id: int,
@@ -117,8 +124,16 @@ async def update_workspace(
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> Workspace:
+    if current_user.isWorkspaceLead(workspace_id) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to update this workspace",
+        )
+
     try:
-        workspace = await repository_ws.update(current_user, workspace_id, workspace_data)
+        workspace = await repository_ws.update(
+            current_user, workspace_id, workspace_data
+        )
         return workspace
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
@@ -132,6 +147,12 @@ async def delete_workspace(
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
+    if current_user.isWorkspaceLead(workspace_id) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to delete this workspace",
+        )
+
     try:
         await repository_ws.delete(current_user, workspace_id)
     except Exception as e:
@@ -141,10 +162,9 @@ async def delete_workspace(
 
 ### QUESTS
 
+
 # Returns JSON payload or 204 if not set
-@router.get(
-    "/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuest
-)
+@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuest)
 async def get_long_quest_settings(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
@@ -156,9 +176,9 @@ async def get_long_quest_settings(
         if workspace.longFormQuestDef is None:
             return WorkspaceLongQuest(
                 workspace_id=workspace_id,
-                type = QuestDefinitionType.NONE,    
-                definition = None,
-                url = None,
+                type=QuestDefinitionType.NONE,
+                definition=None,
+                url=None,
                 modifiedAt=workspace.createdAt,
                 modifiedBy=workspace.createdBy,
                 modifiedByName="",
@@ -180,14 +200,23 @@ async def update_long_quest_settings(
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
+    if current_user.isWorkspaceLead(workspace_id) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to edit this workspace",
+        )
+
     try:
-        await repository_ws.updateLongformQuest(current_user, workspace_id, long_quest_data)
+        await repository_ws.updateLongformQuest(
+            current_user, workspace_id, long_quest_data
+        )
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
 
 
 ### IMAGERY
+
 
 # Returns JSON payload or 204 if not set
 @router.get("/{workspace_id}/imagery/settings")
@@ -201,7 +230,7 @@ async def get_imagery_settings(
 
         if workspace.imageryListDef is None:
             return WorkspaceImagery(
-                workspace_id=workspace_id, 
+                workspace_id=workspace_id,
                 definition=[],
                 modifiedAt=workspace.createdAt,
                 modifiedBy=workspace.createdBy,
@@ -224,6 +253,12 @@ async def update_imagery_settings(
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
+    if current_user.isWorkspaceLead(workspace_id) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to edit this workspace",
+        )
+
     try:
         await repository_ws.updateImageryDef(current_user, workspace_id, imagery_data)
     except Exception as e:
@@ -232,6 +267,7 @@ async def update_imagery_settings(
 
 
 ### USERS
+
 
 @router.get("/{workspace_id}/users")
 async def get_users(
@@ -245,20 +281,35 @@ async def get_users(
 @router.post("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def add_user_with_role(
     workspace_id: int,
-    user_id: UUID,   
+    user_id: UUID,
     role: WorkspaceUserRoleType,
-
     current_user: UserInfo = Depends(validate_token),
     repository_osm: OSMRepository = Depends(get_osm_repository),
-
 ):
-    return await repository_osm.addUserToWorkspaceWithRole(current_user, workspace_id, user_id, role)
+    if current_user.isWorkspaceLead(workspace_id) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to edit this workspace",
+        )
+
+    return await repository_osm.addUserToWorkspaceWithRole(
+        current_user, workspace_id, user_id, role
+    )
+
 
 @router.delete("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_user_with_role(
     workspace_id: int,
-    user_id: UUID,   
+    user_id: UUID,
     current_user: UserInfo = Depends(validate_token),
     repository_osm: OSMRepository = Depends(get_osm_repository),
 ):
-    return await repository_osm.removeUserFromWorkspace(current_user, workspace_id, user_id)
+    if current_user.isWorkspaceLead(workspace_id) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have permission to edit this workspace",
+        )
+
+    return await repository_osm.removeUserFromWorkspace(
+        current_user, workspace_id, user_id
+    )
