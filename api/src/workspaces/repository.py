@@ -1,5 +1,3 @@
-from typing import Any
-
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -7,10 +5,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
 from api.src.workspaces.schemas import (
+    ImagerySettingsPatch,
     QuestDefinitionType,
+    QuestSettingsPatch,
     Workspace,
+    WorkspaceCreate,
     WorkspaceImagery,
     WorkspaceLongQuest,
+    WorkspacePatch,
 )
 
 
@@ -20,20 +22,20 @@ class WorkspaceRepository:
         self.session = session
 
     async def create(
-        self, current_user: UserInfo, workspace_data: dict[str, Any]
+        self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> Workspace:
         workspace = Workspace(
-            **workspace_data,
+            **workspace_data.model_dump(),
             createdBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
             createdByName=current_user.user_name,
         )
 
-        try:
-            if workspace.tdeiProjectGroupId not in current_user.getProjectGroupIds():
-                raise ValueError(
-                    "User does not have permissions to create a workspace in that project group."
-                )
+        if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():
+            raise ValueError(
+                "User does not have permissions to create a workspace in that project group."
+            )
 
+        try:
             self.session.add(workspace)
             await self.session.commit()
             await self.session.refresh(workspace)
@@ -67,7 +69,7 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        workspace_data: dict[str, Any],
+        workspace_data: WorkspacePatch,
     ) -> Workspace:
         query = (
             update(Workspace)
@@ -75,7 +77,7 @@ class WorkspaceRepository:
                 (Workspace.id == workspace_id)
                 & (Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds()))  # type: ignore[attr-defined]
             )
-            .values(**workspace_data)
+            .values(**workspace_data.model_dump(exclude_unset=True))
         )
         result = await self.session.execute(query)
 
@@ -89,7 +91,7 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        longform_quest_data: dict[str, Any],
+        longform_quest_data: QuestSettingsPatch,
     ) -> Workspace | None:
         query = select(Workspace).where(
             (Workspace.id == workspace_id)
@@ -99,7 +101,9 @@ class WorkspaceRepository:
         workspace = result.scalar_one_or_none()
         if workspace:
             workspace.longFormQuestDef = WorkspaceLongQuest(
-                **longform_quest_data,
+                type=QuestDefinitionType[longform_quest_data.type].value,
+                definition=longform_quest_data.definition,
+                url=longform_quest_data.url,
                 modifiedBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
@@ -112,20 +116,17 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        longform_quest_data: dict[str, Any],
+        longform_quest_data: QuestSettingsPatch,
     ) -> Workspace:
-        update_data = longform_quest_data
-        update_data["modifiedBy"] = current_user.user_uuid
-        update_data["modifiedByName"] = current_user.user_name
-
-        quest_type = longform_quest_data.get("type")
-        update_data["type"] = QuestDefinitionType[
-            quest_type.name if quest_type else "NONE"
-        ].value
-
         query = (
             update(WorkspaceLongQuest)
-            .values(**update_data)
+            .values(
+                type=QuestDefinitionType[longform_quest_data.type].value,
+                definition=longform_quest_data.definition,
+                url=longform_quest_data.url,
+                modifiedBy=current_user.user_uuid,
+                modifiedByName=current_user.user_name,
+            )
             .where(WorkspaceLongQuest.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
         )
         result = await self.session.execute(query)
@@ -140,7 +141,7 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        imagery_def_data: dict[str, Any],
+        imagery_def_data: ImagerySettingsPatch,
     ) -> Workspace | None:
         query = select(Workspace).where(
             (Workspace.id == workspace_id)
@@ -150,7 +151,7 @@ class WorkspaceRepository:
         workspace = result.scalar_one_or_none()
         if workspace:
             workspace.imageryListDef = WorkspaceImagery(
-                **imagery_def_data,
+                definition=imagery_def_data.definition,
                 modifiedBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
@@ -163,15 +164,15 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        imagery_def_data: dict[str, Any],
+        imagery_def_data: ImagerySettingsPatch,
     ) -> Workspace:
-        update_data = imagery_def_data
-        update_data["modifiedBy"] = current_user.user_uuid
-        update_data["modifiedByName"] = current_user.user_name
-
         query = (
             update(WorkspaceImagery)
-            .values(**update_data)
+            .values(
+                definition=imagery_def_data.definition,
+                modifiedBy=current_user.user_uuid,
+                modifiedByName=current_user.user_name,
+            )
             .where(WorkspaceImagery.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
         )
 

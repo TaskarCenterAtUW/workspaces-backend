@@ -72,6 +72,12 @@ class QuestDefinitionType(IntEnum):
     URL = 2
 
 
+class QuestDefinitionTypeName(StrEnum):
+    NONE = "NONE"
+    JSON = "JSON"
+    URL = "URL"
+
+
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -111,6 +117,40 @@ class WorkspaceImagery(SQLModel, table=True):
     )
     modifiedBy: UUID
     modifiedByName: str
+
+
+class WorkspaceCreate(SQLModel):
+    """Fields the client may supply when creating a workspace"""
+
+    type: WorkspaceType
+    title: str
+    description: Optional[str] = None
+    tdeiProjectGroupId: UUID
+    tdeiRecordId: Optional[UUID] = None
+    tdeiServiceId: Optional[UUID] = None
+    tdeiMetadata: Optional[Any] = None
+
+
+class WorkspacePatch(SQLModel):
+    """Fields the client may supply when updating a workspace"""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    externalAppAccess: Optional[ExternalAppsDefinitionType] = None
+
+
+class QuestSettingsPatch(SQLModel):
+    """Fields the client may supply when saving long-form quest settings"""
+
+    type: QuestDefinitionTypeName
+    definition: Optional[str] = None
+    url: Optional[str] = None
+
+
+class ImagerySettingsPatch(SQLModel):
+    """Fields the client may supply when saving imagery settings"""
+
+    definition: Optional[list[Any]] = None
 
 
 class WorkspaceResponse(SQLModel):

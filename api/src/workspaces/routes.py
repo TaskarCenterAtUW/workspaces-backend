@@ -1,4 +1,3 @@
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,10 +10,14 @@ from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
 from api.src.workspaces.schemas import (
+    ImagerySettingsPatch,
     QuestDefinitionType,
+    QuestSettingsPatch,
     Workspace,
+    WorkspaceCreate,
     WorkspaceImagery,
     WorkspaceLongQuest,
+    WorkspacePatch,
     WorkspaceResponse,
 )
 
@@ -113,7 +116,7 @@ async def get_workspace_bbox(
 # Returns 201 on success?
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
-    workspace_data: dict[str, Any],
+    workspace_data: WorkspaceCreate,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     repository_users: UserRepository = Depends(get_user_repository),
     current_user: UserInfo = Depends(validate_token),
@@ -146,7 +149,7 @@ async def create_workspace(
 @router.patch("/{workspace_id}", response_model=Workspace)
 async def update_workspace(
     workspace_id: int,
-    workspace_data: dict[str, Any],
+    workspace_data: WorkspacePatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> Workspace:
@@ -227,7 +230,7 @@ async def get_long_quest_settings(
 )
 async def update_long_quest_settings(
     workspace_id: int,
-    long_quest_data: dict[str, Any],
+    long_quest_data: QuestSettingsPatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
@@ -268,7 +271,7 @@ async def get_imagery_settings(
                 modifiedByName="",
             )
         else:
-            return WorkspaceImagery(**workspace.imageryListDef.model_dump())
+            return workspace.imageryListDef
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -280,7 +283,7 @@ async def get_imagery_settings(
 )
 async def update_imagery_settings(
     workspace_id: int,
-    imagery_data: dict[str, Any],
+    imagery_data: ImagerySettingsPatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
