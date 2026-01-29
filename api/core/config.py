@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # proxy destination--"osm-rails" is a virtual docker network endpoint
     WS_OSM_HOST: str = "http://osm-rails:3000"
+    #WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
 
     SENTRY_DSN: str = ""
 

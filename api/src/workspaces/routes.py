@@ -5,7 +5,6 @@ from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
 from api.src.workspaces.models import (
-    QuestDefinitionTypeModel,
     WorkspaceCreate,
     WorkspaceImageryResponse,
     WorkspaceImageryUpdate,
@@ -16,9 +15,8 @@ from api.src.workspaces.models import (
     WorkspaceUpdate,
 )
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
+from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceUserRoleType
 from api.src.workspaces.service import OSMService, WorkspaceService
-
-# FIXME: make these consistent with response codes etc?
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -90,14 +88,20 @@ async def get_workspace_bbox(
                 detail="No Content",
             )
 
-        return await osm_service.get_workspace_bbox(current_user, workspace_id)
+        bbox = await osm_service.get_workspace_bbox(current_user, workspace_id)
+
+        if bbox is None:
+            raise HTTPException(
+                status_code=status.HTTP_204_NO_CONTENT,
+                detail="No Content",
+            )
+
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
 
 # Returns 201 on success? 
-# FIXME? Make consistent with all other methods re: HTTP response?
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     workspace_data: WorkspaceCreate,
@@ -113,7 +117,6 @@ async def create_workspace(
 
 
 # Returns the updated workspace on success. 
-# FIXME? Make consistent with all other methods re: 204 response?
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(
     workspace_id: int,
@@ -145,6 +148,8 @@ async def delete_workspace(
         raise
 
 
+### QUESTS
+
 # Returns JSON payload or 204 if not set
 @router.get(
     "/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuestResponse
@@ -160,7 +165,7 @@ async def get_long_quest_settings(
         if workspace.longFormQuestDef is None:
             return WorkspaceLongQuestResponse(
                 workspace_id=workspace_id,
-                type = QuestDefinitionTypeModel.NONE.value,    
+                type = QuestDefinitionType.NONE,    
                 definition = None,
                 url = None,
             )
@@ -187,6 +192,8 @@ async def update_long_quest_settings(
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
 
+
+### IMAGERY
 
 # Returns JSON payload or 204 if not set
 @router.get("/{workspace_id}/imagery/settings", response_model=WorkspaceImageryResponse)
@@ -225,3 +232,36 @@ async def update_imagery_settings(
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
+
+
+### USERS
+
+@router.get("/{workspace_id}/users")
+async def get_users(
+    workspace_id: int,
+    current_user: UserInfo = Depends(validate_token),
+    osm_service: OSMService = Depends(get_osm_service),
+):
+    return await osm_service.get_all_users(current_user)
+
+
+@router.post("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def add_user_with_role(
+    workspace_id: int,
+    user_id: int,   
+    role: WorkspaceUserRoleType,
+
+    current_user: UserInfo = Depends(validate_token),
+    osm_service: OSMService = Depends(get_osm_service),
+
+):
+    return await osm_service.add_user_to_workspace(current_user, workspace_id, user_id, role)
+
+@router.delete("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_user_with_role(
+    workspace_id: int,
+    user_id: int,   
+    current_user: UserInfo = Depends(validate_token),
+    osm_service: OSMService = Depends(get_osm_service),
+):
+    return await osm_service.remove_user_from_workspace(current_user, workspace_id, user_id)

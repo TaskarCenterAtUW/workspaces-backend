@@ -1,4 +1,3 @@
-from contextlib import suppress
 import os
 import re
 

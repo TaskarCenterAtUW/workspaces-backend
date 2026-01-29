@@ -1,6 +1,5 @@
 from datetime import datetime
 import json
-from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
 
@@ -9,7 +8,6 @@ from geoalchemy2 import WKBElement
 from jsonschema import ValidationError, validate
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     Json,
@@ -19,27 +17,11 @@ from pydantic import (
 from typing_extensions import Annotated
 
 from api.core.config import Settings
-from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefinitionTypeDB
+from api.src.workspaces.schemas import ExternalAppsDefinitionType, QuestDefinitionType, WorkspaceType
 
 #
 # These are DTOs used by the API to pass values to/from the client, NOT the schema definitions
 #
-class QuestDefinitionTypeModel(Enum):
-    NONE = "NONE"
-    JSON = "JSON"
-    URL = "URL"
-
-# map the value from the database enum to the model enum when necessary
-# FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
-def map_db_to_model(value) -> QuestDefinitionTypeModel:
-    if value in QuestDefinitionTypeDB:
-        return QuestDefinitionTypeModel[QuestDefinitionTypeDB(value).name]
-    else:
-        return value
-
-# Create a type alias using Annotated and the validator
-QuestDefinitionType = Annotated[str, BeforeValidator(map_db_to_model)]
-
 class WorkspaceLongQuestBase(BaseModel):
 
     workspace_id: int
@@ -62,7 +44,7 @@ class WorkspaceLongQuestCreate(WorkspaceLongQuestBase):
     @field_validator('definition')
     @classmethod
     def validate_definition(cls, value, data):
-        if data.data.get("type") == QuestDefinitionTypeModel.JSON:
+        if data.data.get("type") == QuestDefinitionType.JSON:
             if not value:
                 raise ValidationError("This field is required when type is set to JSON.")
             else:
@@ -87,7 +69,7 @@ class WorkspaceLongQuestCreate(WorkspaceLongQuestBase):
     @field_validator('url')
     @classmethod
     def validate_url(cls, value, data):
-        if data.data.get("type") == QuestDefinitionTypeModel.URL:
+        if data.data.get("type") == QuestDefinitionType.URL:
             if not value:
                 raise ValidationError("This field is required when type is set to URL.")
             else:
@@ -98,7 +80,10 @@ class WorkspaceLongQuestCreate(WorkspaceLongQuestBase):
             raise ValidationError("'url' field not allowed.") 
 
 class WorkspaceLongQuestUpdate(WorkspaceLongQuestCreate):
-    pass
+    definition: Optional[str] = Field(None)
+    type: QuestDefinitionType
+    url: Optional[str] = Field(None)
+
 
 class WorkspaceImageryBase(BaseModel):
 
@@ -137,13 +122,14 @@ class WorkspaceImageryCreate(WorkspaceImageryBase):
         return value
 
 class WorkspaceImageryUpdate(WorkspaceImageryCreate):
+    # optional to be able to unset it
     definition: Optional[list[Any]] = Field(None)
 
 
 class WorkspaceBase(BaseModel):
 
     id: int
-    type: str = Field(...)
+    type: WorkspaceType = Field(...)
 
     title: str = Field(...)
     description: Optional[str]
@@ -185,7 +171,6 @@ class WorkspaceBase(BaseModel):
 
 class WorkspaceCreate(WorkspaceBase):
     pass
-
 
 class WorkspaceResponse(WorkspaceBase):
     pass

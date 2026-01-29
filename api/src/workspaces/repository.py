@@ -1,4 +1,6 @@
-from sqlalchemy import delete, select, update, text
+from typing import cast
+
+from sqlalchemy import delete, select, update, text, CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,10 +13,11 @@ from api.src.workspaces.models import (
     WorkspaceUpdate,
 )
 from api.src.workspaces.schemas import (
-    QuestDefinitionTypeDB,
+    QuestDefinitionType,
     Workspace,
     WorkspaceImagery,
     WorkspaceLongQuest,
+    WorkspaceUserRoleType,
 )
 
 class WorkspaceRepository:
@@ -66,7 +69,6 @@ class WorkspaceRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    # FIXME: should we be tracking modifiedBy and modifiedByName here?
     async def update(
         self,
         current_user: UserInfo,
@@ -76,9 +78,6 @@ class WorkspaceRepository:
         update_data = workspace_data.model_dump(exclude_unset=True)
         if not update_data:
             raise ValueError("No fields to update")
-
-        update_data["modifiedBy"] = current_user.user_uuid
-        update_data["modifiedByName"] = current_user.user_name
 
         query = (
             update(Workspace)
@@ -133,11 +132,7 @@ class WorkspaceRepository:
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
 
-        # map the type from model enum to DB enum
-        # FIXME: this hack is necessary because the UI and the DB don't use the same values, fix that?
-        update_data["type"] = QuestDefinitionTypeDB[
-            longform_quest_data.type or "NONE"
-        ].value
+        update_data["type"] = QuestDefinitionType[longform_quest_data.type.name if longform_quest_data.type else "NONE"].value
 
         query = (
             update(WorkspaceLongQuest)
@@ -202,6 +197,7 @@ class WorkspaceRepository:
                 and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
             )
         )
+
         result = await self.session.execute(query)
 
         if result.rowcount == 0:
@@ -215,6 +211,7 @@ class WorkspaceRepository:
             Workspace.id == workspace_id
             and Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())
         )
+
         result = await self.session.execute(query)
 
         if result.rowcount == 0:
@@ -237,5 +234,46 @@ class OSMRepository:
 
         sql_query = text('select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes')
         result = await self.session.execute(sql_query)
+        
+        retVal = result.mappings().first()
+        if retVal is None:
+            raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
-        return result.mappings().first()
+        return retVal
+    
+    async def getAllUsers(
+        self,
+    ):
+        await self.session.execute(text("SET search_path TO public"))
+
+        sql_query = text('select id, email, display_name from users')
+        result = await self.session.execute(sql_query)
+        
+        return result.mappings().all()
+
+    async def addUserToWorkspaceWithRole(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        user_id: int,
+        role: WorkspaceUserRoleType,
+    ) -> bool:
+        await self.session.execute(text("SET search_path TO public"))
+
+        sql_query = text('insert into user_workspace_roles (workspace_id, user_id, role) values (:workspace_id, :user_id, :role)').bindparams(workspace_id=workspace_id, user_id=user_id, role=role.value)
+        result = cast(CursorResult, await self.session.execute(sql_query))
+
+        return result.rowcount != 1
+
+    async def removeUserFromWorkspace(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        user_id: int,
+    ) -> bool:
+        await self.session.execute(text("SET search_path TO public"))
+
+        sql_query = text('delete from user_workspace_roles where workspace_id = :workspace_id and user_id = :user_id').bindparams(workspace_id=workspace_id, user_id=user_id)
+        result = cast(CursorResult, await self.session.execute(sql_query))
+
+        return result.rowcount != 1

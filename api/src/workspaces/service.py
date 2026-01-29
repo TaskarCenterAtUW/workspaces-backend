@@ -9,6 +9,7 @@ from api.src.workspaces.models import (
     WorkspaceUpdate,
 )
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
+from api.src.workspaces.schemas import WorkspaceUserRoleType
 
 
 class WorkspaceService:
@@ -58,9 +59,13 @@ class WorkspaceService:
     ) -> WorkspaceLongQuestResponse:
         workspace = await self.repository.get_by_id(current_user, workspace_id)
 
+        update_data = longform_quest_data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise ValueError("No fields to update")
+        
         if workspace.longFormQuestDef:
             workspace = await self.repository.updateLongformQuest(
-                current_user, workspace_id, longform_quest_data
+                current_user, workspace_id, **update_data
             )
         else:
             workspace = await self.repository.createLongformQuest(
@@ -77,9 +82,13 @@ class WorkspaceService:
     ) -> WorkspaceImageryResponse:
         workspace = await self.repository.get_by_id(current_user, workspace_id)
 
-        if workspace.longFormQuestDef:
+        update_data = imagery_data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise ValueError("No fields to update")
+
+        if workspace.imageryListDef:
             workspace = await self.repository.updateImageryDef(
-                current_user, workspace_id, imagery_data
+                current_user, workspace_id, **update_data
             )
         else:
             workspace = await self.repository.createImageryDef(
@@ -87,7 +96,6 @@ class WorkspaceService:
             )
 
         return WorkspaceImageryResponse.model_validate(workspace.imageryListDef)
-
 
 
 class OSMService:
@@ -101,3 +109,27 @@ class OSMService:
         workspace_id: int,
     ):
         return await self.repository.getWorkspaceBBox(current_user, workspace_id)
+
+
+    async def get_all_users(
+        self,
+        current_user: UserInfo,
+    ):
+        return await self.repository.getAllUsers()
+
+    async def add_user_to_workspace(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        user_id: int,
+        role: WorkspaceUserRoleType,
+    ):
+        return await self.repository.addUserToWorkspaceWithRole(current_user, workspace_id, user_id, role)
+
+    async def remove_user_from_workspace(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+        user_id: int,
+    ):
+        return await self.repository.removeUserFromWorkspace(current_user, workspace_id, user_id)
