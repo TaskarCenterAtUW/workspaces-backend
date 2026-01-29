@@ -3,7 +3,7 @@ import json
 import os
 import requests_cache
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -45,19 +45,48 @@ class UserInfo:
     # workspaceId, role from OSM DB
     osmWorkspaceRoles: dict[int, list[WorkspaceUserRoleType]]
 
-    # from tasking manager DB
-    accessibleWorkspaceIds: list[int]
+    # from tasking manager DB: pgId -> workspaceIds
+    accessibleWorkspaceIds: dict[str, list[int]]
 
     # from TDEI/KeyCloak
     projectGroups: list[UserInfoPGMembership]
 
-    # PG ids that the user has any membership with
+    # PG ids that the user has X (or any) membership with
     def getProjectGroupIds(self, withRole = "any") -> list[str]:
         pgids = []
         for pg in self.projectGroups:
             if(withRole == "any" or pg.tdeiRoles.__contains__(withRole)):
                 pgids.append(pg.project_group_id)
         return pgids    
+
+    # we get admin/lead rights in two ways:
+    # 1. from OSM DB explicitly
+    # 2. from TDEI if user has "point_of_contact" role in any PG that owns the workspace
+    def isWorkspaceLead(self, workspaceId: int) -> bool:
+        if workspaceId in self.osmWorkspaceRoles and \
+            WorkspaceUserRoleType.LEAD in self.osmWorkspaceRoles[workspaceId]:
+            return True
+
+        for pg in self.projectGroups:   
+            if TdeiProjectGroupRole.POINT_OF_CONTACT in pg.tdeiRoles:
+                if workspaceId in self.accessibleWorkspaceIds[pg.project_group_id]:
+                    return True        
+
+        return False
+
+    # user has been granted validator rights in OSM DB for this workspace
+    def isWorkspaceValidator(self, workspaceId: int) -> bool:
+        if workspaceId in self.osmWorkspaceRoles and \
+            WorkspaceUserRoleType.VALIDATOR in self.osmWorkspaceRoles[workspaceId]:
+            return True
+        return False
+
+    # user has has any association with a project group that owns the workspace
+    def isWorkspaceContributor(self, workspaceId: int) -> bool:
+        for pgid, wsids in self.accessibleWorkspaceIds.items():
+            if workspaceId in wsids:
+                return True
+        return False
 
 # can't use the ORM here since the ORM uses us! (circular dependency)
 def get_osm_db_session(
@@ -151,7 +180,13 @@ async def validate_token(
         {"pgids": pgids}
     )
     accessibleWorkspaces = list(result.mappings().all())
-    r.accessibleWorkspaceIds = [i["id"] for i in accessibleWorkspaces]
+    r.accessibleWorkspaceIds = {}
+    for i in accessibleWorkspaces:
+        pgid = i["tdeiProjectGroupId"]
+        wsid = i["id"]
+        if pgid not in r.accessibleWorkspaceIds:
+            r.accessibleWorkspaceIds[pgid] = []
+        r.accessibleWorkspaceIds[pgid].append(wsid) 
 
     # workspace roles from OSM DB 
     result = await osm_db_session.execute(text("SELECT workspace_id, role FROM user_workspace_roles \
