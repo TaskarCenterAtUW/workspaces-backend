@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from sqlmodel import UUID
 
-from api.core.database import get_osm_session
+from api.core.database import get_osm_session, get_task_session
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
 security = HTTPBearer()
@@ -42,9 +42,13 @@ class UserInfo:
     user_uuid: UUID
     user_name: str
 
-    # workspaceId, role
+    # workspaceId, role from OSM DB
     osmWorkspaceRoles: dict[int, list[WorkspaceUserRoleType]]
 
+    # from tasking manager DB
+    accessibleWorkspaceIds: list[int]
+
+    # from TDEI/KeyCloak
     projectGroups: list[UserInfoPGMembership]
 
     # PG ids that the user has any membership with
@@ -53,7 +57,7 @@ class UserInfo:
         for pg in self.projectGroups:
             if(withRole == "any" or pg.tdeiRoles.__contains__(withRole)):
                 pgids.append(pg.project_group_id)
-        return pgids
+        return pgids    
 
 # can't use the ORM here since the ORM uses us! (circular dependency)
 def get_osm_db_session(
@@ -61,9 +65,15 @@ def get_osm_db_session(
 ) -> AsyncSession:
     return session
 
+def get_task_db_session(
+    session: AsyncSession = Depends(get_task_session),
+) -> AsyncSession:
+    return session
+
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     osm_db_session: AsyncSession = Depends(get_osm_db_session),
+    task_db_session: AsyncSession = Depends(get_task_db_session),
 ) -> UserInfo:
     """Dependency to get current authenticated user from TDEI/KeyCloak token and APIs."""
 
@@ -122,6 +132,7 @@ async def validate_token(
     r.user_uuid = payload.get("sub", "unknown")
     r.user_name = payload.get("preferred_username", "unknown")
 
+    # project groups and roles from TDEI KeyCloak
     pgs = []
     for i in j:
         pgs.append(
@@ -133,7 +144,18 @@ async def validate_token(
         )
     r.projectGroups = pgs
 
-    result = await osm_db_session.execute(text("SELECT workspace_id, role FROM user_workspace_roles WHERE user_auth_uid = :auth_uid"), { "auth_uid": r.user_uuid}) 
+    # workspaces within our set of PGs from tasking manager DB
+    pgids = [pg.project_group_id for pg in pgs]
+    result = await task_db_session.execute(
+        text("SELECT \"tdeiProjectGroupId\", id FROM workspaces WHERE \"tdeiProjectGroupId\" = ANY(:pgids)"),
+        {"pgids": pgids}
+    )
+    accessibleWorkspaces = list(result.mappings().all())
+    r.accessibleWorkspaceIds = [i["id"] for i in accessibleWorkspaces]
+
+    # workspace roles from OSM DB 
+    result = await osm_db_session.execute(text("SELECT workspace_id, role FROM user_workspace_roles \
+                                               WHERE user_auth_uid = :auth_uid"), { "auth_uid": r.user_uuid}) 
     workspaceRoles = list(result.mappings().all())
 
     osmRoles = {}
