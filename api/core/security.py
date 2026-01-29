@@ -5,7 +5,7 @@ import requests
 
 from api.core.logging import get_logger
 import jwt
-import cachetools.func
+import cachetools
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
@@ -17,7 +17,12 @@ from api.src.workspaces.schemas import WorkspaceUserRoleType
 
 # Set up logger for this module
 logger = get_logger(__name__)
-    
+
+# TTL cache for token validation (1 hour TTL, max 1000 entries)
+_token_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
+    maxsize=1000, ttl=60 * 60
+)
+
 security = HTTPBearer()
 
 class TdeiProjectGroupRole(StrEnum):
@@ -112,24 +117,33 @@ def get_task_db_session(
 ) -> AsyncSession:
     return session
 
-# HTTPAuthorizationCredentials isn't serializable, so we extract the token string here and pass
-# to the method below that is cached
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     osm_db_session: AsyncSession = Depends(get_osm_db_session),
     task_db_session: AsyncSession = Depends(get_task_db_session),
 ) -> UserInfo:
-    return await real_validate_token(credentials.credentials, osm_db_session, task_db_session)
+    """Dependency to get current authenticated user from TDEI/KeyCloak token and APIs.
 
-# see above as to why this is split out / renamed real_*
-@cachetools.func.ttl_cache(ttl=60 * 60)
-async def real_validate_token(
+    Results are cached by token for 1 hour to avoid repeated validation calls.
+    """
+    token = credentials.credentials
+
+    # Check cache first
+    if token in _token_cache:
+        logger.info("Token validation cache hit")
+        return _token_cache[token]
+
+    # Cache miss - perform full validation
+    user_info = await _validate_token_uncached(token, osm_db_session, task_db_session)
+    _token_cache[token] = user_info
+    return user_info
+
+
+async def _validate_token_uncached(
     token: str,
     osm_db_session: AsyncSession,
     task_db_session: AsyncSession,
 ) -> UserInfo:
-    """Dependency to get current authenticated user from TDEI/KeyCloak token and APIs."""
-
     logger.info("Starting validation of token")
 
     credentials_exception = HTTPException(
