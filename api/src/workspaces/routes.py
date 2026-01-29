@@ -1,3 +1,5 @@
+from typing import Any
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,6 +73,7 @@ async def get_workspace_bbox(
     current_user: UserInfo = Depends(validate_token),
 ):
     try:
+        # this first query is for permissions checking
         workspace = await repository_ws.getById(current_user, workspace_id)
         if workspace is None:
             raise HTTPException(
@@ -94,7 +97,7 @@ async def get_workspace_bbox(
 # Returns 201 on success? 
 @router.post("/", response_model=Workspace, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
-    workspace_data: Workspace,
+    workspace_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> Workspace:
@@ -110,7 +113,7 @@ async def create_workspace(
 @router.patch("/{workspace_id}", response_model=Workspace)
 async def update_workspace(
     workspace_id: int,
-    workspace_data,
+    workspace_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> Workspace:
@@ -149,6 +152,7 @@ async def get_long_quest_settings(
 ) -> WorkspaceLongQuest | None:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
+
         if workspace.longFormQuestDef is None:
             return WorkspaceLongQuest(
                 workspace_id=workspace_id,
@@ -172,7 +176,7 @@ async def get_long_quest_settings(
 )
 async def update_long_quest_settings(
     workspace_id: int,
-    long_quest_data,
+    long_quest_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
@@ -216,7 +220,7 @@ async def get_imagery_settings(
 )
 async def update_imagery_settings(
     workspace_id: int,
-    imagery_data,
+    imagery_data: dict[str, Any],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
@@ -241,7 +245,7 @@ async def get_users(
 @router.post("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def add_user_with_role(
     workspace_id: int,
-    user_id: int,   
+    user_id: UUID,   
     role: WorkspaceUserRoleType,
 
     current_user: UserInfo = Depends(validate_token),

@@ -112,12 +112,21 @@ class WorkspaceUserRole(SQLModel, table=True):
 
     __tablename__ = "user_workspace_roles"  # type: ignore[assignment]
 
-    user_id: UUID = Field(primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", primary_key=True)
     workspace_id: int = Field(foreign_key="workspaces.id", primary_key=True)
+
     role: WorkspaceUserRoleType = Field(
         sa_column=Column(StrEnumType(WorkspaceUserRoleType), nullable=False)
     )
 
+class User(SQLModel, table=True):
+    """Users"""
+
+    __tablename__ = "users"  # type: ignore[assignment]
+
+    id: UUID = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    display_name: str = Field(nullable=False)
 
 class Workspace(SQLModel, table=True):
     """Workspaces"""

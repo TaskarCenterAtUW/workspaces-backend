@@ -1,4 +1,5 @@
-from typing import cast
+from typing import Any, cast
+from uuid import UUID
 
 from sqlalchemy import delete, select, update, text, CursorResult
 from sqlalchemy.exc import IntegrityError
@@ -8,9 +9,11 @@ from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
 from api.src.workspaces.schemas import (
     QuestDefinitionType,
+    User,
     Workspace,
     WorkspaceImagery,
     WorkspaceLongQuest,
+    WorkspaceUserRole,
     WorkspaceUserRoleType,
 )
 
@@ -20,10 +23,10 @@ class WorkspaceRepository:
         self.session = session
 
     async def create(
-        self, current_user: UserInfo, workspace_data: Workspace
+        self, current_user: UserInfo, workspace_data: dict[str, Any]
     ) -> Workspace:
         workspace = Workspace(
-            **workspace_data.model_dump(),
+            **workspace_data,
             createdBy=current_user.user_uuid, # type: ignore[reportArgumentType]
             createdByName=current_user.user_name,
         )
@@ -41,7 +44,7 @@ class WorkspaceRepository:
         except IntegrityError:
             await self.session.rollback()
             raise AlreadyExistsException(
-                f"Workspace with ID {workspace_data.id} already exists"
+                f"Workspace with ID {workspace.id} already exists"
             )
 
     async def getById(self, current_user: UserInfo, workspace_id: int) -> Workspace:
@@ -67,19 +70,15 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        workspace_data,
+        workspace_data: dict[str, Any],
     ) -> Workspace:
-        update_data = workspace_data.model_dump(exclude_unset=True)
-        if not update_data:
-            raise ValueError("No fields to update")
-
         query = (
             update(Workspace)
             .where(
                 (Workspace.id == workspace_id)
                 & (Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds()))  # type: ignore[attr-defined]
             )
-            .values(**update_data)
+            .values(**workspace_data)
         )
         result = await self.session.execute(query)
 
@@ -93,7 +92,7 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        longform_quest_data,
+        longform_quest_data: dict[str, Any],
     ) -> Workspace | None:
         query = select(Workspace).where(
             (Workspace.id == workspace_id)
@@ -103,7 +102,7 @@ class WorkspaceRepository:
         workspace = result.scalar_one_or_none()
         if workspace:
             workspace.longFormQuestDef = WorkspaceLongQuest(
-                **longform_quest_data.model_dump(),
+                **longform_quest_data,
                 modifiedBy=current_user.user_uuid, # type: ignore[reportArgumentType]
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
@@ -116,17 +115,14 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        longform_quest_data,
+        longform_quest_data: dict[str, Any],
     ) -> Workspace:
-        update_data = longform_quest_data.model_dump(exclude_unset=True)
-        if not update_data:
-            raise ValueError("No fields to update")
-
-        update_data["workspace_id"] = workspace_id
+        update_data = longform_quest_data
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
 
-        update_data["type"] = QuestDefinitionType[longform_quest_data.type.name if longform_quest_data.type else "NONE"].value
+        quest_type = longform_quest_data.get("type")
+        update_data["type"] = QuestDefinitionType[quest_type.name if quest_type else "NONE"].value
 
         query = (
             update(WorkspaceLongQuest)
@@ -145,7 +141,7 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        imagery_def_data,
+        imagery_def_data: dict[str, Any],
     ) -> Workspace | None:
         query = select(Workspace).where(
             (Workspace.id == workspace_id)
@@ -155,7 +151,7 @@ class WorkspaceRepository:
         workspace = result.scalar_one_or_none()
         if workspace:
             workspace.imageryListDef = WorkspaceImagery(
-                **imagery_def_data.model_dump(exclude_unset=True),
+                **imagery_def_data,
                 modifiedBy=current_user.user_uuid, # type: ignore[reportArgumentType]
                 modifiedByName=current_user.user_name,
                 workspace_id=workspace_id,
@@ -168,14 +164,9 @@ class WorkspaceRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        imagery_def_data,
+        imagery_def_data: dict[str, Any],
     ) -> Workspace:
-        update_data = imagery_def_data.model_dump(exclude_unset=True)
-
-        if not update_data:
-            raise ValueError("No fields to update")
-
-        update_data["workspace_id"] = workspace_id
+        update_data = imagery_def_data
         update_data["modifiedBy"] = current_user.user_uuid
         update_data["modifiedByName"] = current_user.user_name
 
@@ -233,38 +224,48 @@ class OSMRepository:
     async def getAllUsers(
         self,
     ):
-        await self.session.execute(text("SET search_path TO public"))
+        query = select(User)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
-        sql_query = text('select id, email, display_name from users')
-
-        result = await self.session.execute(sql_query)        
-        return result.mappings().all()
 
     async def addUserToWorkspaceWithRole(
         self,
         current_user: UserInfo,
         workspace_id: int,
-        user_id: int,
+        user_id: UUID,
         role: WorkspaceUserRoleType,
-    ) -> bool:
-        await self.session.execute(text("SET search_path TO public"))
+    ) -> None:
 
-        sql_query = text('insert into user_workspace_roles (workspace_id, user_id, role) values \
-                         (:workspace_id, :user_id, :role)').bindparams(workspace_id=workspace_id, user_id=user_id, role=role.value)
+        userRole = WorkspaceUserRole(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            role=role,
+        )
 
-        result = cast(CursorResult, await self.session.execute(sql_query))
-        return result.rowcount != 1
+        try:
+            self.session.add(userRole)
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise AlreadyExistsException(
+                "User association with that workspace already exists"
+            )
 
     async def removeUserFromWorkspace(
         self,
         current_user: UserInfo,
         workspace_id: int,
         user_id: int,
-    ) -> bool:
-        await self.session.execute(text("SET search_path TO public"))
+    ) -> None:
+        query = delete(WorkspaceUserRole).where(
+            (WorkspaceUserRole.workspace_id == workspace_id) # type: ignore[reportArgumentType]
+            & (WorkspaceUserRole.user_id == user_id) 
+        )
 
-        sql_query = text('delete from user_workspace_roles where workspace_id = :workspace_id \
-                         and user_id = :user_id').bindparams(workspace_id=workspace_id, user_id=user_id)
+        result = await self.session.execute(query)
 
-        result = cast(CursorResult, await self.session.execute(sql_query))
-        return result.rowcount != 1
+        if result.rowcount != 1:
+            raise NotFoundException(f"User association removal failed for workspace {workspace_id} and user {user_id}")
+
+        await self.session.commit()
