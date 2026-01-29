@@ -1,7 +1,7 @@
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import delete, select, update, text, CursorResult
+from sqlalchemy import delete, select, update, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -238,7 +238,7 @@ class OSMRepository:
     ) -> None:
 
         userRole = WorkspaceUserRole(
-            user_id=user_id,
+            auth_user_uid=cast(UUID, current_user.user_uuid),
             workspace_id=workspace_id,
             role=role,
         )
@@ -256,11 +256,11 @@ class OSMRepository:
         self,
         current_user: UserInfo,
         workspace_id: int,
-        user_id: int,
+        user_id: UUID,
     ) -> None:
         query = delete(WorkspaceUserRole).where(
             (WorkspaceUserRole.workspace_id == workspace_id) # type: ignore[reportArgumentType]
-            & (WorkspaceUserRole.user_id == user_id) 
+            & (WorkspaceUserRole.auth_user_uid == user_id) 
         )
 
         result = await self.session.execute(query)

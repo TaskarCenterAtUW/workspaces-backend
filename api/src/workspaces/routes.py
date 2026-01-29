@@ -257,7 +257,7 @@ async def add_user_with_role(
 @router.delete("/{workspace_id}/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_user_with_role(
     workspace_id: int,
-    user_id: int,   
+    user_id: UUID,   
     current_user: UserInfo = Depends(validate_token),
     repository_osm: OSMRepository = Depends(get_osm_repository),
 ):
