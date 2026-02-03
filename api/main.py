@@ -174,7 +174,18 @@ async def catch_all(
     rp_req = client.build_request(
         request.method, url, headers=new_headers, content=request.stream()
     )
-    rp_resp = await client.send(rp_req, stream=True)
+    try:
+        rp_resp = await client.send(rp_req, stream=True)
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Upstream OSM service timed out",
+        )
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not connect to upstream OSM service",
+        )
 
     if rp_resp.status_code >= 400 and rp_resp.status_code < 600:
         msg = (
