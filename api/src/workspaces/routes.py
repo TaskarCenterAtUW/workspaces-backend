@@ -93,20 +93,8 @@ async def get_workspace_bbox(
 ):
     try:
         # this first query is for permissions checking
-        workspace = await repository_ws.getById(current_user, workspace_id)
-        if workspace is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
-
+        await repository_ws.getById(current_user, workspace_id)
         bbox = await repository_osm.getWorkspaceBBox(current_user, workspace_id)
-
-        if bbox is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
 
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
