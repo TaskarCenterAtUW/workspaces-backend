@@ -87,32 +87,7 @@ class WorkspaceRepository:
         await self.session.commit()
         return await self.getById(current_user, workspace_id)
 
-    async def createLongformQuest(
-        self,
-        current_user: UserInfo,
-        workspace_id: int,
-        longform_quest_data: QuestSettingsPatch,
-    ) -> Workspace | None:
-        query = select(Workspace).where(
-            (Workspace.id == workspace_id)
-            & (Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds()))  # type: ignore[attr-defined]
-        )
-        result = await self.session.execute(query)
-        workspace = result.scalar_one_or_none()
-        if workspace:
-            workspace.longFormQuestDef = WorkspaceLongQuest(
-                type=QuestDefinitionType[longform_quest_data.type].value,
-                definition=longform_quest_data.definition,
-                url=longform_quest_data.url,
-                modifiedBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
-                modifiedByName=current_user.user_name,
-                workspace_id=workspace_id,
-            )
-        await self.session.commit()
-        await self.session.refresh(workspace)
-        return workspace
-
-    async def updateLongformQuest(
+    async def save_longform_quest(
         self,
         current_user: UserInfo,
         workspace_id: int,
@@ -127,40 +102,26 @@ class WorkspaceRepository:
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
             )
-            .where(WorkspaceLongQuest.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
+            .where(WorkspaceLongQuest.workspace_id == workspace_id)
         )
         result = await self.session.execute(query)
 
-        if result.rowcount == 0:  # type: ignore[attr-defined]
-            raise NotFoundException(f"Workspace with id {workspace_id} not found")
+        if result.rowcount == 0:
+            self.session.add(
+                WorkspaceLongQuest(
+                    workspace_id=workspace_id,
+                    type=QuestDefinitionType[longform_quest_data.type].value,
+                    definition=longform_quest_data.definition,
+                    url=longform_quest_data.url,
+                    modifiedBy=current_user.user_uuid,
+                    modifiedByName=current_user.user_name,
+                )
+            )
 
         await self.session.commit()
         return await self.getById(current_user, workspace_id)
 
-    async def createImageryDef(
-        self,
-        current_user: UserInfo,
-        workspace_id: int,
-        imagery_def_data: ImagerySettingsPatch,
-    ) -> Workspace | None:
-        query = select(Workspace).where(
-            (Workspace.id == workspace_id)
-            & (Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds()))  # type: ignore[attr-defined]
-        )
-        result = await self.session.execute(query)
-        workspace = result.scalar_one_or_none()
-        if workspace:
-            workspace.imageryListDef = WorkspaceImagery(
-                definition=imagery_def_data.definition,
-                modifiedBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
-                modifiedByName=current_user.user_name,
-                workspace_id=workspace_id,
-            )
-        await self.session.commit()
-        await self.session.refresh(workspace)
-        return workspace
-
-    async def updateImageryDef(
+    async def save_imagery_def(
         self,
         current_user: UserInfo,
         workspace_id: int,
@@ -173,13 +134,20 @@ class WorkspaceRepository:
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
             )
-            .where(WorkspaceImagery.workspace_id == workspace_id)  # type: ignore[reportArgumentType]
+            .where(WorkspaceImagery.workspace_id == workspace_id)
         )
 
         result = await self.session.execute(query)
 
-        if result.rowcount != 1:  # type: ignore[attr-defined]
-            raise NotFoundException(f"Update failed for workspace id {workspace_id}")
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            self.session.add(
+                WorkspaceImagery(
+                    workspace_id=workspace_id,
+                    definition=imagery_def_data.definition,
+                    modifiedBy=current_user.user_uuid,
+                    modifiedByName=current_user.user_name,
+                )
+            )
 
         await self.session.commit()
         return await self.getById(current_user, workspace_id)

@@ -229,7 +229,7 @@ async def update_long_quest_settings(
         )
 
     try:
-        await repository_ws.updateLongformQuest(
+        await repository_ws.save_longform_quest(
             current_user, workspace_id, long_quest_data
         )
     except Exception as e:
@@ -282,7 +282,7 @@ async def update_imagery_settings(
         )
 
     try:
-        await repository_ws.updateImageryDef(current_user, workspace_id, imagery_data)
+        await repository_ws.save_imagery_def(current_user, workspace_id, imagery_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
