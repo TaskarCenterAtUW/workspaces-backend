@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import httpx
 import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.background import BackgroundTask
@@ -62,6 +63,15 @@ app = FastAPI(
     debug=settings.DEBUG,
     swagger_ui_parameters={"syntaxHighlight": False},
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    max_age=100,
 )
 
 # Include routers

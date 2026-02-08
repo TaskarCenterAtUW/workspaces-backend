@@ -1,8 +1,16 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
 class Settings(BaseSettings):
     """Application settings."""
 
     PROJECT_NAME: str = "Workspaces API"
+
+    # JSON array of allowed CORS origins. For example:
+    #
+    #   ["https://workspaces.example.com", "https://leaderboard.example.com"]
+    #
+    CORS_ORIGINS: list[str] = []
 
     TASK_DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
     OSM_DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
