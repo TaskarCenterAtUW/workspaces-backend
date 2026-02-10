@@ -92,7 +92,7 @@ class WorkspaceRepository:
         current_user: UserInfo,
         workspace_id: int,
         longform_quest_data: QuestSettingsPatch,
-    ) -> Workspace:
+    ) -> None:
         query = (
             update(WorkspaceLongQuest)
             .values(
@@ -119,14 +119,13 @@ class WorkspaceRepository:
             )
 
         await self.session.commit()
-        return await self.getById(current_user, workspace_id)
 
     async def save_imagery_def(
         self,
         current_user: UserInfo,
         workspace_id: int,
         imagery_def_data: ImagerySettingsPatch,
-    ) -> Workspace:
+    ) -> None:
         query = (
             update(WorkspaceImagery)
             .values(
@@ -150,7 +149,6 @@ class WorkspaceRepository:
             )
 
         await self.session.commit()
-        return await self.getById(current_user, workspace_id)
 
     async def delete(self, current_user: UserInfo, workspace_id: int) -> None:
         query = delete(Workspace).where(
