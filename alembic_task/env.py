@@ -35,7 +35,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set sqlalchemy.url
+# Set sqlalchemy.url from settings
 config.set_main_option("sqlalchemy.url", settings.TASK_DATABASE_URL)
 
 # Add your model's MetaData object here for 'autogenerate' support

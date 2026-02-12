@@ -15,17 +15,18 @@ def run_migrations():
         current_dir = os.path.dirname(os.path.abspath(__file__))
         sys.path.insert(0, current_dir)
 
-        # Use sys.executable to run the Alembic module
-        result = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        # Run migrations for each database
+        for db_name in ("task", "osm"):
+            print(f"Running migrations for '{db_name}' database...")
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "-n", db_name, "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
 
-        # Print the output if there's any
-        if result.stdout:
-            print("Migration output:", result.stdout)
+            if result.stdout:
+                print(f"Migration output ({db_name}):", result.stdout)
 
         print("Migrations completed successfully!")
 
