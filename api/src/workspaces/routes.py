@@ -11,12 +11,12 @@ from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
-    QuestDefinitionType,
+    QuestDefinitionTypeName,
     QuestSettingsPatch,
+    QuestSettingsResponse,
     Workspace,
     WorkspaceCreate,
     WorkspaceImagery,
-    WorkspaceLongQuest,
     WorkspacePatch,
     WorkspaceResponse,
 )
@@ -182,31 +182,42 @@ async def delete_workspace(
         raise
 
 
-### QUESTS
+# QUESTS
 
 
 # Returns JSON payload or 204 if not set
-@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuest)
+@router.get(
+    "/{workspace_id}/quests/long/settings", response_model=QuestSettingsResponse
+)
 async def get_long_quest_settings(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceLongQuest | None:
+) -> QuestSettingsResponse:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
+        quest = workspace.longFormQuestDef
 
-        if workspace.longFormQuestDef is None:
-            return WorkspaceLongQuest(
+        if quest is None:
+            return QuestSettingsResponse(
                 workspace_id=workspace_id,
-                type=QuestDefinitionType.NONE,
+                type=QuestDefinitionTypeName.NONE,
                 definition=None,
                 url=None,
-                modifiedAt=workspace.createdAt,
-                modifiedBy=workspace.createdBy,
-                modifiedByName="",
+                modified_at=workspace.createdAt,
+                modified_by=workspace.createdBy,
+                modified_by_name="",
             )
-        else:
-            return workspace.longFormQuestDef
+
+        return QuestSettingsResponse(
+            workspace_id=quest.workspace_id,
+            type=QuestDefinitionTypeName(quest.type.name),
+            definition=quest.definition,
+            url=quest.url,
+            modified_at=quest.modifiedAt,
+            modified_by=quest.modifiedBy,
+            modified_by_name=quest.modifiedByName,
+        )
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -237,7 +248,7 @@ async def update_long_quest_settings(
         raise
 
 
-### IMAGERY
+# IMAGERY
 
 
 # Returns JSON payload or 204 if not set

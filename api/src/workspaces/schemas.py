@@ -147,6 +147,18 @@ class QuestSettingsPatch(SQLModel):
     url: Optional[str] = None
 
 
+class QuestSettingsResponse(SQLModel):
+    """Quest settings serialized for API responses"""
+
+    workspace_id: int
+    type: QuestDefinitionTypeName
+    definition: Optional[str] = None
+    url: Optional[str] = None
+    modified_at: datetime
+    modified_by: UUID
+    modified_by_name: str
+
+
 class ImagerySettingsPatch(SQLModel):
     """Fields the client may supply when saving imagery settings"""
 
