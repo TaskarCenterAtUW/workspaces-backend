@@ -1,6 +1,7 @@
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
@@ -25,7 +26,6 @@ from api.src.workspaces.schemas import (
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
-
 
 
 def get_workspace_repository(
@@ -71,14 +71,18 @@ async def get_workspace(
 ) -> WorkspaceResponse:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
-
-        if workspace is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
-
-        return WorkspaceResponse.from_workspace(workspace, current_user)
+        return WorkspaceResponse.from_workspace(
+            workspace,
+            current_user,
+            imagery_list_def=(
+                workspace.imageryListDef.definition
+                if workspace.imageryListDef
+                else None
+            ),
+            long_form_quest_def=await WorkspaceRepository.resolve_quest_def(
+                workspace.longFormQuestDef
+            ),
+        )
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -183,6 +187,30 @@ async def delete_workspace(
 
 
 # QUESTS
+
+
+# Return the resolved quest definition content as JSON, or 204 if not set:
+@router.get("/{workspace_id}/quests/long")
+async def get_long_quest_def(
+    workspace_id: int,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> Response:
+    try:
+        workspace = await repository_ws.getById(current_user, workspace_id)
+        definition = await WorkspaceRepository.resolve_quest_def(
+            workspace.longFormQuestDef
+        )
+
+        if definition is None:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+        return Response(content=definition, media_type="application/json")
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch quest def for workspace {workspace_id}: {str(e)}"
+        )
+        raise
 
 
 # Returns JSON payload or 204 if not set

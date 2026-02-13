@@ -185,9 +185,20 @@ class WorkspaceResponse(SQLModel):
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
     role: str
+    # Included in single-workspace GET for mobile app consumption. TODO: remove
+    # this when the app fetches these from dedicated endpoints:
+    longFormQuestDef: Optional[str] = None
+    imageryListDef: Optional[Any] = None
 
     @classmethod
-    def from_workspace(cls, workspace: "Workspace", user: "UserInfo") -> Self:
+    def from_workspace(
+        cls,
+        workspace: "Workspace",
+        user: "UserInfo",
+        *,
+        imagery_list_def: Any = None,
+        long_form_quest_def: Any = None,
+    ) -> Self:
         return cls(
             id=workspace.id,
             type=workspace.type,
@@ -203,6 +214,8 @@ class WorkspaceResponse(SQLModel):
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
             role=user.effective_role(workspace.id),
+            imageryListDef=imagery_list_def,
+            longFormQuestDef=long_form_quest_def,
         )
 
 

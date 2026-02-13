@@ -1,3 +1,4 @@
+import httpx
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -119,6 +120,31 @@ class WorkspaceRepository:
             )
 
         await self.session.commit()
+
+    @staticmethod
+    async def resolve_quest_def(quest: WorkspaceLongQuest | None) -> str | None:
+        """
+        Resolve a WorkspaceLongQuest to its raw JSON string content.
+
+        - JSON type: returns the stored definition string
+        - URL type: fetches and returns the remote content
+        - NONE or missing: returns None
+        """
+
+        if quest is None or quest.type == QuestDefinitionType.NONE:
+            return None
+        if quest.type == QuestDefinitionType.JSON:
+            return quest.definition or None
+
+        if quest.url:
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(quest.url, timeout=10)
+                    return response.text
+            except Exception:
+                return None
+
+        return None
 
     async def save_imagery_def(
         self,
