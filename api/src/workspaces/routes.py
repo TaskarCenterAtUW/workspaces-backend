@@ -137,14 +137,13 @@ async def create_workspace(
         raise
 
 
-# Returns the updated workspace on success.
-@router.patch("/{workspace_id}", response_model=Workspace)
+@router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_workspace(
     workspace_id: int,
     workspace_data: WorkspacePatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> Workspace:
+) -> None:
     if not current_user.isWorkspaceLead(workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -152,10 +151,7 @@ async def update_workspace(
         )
 
     try:
-        workspace = await repository_ws.update(
-            current_user, workspace_id, workspace_data
-        )
-        return workspace
+        await repository_ws.update(current_user, workspace_id, workspace_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
