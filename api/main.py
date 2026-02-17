@@ -115,6 +115,38 @@ AUTH_WHITELIST_PATTERNS = [
 ]
 
 
+@app.get("/api/capabilities.json")
+async def capabilities():
+    """Proxy OSM capabilities manifest without requiring authentication."""
+
+    url = httpx.URL(path="/api/capabilities.json")
+    rp_req = _osm_client.build_request("GET", url)
+
+    try:
+        rp_resp = await _osm_client.send(rp_req, stream=True)
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Upstream OSM service timed out",
+        )
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not connect to upstream OSM service",
+        )
+
+    forwarded_headers = {
+        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+    }
+
+    return StreamingResponse(
+        rp_resp.aiter_raw(),
+        status_code=rp_resp.status_code,
+        headers=forwarded_headers,
+        background=BackgroundTask(rp_resp.aclose),
+    )
+
+
 @app.api_route(
     "/{full_path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
