@@ -3,7 +3,11 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from api.core.exceptions import AlreadyExistsException, NotFoundException
+from api.core.exceptions import (
+    AlreadyExistsException,
+    ForbiddenException,
+    NotFoundException,
+)
 from api.core.security import UserInfo
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
@@ -32,8 +36,9 @@ class WorkspaceRepository:
         )
 
         if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():
-            raise ValueError(
-                "User does not have permissions to create a workspace in that project group."
+            raise ForbiddenException(
+                "User does not have permissions to create a workspace in that "
+                "project group."
             )
 
         try:
