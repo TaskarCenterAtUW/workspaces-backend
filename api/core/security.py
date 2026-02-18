@@ -163,6 +163,8 @@ async def _validate_token_uncached(
         token,
         key=signing_key.key,
         algorithms=["RS256"],
+        # OIDC server does not currently differentiate tokens by audience
+        options={"verify_aud": False}
     )
     payload = jwtDecoded.get("payload", {})
 
