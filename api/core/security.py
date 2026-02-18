@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
@@ -152,7 +153,7 @@ async def _validate_token_uncached(
     )
 
     jwks_client = jwt.PyJWKClient(
-        "https://account-dev.tdei.us/realms/tdei/protocol/openid-connect/certs"
+        f"{settings.TDEI_OIDC_URL}realms/{settings.TDEI_OIDC_REALM}/protocol/openid-connect/certs"
     )
 
     signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -176,7 +177,7 @@ async def _validate_token_uncached(
     # get user's project groups and roles from TDEI
     # TODO: fix if user has > 50 PGs
     authorizationUrl = (
-        os.environ.get("TM_TDEI_BACKEND_URL", "https://portal-api-dev.tdei.us/api/v1/")
+        settings.TDEI_BACKEND_URL
         + "/project-group-roles/"
         + user_id
         + "?page_no=1&page_size=50"

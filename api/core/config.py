@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     TASK_DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
     OSM_DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
 
+    TDEI_BACKEND_URL: str = "https://portal-api-dev.tdei.us/api/v1/"
+    TDEI_OIDC_URL: str = "https://account-dev.tdei.us/"
+    TDEI_OIDC_REALM: str = "tdei"
+
     DEBUG: bool = False
 
     # used for validation
