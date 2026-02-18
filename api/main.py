@@ -189,20 +189,14 @@ async def catch_all(
     )
 
     client = _osm_client
-    new_headers = list()
-    new_headers.append(
-        (bytes("Authorization", "utf-8"), request.headers.get("Authorization"))
-    )
 
-    if authorizedWorkspace is not None:
-        new_headers.append(
-            (
-                bytes("X-Workspace", "utf-8"),
-                bytes(str(authorizedWorkspace), "utf-8"),
-            )
-        )
+    # Forward all request headers except the hop-by-hops:
+    new_headers = [
+        (k.encode(), v.encode())
+        for k, v in request.headers.items()
+        if k.lower() not in HOP_BY_HOP_HEADERS
+    ]
 
-    new_headers.append((bytes("Host", "utf-8"), bytes(client.base_url.host, "utf-8")))
     rp_req = client.build_request(
         request.method, url, headers=new_headers, content=request.stream()
     )
