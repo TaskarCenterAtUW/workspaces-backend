@@ -202,7 +202,6 @@ class OSMRepository:
 
     async def getWorkspaceBBox(
         self,
-        current_user: UserInfo,
         workspace_id: int,
     ):
         # Postgres does not support parameter binding for `SET search_path`, so

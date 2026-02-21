@@ -98,7 +98,7 @@ async def get_workspace_bbox(
     try:
         # this first query is for permissions checking
         await repository_ws.getById(current_user, workspace_id)
-        bbox = await repository_osm.getWorkspaceBBox(current_user, workspace_id)
+        bbox = await repository_osm.getWorkspaceBBox(workspace_id)
         return bbox
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
