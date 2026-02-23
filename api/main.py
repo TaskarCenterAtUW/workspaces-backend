@@ -14,6 +14,7 @@ from starlette.background import BackgroundTask
 from api.core import config
 from api.core.config import settings
 from api.core.database import get_task_session
+from api.core.json_schema import close_json_schema_client, init_json_schema_client
 from api.core.logging import get_logger, setup_logging
 from api.core.security import (
     UserInfo,
@@ -59,6 +60,7 @@ async def lifespan(_app: FastAPI):
         timeout=httpx.Timeout(connect=10, read=7200, write=7200, pool=10),
     )
     init_tdei_client()
+    init_json_schema_client()
 
     yield  # App runs
 
@@ -66,6 +68,7 @@ async def lifespan(_app: FastAPI):
     await _osm_client.aclose()
     _osm_client = None
     await close_tdei_client()
+    await close_json_schema_client()
 
 
 app = FastAPI(

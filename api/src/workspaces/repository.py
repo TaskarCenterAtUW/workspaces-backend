@@ -1,4 +1,3 @@
-import httpx
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -8,6 +7,7 @@ from api.core.exceptions import (
     ForbiddenException,
     NotFoundException,
 )
+from api.core.json_schema import get_http_client
 from api.core.security import UserInfo
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
@@ -143,9 +143,8 @@ class WorkspaceRepository:
 
         if quest.url:
             try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(quest.url, timeout=10)
-                    return response.text
+                response = await get_http_client().get(quest.url, timeout=10)
+                return response.text
             except Exception:
                 return None
 

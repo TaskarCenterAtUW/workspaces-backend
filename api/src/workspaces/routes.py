@@ -5,6 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
+from api.core.json_schema import (
+    validate_imagery_definition_schema,
+    validate_quest_definition_schema,
+)
 from api.core.logging import get_logger
 from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.users.repository import UserRepository
@@ -263,6 +267,9 @@ async def update_long_quest_settings(
             detail="User does not have permission to edit this workspace",
         )
 
+    if long_quest_data.type == QuestDefinitionTypeName.JSON:
+        await validate_quest_definition_schema(long_quest_data.definition)
+
     try:
         await repository_ws.save_longform_quest(
             current_user, workspace_id, long_quest_data
@@ -315,6 +322,9 @@ async def update_imagery_settings(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User does not have permission to edit this workspace",
         )
+
+    if imagery_data.definition:
+        await validate_imagery_definition_schema(imagery_data.definition)
 
     try:
         await repository_ws.save_imagery_def(current_user, workspace_id, imagery_data)
