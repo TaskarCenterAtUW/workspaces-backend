@@ -1,18 +1,18 @@
 import json
-import os
 from enum import StrEnum
-import requests
+from uuid import UUID
 
-from api.core.logging import get_logger
-import jwt
 import cachetools
+import jwt
+import requests
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import UUID
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
+from api.core.logging import get_logger
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
 # Set up logger for this module
@@ -24,6 +24,7 @@ _token_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
 )
 
 security = HTTPBearer()
+
 
 class TdeiProjectGroupRole(StrEnum):
     MEMBER = "member"
@@ -153,7 +154,7 @@ async def _validate_token_uncached(
     )
 
     jwks_client = jwt.PyJWKClient(
-        "https://account-dev.tdei.us/realms/tdei/protocol/openid-connect/certs"
+        f"{settings.TDEI_OIDC_URL}realms/{settings.TDEI_OIDC_REALM}/protocol/openid-connect/certs"
     )
 
     signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -162,6 +163,8 @@ async def _validate_token_uncached(
         token,
         key=signing_key.key,
         algorithms=["RS256"],
+        # OIDC server does not currently differentiate tokens by audience
+        options={"verify_aud": False}
     )
     payload = jwtDecoded.get("payload", {})
 
@@ -177,7 +180,7 @@ async def _validate_token_uncached(
     # get user's project groups and roles from TDEI
     # TODO: fix if user has > 50 PGs
     authorizationUrl = (
-        os.environ.get("TM_TDEI_BACKEND_URL", "https://portal-api-dev.tdei.us/api/v1/")
+        settings.TDEI_BACKEND_URL
         + "/project-group-roles/"
         + user_id
         + "?page_no=1&page_size=50"
@@ -197,7 +200,7 @@ async def _validate_token_uncached(
 
     r = UserInfo()
     r.credentials = token
-    r.user_uuid = payload.get("sub", "unknown")
+    r.user_uuid = UUID(payload.get("sub", "unknown"))
     r.user_name = payload.get("preferred_username", "unknown")
 
     # project groups and roles from TDEI KeyCloak
@@ -235,7 +238,7 @@ async def _validate_token_uncached(
             "SELECT workspace_id, role FROM user_workspace_roles \
                                                WHERE user_auth_uid = :auth_uid"
         ),
-        {"auth_uid": r.user_uuid},
+        {"auth_uid": str(r.user_uuid)},
     )
     workspaceRoles = list(result.mappings().all())
 

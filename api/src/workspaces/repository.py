@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.exceptions import AlreadyExistsException, NotFoundException
 from api.core.security import UserInfo
@@ -234,6 +234,14 @@ class OSMRepository:
         query = select(User)
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def get_current_user(self, current_user: UserInfo) -> User:
+        result = await self.session.exec(
+            select(User).where(User.auth_uid == str(current_user.user_uuid))
+        )
+
+        # Current user should exist--throw if it doesn't:
+        return result.scalar_one()
 
     async def addUserToWorkspaceWithRole(
         self,

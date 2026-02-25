@@ -2,7 +2,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
@@ -19,7 +19,7 @@ from api.src.workspaces.schemas import (
 # Set up logger for this module
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
+router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
 def get_workspace_repository(
