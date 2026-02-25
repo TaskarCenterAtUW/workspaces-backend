@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from contextlib import asynccontextmanager
 
 import httpx
@@ -36,9 +37,6 @@ sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
 # Set up logging configuration
 setup_logging()
 
-# Optional: Run migrations on startup
-run_migrations()
-
 # Set up logger for this module
 logger = get_logger(__name__)
 
@@ -48,6 +46,10 @@ _osm_client: httpx.AsyncClient | None = None
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # only run migrations when not under test
+    if "pytest" not in sys.modules:
+        run_migrations()
+
     # Run before app bootstrap:
     global _osm_client
     _osm_client = httpx.AsyncClient(
