@@ -154,6 +154,12 @@ async def update_workspace(
             detail="User does not have permission to update this workspace",
         )
 
+    if not workspace_data.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided to update.",
+        )
+
     try:
         await repository_ws.update(current_user, workspace_id, workspace_data)
     except Exception as e:
