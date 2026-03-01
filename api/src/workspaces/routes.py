@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import UUID
 
@@ -75,6 +76,14 @@ async def get_workspace(
 ) -> WorkspaceResponse:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
+        quest_def_str = await WorkspaceRepository.resolve_quest_def(
+            workspace.longFormQuestDef
+        )
+        try:
+            quest_def = json.loads(quest_def_str) if quest_def_str else None
+        except json.JSONDecodeError:
+            quest_def = None
+
         return WorkspaceResponse.from_workspace(
             workspace,
             current_user,
@@ -83,9 +92,7 @@ async def get_workspace(
                 if workspace.imageryListDef
                 else None
             ),
-            long_form_quest_def=await WorkspaceRepository.resolve_quest_def(
-                workspace.longFormQuestDef
-            ),
+            long_form_quest_def=quest_def,
         )
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")

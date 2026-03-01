@@ -212,7 +212,7 @@ class WorkspaceResponse(SQLModel):
     role: str
     # Included in single-workspace GET for mobile app consumption. TODO: remove
     # this when the app fetches these from dedicated endpoints:
-    longFormQuestDef: Optional[str] = None
+    longFormQuestDef: Optional[Any] = None
     imageryListDef: Optional[Any] = None
 
     @classmethod
