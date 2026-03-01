@@ -148,8 +148,6 @@ AUTH_WHITELIST_PATTERNS = [
         r"^/api/0\.6/workspaces.*$",
         # Provisioning users during authentication:
         r"^/api/0\.6/user/.*$",
-        # Used to get workspace bbox without workspace header, to be removed:
-        r"^/api/0\.6/workspaces/[0-9]+/bbox\.json$",
     ]
 ]
 
