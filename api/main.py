@@ -14,7 +14,12 @@ from api.core import config
 from api.core.config import settings
 from api.core.database import get_task_session
 from api.core.logging import get_logger, setup_logging
-from api.core.security import UserInfo, validate_token
+from api.core.security import (
+    UserInfo,
+    close_tdei_client,
+    init_tdei_client,
+    validate_token,
+)
 from api.src.teams.routes import router as teams_router
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
@@ -50,12 +55,14 @@ async def lifespan(_app: FastAPI):
         # 2 hour timeout for long-running OSM imports:
         timeout=httpx.Timeout(connect=10, read=7200, write=7200, pool=10),
     )
+    init_tdei_client()
 
     yield  # App runs
 
     # Run after app cleanup:
     await _osm_client.aclose()
     _osm_client = None
+    await close_tdei_client()
 
 
 app = FastAPI(
@@ -77,6 +84,7 @@ app.add_middleware(
 # Include routers
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
+
 
 @app.get("/health")
 async def health_check():

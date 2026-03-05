@@ -22,6 +22,25 @@ _token_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
     maxsize=1000, ttl=60 * 60
 )
 
+# Shared HTTP client for TDEI backend calls. Initialized by main.py lifespan.
+_tdei_client: httpx.AsyncClient | None = None
+
+
+def init_tdei_client() -> None:
+    global _tdei_client
+    _tdei_client = httpx.AsyncClient(
+        base_url=settings.TDEI_BACKEND_URL,
+        timeout=httpx.Timeout(connect=10, read=30, write=30, pool=10),
+    )
+
+
+async def close_tdei_client() -> None:
+    global _tdei_client
+    if _tdei_client is not None:
+        await _tdei_client.aclose()
+        _tdei_client = None
+
+
 security = HTTPBearer()
 
 
@@ -119,6 +138,7 @@ def get_task_db_session(
 ) -> AsyncSession:
     return session
 
+
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     osm_db_session: AsyncSession = Depends(get_osm_db_session),
@@ -185,32 +205,30 @@ async def _validate_token_uncached(
     r.user_name = payload.get("preferred_username", "unknown")
 
     # get user's project groups and roles from TDEI
-    pg_base_url = f"{settings.TDEI_BACKEND_URL}/project-group-roles/{user_id}"
     pgs = []
-    async with httpx.AsyncClient() as http_client:
-        response = await http_client.get(
-            pg_base_url,
-            headers=headers,
-            params={"page_no": 1, "page_size": 1000},
-        )
+    response = await _tdei_client.get(
+        f"project-group-roles/{user_id}",
+        headers=headers,
+        params={"page_no": 1, "page_size": 1000},
+    )
 
-        # token is not valid or server unavailable
-        if response.status_code != 200:
-            raise credentials_exception
+    # token is not valid or server unavailable
+    if response.status_code != 200:
+        raise credentials_exception
 
-        try:
-            pg_data = response.json()
-        except Exception:
-            raise credentials_exception
+    try:
+        pg_data = response.json()
+    except Exception:
+        raise credentials_exception
 
-        for i in pg_data:
-            pgs.append(
-                UserInfoPGMembership(
-                    project_group_id=i["tdei_project_group_id"],
-                    project_group_name=i["project_group_name"],
-                    tdeiRoles=i["roles"],
-                )
+    for i in pg_data:
+        pgs.append(
+            UserInfoPGMembership(
+                project_group_id=i["tdei_project_group_id"],
+                project_group_name=i["project_group_name"],
+                tdeiRoles=i["roles"],
             )
+        )
 
     r.projectGroups = pgs
 
