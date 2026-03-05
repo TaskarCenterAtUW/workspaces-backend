@@ -123,6 +123,16 @@ HOP_BY_HOP_HEADERS = frozenset(
     ]
 )
 
+# Do not forward spoofed reverse-proxy informational headers:
+STRIP_REQUEST_HEADERS = HOP_BY_HOP_HEADERS | {
+    "host",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "forwarded",
+}
+
 # Define paths that do not require X-Workspace header
 AUTH_WHITELIST_PATTERNS = [
     re.compile(p)
@@ -134,11 +144,24 @@ AUTH_WHITELIST_PATTERNS = [
 
 
 @app.get("/api/capabilities.json")
-async def capabilities():
+async def capabilities(request: Request):
     """Proxy OSM capabilities manifest without requiring authentication."""
 
+    client_host = request.client.host if request.client else "unknown"
+    req_headers = [
+        (k.encode(), v.encode())
+        for k, v in request.headers.items()
+        if k.lower() not in STRIP_REQUEST_HEADERS
+    ] + [
+        (b"Host", _osm_client.base_url.host.encode()),
+        (b"X-Real-IP", client_host.encode()),
+        (b"X-Forwarded-For", client_host.encode()),
+        (b"X-Forwarded-Host", (request.url.hostname or "").encode()),
+        (b"X-Forwarded-Proto", request.url.scheme.encode()),
+    ]
+
     url = httpx.URL(path="/api/capabilities.json")
-    rp_req = _osm_client.build_request("GET", url)
+    rp_req = _osm_client.build_request("GET", url, headers=req_headers)
 
     try:
         rp_resp = await _osm_client.send(rp_req, stream=True)
@@ -207,16 +230,21 @@ async def catch_all(
     )
 
     client = _osm_client
-
-    # Forward all request headers except the hop-by-hops:
-    new_headers = [
+    client_host = request.client.host if request.client else "unknown"
+    req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
-        if k.lower() not in HOP_BY_HOP_HEADERS
+        if k.lower() not in STRIP_REQUEST_HEADERS
+    ] + [
+        (b"Host", client.base_url.host.encode()),
+        (b"X-Real-IP", client_host.encode()),
+        (b"X-Forwarded-For", client_host.encode()),
+        (b"X-Forwarded-Host", (request.url.hostname or "").encode()),
+        (b"X-Forwarded-Proto", request.url.scheme.encode()),
     ]
 
     rp_req = client.build_request(
-        request.method, url, headers=new_headers, content=request.stream()
+        request.method, url, headers=req_headers, content=request.stream()
     )
     try:
         rp_resp = await client.send(rp_req, stream=True)
