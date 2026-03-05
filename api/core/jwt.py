@@ -11,8 +11,8 @@ def _get_jwks_client() -> jwt.PyJWKClient:
 
     if _jwks_client is None:
         _jwks_client = jwt.PyJWKClient(
-            f"{settings.TDEI_OIDC_URL}realms/{settings.TDEI_OIDC_REALM}"
-            f"/protocol/openid-connect/certs"
+            f"{settings.TDEI_OIDC_URL.rstrip("/")}/realms/"
+            f"{settings.TDEI_OIDC_REALM}/protocol/openid-connect/certs"
         )
 
     return _jwks_client
