@@ -200,7 +200,6 @@ async def catch_all(
     """
     Catch-all route to proxy requests to the OSM service.
     """
-    authorizedWorkspace = None
 
     if request.headers.get("X-Workspace") is not None:
         try:
@@ -216,8 +215,6 @@ async def catch_all(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have access to this workspace",
             )
-
-        authorizedWorkspace = workspace_id
     else:
         if not any(p.fullmatch(request.url.path) for p in AUTH_WHITELIST_PATTERNS):
             raise HTTPException(
