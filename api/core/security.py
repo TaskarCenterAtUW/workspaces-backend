@@ -206,11 +206,18 @@ async def _validate_token_uncached(
 
     # get user's project groups and roles from TDEI
     pgs = []
-    response = await _tdei_client.get(
-        f"project-group-roles/{user_id}",
-        headers=headers,
-        params={"page_no": 1, "page_size": 1000},
-    )
+
+    try:
+        response = await _tdei_client.get(
+            f"project-group-roles/{user_id}",
+            headers=headers,
+            params={"page_no": 1, "page_size": 1000},
+        )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach TDEI backend",
+        ) from None
 
     # token is not valid or server unavailable
     if response.status_code != 200:
