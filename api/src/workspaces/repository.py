@@ -83,7 +83,7 @@ class WorkspaceRepository:
         )
         result = await self.session.execute(query)
 
-        if result.rowcount != 1:
+        if result.rowcount != 1:  # type: ignore[attr-defined]
             raise NotFoundException(f"Update failed for workspace id {workspace_id}")
 
         await self.session.commit()
@@ -134,7 +134,7 @@ class WorkspaceRepository:
         )
         result = await self.session.execute(query)
 
-        if result.rowcount == 0:
+        if result.rowcount == 0:  # type: ignore[attr-defined]
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
         await self.session.commit()
@@ -181,7 +181,7 @@ class WorkspaceRepository:
 
         result = await self.session.execute(query)
 
-        if result.rowcount != 1:
+        if result.rowcount != 1:  # type: ignore[attr-defined]
             raise NotFoundException(f"Update failed for workspace id {workspace_id}")
 
         await self.session.commit()
@@ -195,7 +195,7 @@ class WorkspaceRepository:
 
         result = await self.session.execute(query)
 
-        if result.rowcount != 1:
+        if result.rowcount != 1:  # type: ignore[attr-defined]
             raise NotFoundException(f"Workspace delete failed for id {workspace_id}")
 
         await self.session.commit()
@@ -257,7 +257,7 @@ class OSMRepository:
     ) -> None:
 
         userRole = WorkspaceUserRole(
-            auth_user_uid=cast(UUID, current_user.user_uuid),
+            auth_user_uid=cast(UUID, user_id),
             workspace_id=workspace_id,
             role=role,
         )
@@ -284,7 +284,7 @@ class OSMRepository:
 
         result = await self.session.execute(query)
 
-        if result.rowcount != 1:
+        if result.rowcount != 1:  # type: ignore[attr-defined]
             raise NotFoundException(
                 f"User association removal failed for workspace {workspace_id} and user {user_id}"
             )

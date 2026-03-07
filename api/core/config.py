@@ -12,8 +12,12 @@ class Settings(BaseSettings):
     #
     CORS_ORIGINS: list[str] = []
 
-    TASK_DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
-    OSM_DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
+    TASK_DATABASE_URL: str = (
+        "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
+    )
+    OSM_DATABASE_URL: str = (
+        "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
+    )
 
     TDEI_BACKEND_URL: str = "https://portal-api-dev.tdei.us/api/v1/"
     TDEI_OIDC_URL: str = "https://account-dev.tdei.us/"
@@ -28,7 +32,6 @@ class Settings(BaseSettings):
 
     # proxy destination--"osm-web" is a virtual docker network endpoint
     WS_OSM_HOST: str = "http://osm-web"
-    #WS_OSM_HOST: str = "https://osm.workspaces-dev.sidewalks.washington.edu"
 
     SENTRY_DSN: str = ""
 
@@ -36,5 +39,6 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
     )
+
 
 settings = Settings()

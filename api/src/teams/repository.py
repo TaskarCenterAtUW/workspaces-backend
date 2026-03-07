@@ -24,7 +24,7 @@ class WorkspaceTeamRepository:
             .where(WorkspaceTeam.workspace_id == workspace_id)
         )
 
-        return [WorkspaceTeamItem.from_team(x) for x in result.scalars()]
+        return [WorkspaceTeamItem.from_team(x) for x in result.scalars().all()]
 
     async def get(self, id: int, load_members: bool = False) -> WorkspaceTeam:
         query = select(WorkspaceTeam).where(WorkspaceTeam.id == id)
@@ -59,14 +59,13 @@ class WorkspaceTeamRepository:
             raise NotFoundException(f"Team {id} not in workspace {workspace_id}")
 
     async def create(self, workspace_id: int, data: WorkspaceTeamCreate) -> int:
-        team = WorkspaceTeam()
-        team.workspace_id = workspace_id
-        team.name = data.name
+        team = WorkspaceTeam(name=data.name, workspace_id=workspace_id)
 
         self.session.add(team)
         await self.session.commit()
         await self.session.refresh(team)
 
+        assert team.id is not None
         return team.id
 
     async def update(self, id: int, data: WorkspaceTeamUpdate):
@@ -77,7 +76,7 @@ class WorkspaceTeamRepository:
         await self.session.commit()
 
     async def delete(self, id: int) -> None:
-        await self.session.exec(delete(WorkspaceTeam).where(WorkspaceTeam.id == id))
+        await self.session.execute(delete(WorkspaceTeam).where(WorkspaceTeam.id == id))  # type: ignore[arg-type]
         await self.session.commit()
 
     async def get_members(self, id: int) -> list[User]:
