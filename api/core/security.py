@@ -200,8 +200,13 @@ async def _validate_token_uncached(
     }
 
     r = UserInfo()
+
+    try:
+        r.user_uuid = UUID(user_id)
+    except ValueError:
+        raise credentials_exception from None
+
     r.credentials = token
-    r.user_uuid = UUID(user_id)
     r.user_name = payload.get("preferred_username", "unknown")
 
     # get user's project groups and roles from TDEI
