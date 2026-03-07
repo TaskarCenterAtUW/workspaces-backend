@@ -1,10 +1,8 @@
-import json
 from enum import StrEnum
 from uuid import UUID
 
 import cachetools
-import jwt
-import requests
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
@@ -12,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
+from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
 from api.src.workspaces.schemas import WorkspaceUserRoleType
 
@@ -22,6 +21,25 @@ logger = get_logger(__name__)
 _token_cache: cachetools.TTLCache[str, "UserInfo"] = cachetools.TTLCache(
     maxsize=1000, ttl=60 * 60
 )
+
+# Shared HTTP client for TDEI backend calls. Initialized by main.py lifespan.
+_tdei_client: httpx.AsyncClient | None = None
+
+
+def init_tdei_client() -> None:
+    global _tdei_client
+    _tdei_client = httpx.AsyncClient(
+        base_url=settings.TDEI_BACKEND_URL,
+        timeout=httpx.Timeout(connect=10, read=30, write=30, pool=10),
+    )
+
+
+async def close_tdei_client() -> None:
+    global _tdei_client
+    if _tdei_client is not None:
+        await _tdei_client.aclose()
+        _tdei_client = None
+
 
 security = HTTPBearer()
 
@@ -84,7 +102,9 @@ class UserInfo:
 
         for pg in self.projectGroups:
             if TdeiProjectGroupRole.POINT_OF_CONTACT in pg.tdeiRoles:
-                if workspaceId in self.accessibleWorkspaceIds[pg.project_group_id]:
+                if workspaceId in self.accessibleWorkspaceIds.get(
+                    pg.project_group_id, []
+                ):
                     return True
 
         return False
@@ -118,6 +138,7 @@ def get_task_db_session(
 ) -> AsyncSession:
     return session
 
+
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     osm_db_session: AsyncSession = Depends(get_osm_db_session),
@@ -129,19 +150,39 @@ async def validate_token(
     """
     token = credentials.credentials
 
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = validate_and_decode_token(token)
+    except Exception:
+        raise credentials_exception
+
+    user_id: str | None = payload.get("sub")
+    if user_id is None:
+        raise credentials_exception
+
     # Check cache first
     if token in _token_cache:
         logger.info("Token validation cache hit")
         return _token_cache[token]
 
     # Cache miss - perform full validation
-    user_info = await _validate_token_uncached(token, osm_db_session, task_db_session)
+    user_info = await _validate_token_uncached(
+        token, user_id, payload, osm_db_session, task_db_session
+    )
     _token_cache[token] = user_info
+
     return user_info
 
 
 async def _validate_token_uncached(
     token: str,
+    user_id: str,
+    payload: dict,
     osm_db_session: AsyncSession,
     task_db_session: AsyncSession,
 ) -> UserInfo:
@@ -153,59 +194,46 @@ async def _validate_token_uncached(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    jwks_client = jwt.PyJWKClient(
-        f"{settings.TDEI_OIDC_URL}realms/{settings.TDEI_OIDC_REALM}/protocol/openid-connect/certs"
-    )
-
-    signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-    jwtDecoded = jwt.decode_complete(
-        token,
-        key=signing_key.key,
-        algorithms=["RS256"],
-        # OIDC server does not currently differentiate tokens by audience
-        options={"verify_aud": False}
-    )
-    payload = jwtDecoded.get("payload", {})
-
-    user_id: str | None = payload.get("sub")
-    if user_id is None:
-        raise credentials_exception
-
     headers = {
         "Authorization": "Bearer " + token,
         "Content-Type": "application/json",
     }
 
-    # get user's project groups and roles from TDEI
-    # TODO: fix if user has > 50 PGs
-    authorizationUrl = (
-        settings.TDEI_BACKEND_URL
-        + "/project-group-roles/"
-        + user_id
-        + "?page_no=1&page_size=50"
-    )
+    r = UserInfo()
 
-    response = requests.get(authorizationUrl, headers=headers)
+    try:
+        r.user_uuid = UUID(user_id)
+    except ValueError:
+        raise credentials_exception from None
+
+    r.credentials = token
+    r.user_name = payload.get("preferred_username", "unknown")
+
+    # get user's project groups and roles from TDEI
+    pgs = []
+
+    try:
+        response = await _tdei_client.get(
+            f"project-group-roles/{user_id}",
+            headers=headers,
+            params={"page_no": 1, "page_size": 1000},
+        )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach TDEI backend",
+        ) from None
 
     # token is not valid or server unavailable
     if response.status_code != 200:
         raise credentials_exception
 
     try:
-        content = response.text
-        j = json.loads(content)
-    except json.JSONDecodeError:
+        pg_data = response.json()
+    except Exception:
         raise credentials_exception
 
-    r = UserInfo()
-    r.credentials = token
-    r.user_uuid = UUID(payload.get("sub", "unknown"))
-    r.user_name = payload.get("preferred_username", "unknown")
-
-    # project groups and roles from TDEI KeyCloak
-    pgs = []
-    for i in j:
+    for i in pg_data:
         pgs.append(
             UserInfoPGMembership(
                 project_group_id=i["tdei_project_group_id"],
@@ -213,6 +241,7 @@ async def _validate_token_uncached(
                 tdeiRoles=i["roles"],
             )
         )
+
     r.projectGroups = pgs
 
     # workspaces within our set of PGs from tasking manager DB
@@ -226,7 +255,7 @@ async def _validate_token_uncached(
     accessibleWorkspaces = list(result.mappings().all())
     r.accessibleWorkspaceIds = {}
     for i in accessibleWorkspaces:
-        pgid = i["tdeiProjectGroupId"]
+        pgid = str(i["tdeiProjectGroupId"])  # SQLAlchemy outputs UUID
         wsid = i["id"]
         if pgid not in r.accessibleWorkspaceIds:
             r.accessibleWorkspaceIds[pgid] = []
