@@ -49,3 +49,32 @@ class OSMRepository:
         )
 
         return result.mappings().all()
+
+    async def resolveChangeset(
+        self,
+        workspace_id: int,
+        changeset_id: int,
+        reviewer_uuid: str,
+    ) -> None:
+        await self.session.execute(
+            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
+        )
+
+        await self.session.execute(
+            text(
+                "DELETE FROM changeset_tags"
+                " WHERE changeset_id = :cs_id AND k = 'review_requested'"
+            ),
+            {"cs_id": changeset_id},
+        )
+
+        await self.session.execute(
+            text(
+                "INSERT INTO changeset_tags (changeset_id, k, v)"
+                " VALUES (:cs_id, 'reviewed_by', :uid)"
+                " ON CONFLICT (changeset_id, k) DO UPDATE SET v = :uid"
+            ),
+            {"cs_id": changeset_id, "uid": reviewer_uuid},
+        )
+
+        await self.session.commit()
