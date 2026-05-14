@@ -1,0 +1,1825 @@
+openapi: 3.0.3
+info:
+  title: Workspaces Tasking Manager API
+  version: 1.0.0
+  description: |
+    Tasking Manager API for the Workspaces Tasking Manager MVP.
+
+servers:
+  - url: /
+    description: workspaces-backend root.
+
+tags:
+  - name: projects
+    description: Tasking project CRUD and lifecycle.
+  - name: aoi
+    description: Project area-of-interest upload, retrieval, deletion.
+  - name: tasks
+    description: Task validation, persistence and read access.
+  - name: locks
+    description: Lock lifecycle on a task.
+  - name: submit
+    description: Done? submit flow — changeset + state transition.
+  - name: roles
+    description: Workspace and project role management.
+  - name: audit
+    description: Audit trail.
+  - name: stats
+    description: Project and user statistics.
+
+security:
+  - bearerAuth: []
+
+paths:
+  # =========================================================================
+  # Projects
+  # =========================================================================
+
+  /workspaces/{workspace_id}/tasking/projects:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+    get:
+      tags: [projects]
+      summary: List tasking projects in a workspace.
+      description: Paginated list of non-deleted projects. Any workspace contributor.
+      operationId: listProjects
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/ProjectStatus" }
+        - in: query
+          name: textSearch
+          schema: { type: string, maxLength: 255 }
+          description: Case-insensitive substring match on `name`.
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - in: query
+          name: orderBy
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, name]
+            default: createdAt
+        - in: query
+          name: orderByType
+          schema: { type: string, enum: [ASC, DESC], default: DESC }
+      responses:
+        "200":
+          description: Paginated list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
+    post:
+      tags: [projects]
+      summary: Create a tasking project (optionally with AOI and role assignments).
+      description: |
+        LEAD only. Creates a project in `draft` status.
+
+        Optional inline AOI may be provided (same validation as
+        `POST .../aoi`).
+
+        Optional `roleAssignments` may be provided to seed the
+        project-level role overrides table (`tasking_project_roles`) in
+        the same transaction. The creator is auto-added with
+        `role = lead`; other users may be added with any of `lead`,
+        `validator`, `contributor`.
+
+        Activation later requires at least one user assigned with
+        `contributor` or `validator` so the project has at least one
+        worker before it goes live — see `POST .../activate`.
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectCreateRequest" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
+        "409":
+          description: A non-deleted project with this name already exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    get:
+      tags: [projects]
+      summary: Get a tasking project.
+      operationId: getProject
+      responses:
+        "200":
+          description: Project detail.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+    patch:
+      tags: [projects]
+      summary: Update editable settings.
+      description: |
+        LEAD only. Per-status mutability:
+
+        | Field              | draft | open | done |
+        |--------------------|-------|------|------|
+        | name               | yes   | yes  | no   |
+        | instructions       | yes   | yes  | no   |
+        | lockTimeoutHours   | yes   | yes  | no   |
+        | reviewRequired     | yes   | NO   | no   |
+
+        AOI is updated through the dedicated AOI endpoints, not PATCH.
+        Immutable-field writes return 422.
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectUpdateRequest" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    delete:
+      tags: [projects]
+      summary: Soft-delete a tasking project.
+      description: |
+        LEAD only. Sets `deletedAt`, hard-deletes child tasks, retains
+        audit rows (flagged with `project_deleted=true`). Returns 409
+        if any task currently has an active lock — force-release first.
+      operationId: deleteProject
+      responses:
+        "204":
+          description: Soft-deleted.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "409":
+          description: Project has active task locks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/activate:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    post:
+      tags: [projects]
+      summary: Activate a draft project (`draft` → `open`).
+      description: |
+        LEAD only. Pre-conditions (all must hold; 422 with a clear
+        `detail` otherwise):
+          - Project has a `name`.
+          - Project has an AOI set.
+          - Project has at least one saved task.
+          - At least one user is allocated to the project with role
+            `contributor` or `validator` in `tasking_project_roles`
+            (the creator's auto-`lead` row does not satisfy this — a
+            worker must be assigned).
+      operationId: activateProject
+      responses:
+        "200":
+          description: Activated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/close:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    post:
+      tags: [projects]
+      summary: Close an open project (`open` → `done`).
+      description: |
+        LEAD only. Requires every task to be `completed` and no active
+        locks.
+      operationId: closeProject
+      responses:
+        "200":
+          description: Closed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "409":
+          description: One or more tasks are still locked or not completed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/reset:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    post:
+      tags: [projects]
+      summary: Reset all tasks in a project back to `to_map`.
+      description: |
+        LEAD only. Restarts work on the whole project so contributors
+        can re-map and re-validate.
+
+        Effect (single transaction):
+          - Releases every active lock with `release_reason = 'reset'`,
+            emitting one `task_unlocked` audit event per released lock.
+          - Sets every task's `status` to `to_map`, clears
+            `last_mapper_id`, emits a `task_state_changed` audit event
+            for every task whose status actually changed.
+          - If the project was `done`, transitions it back to `open`.
+          - Emits one `project_reset` audit event for the project.
+
+        Tasks themselves (geometry, history of changesets and remap
+        feedback) are NOT deleted — only their lifecycle state is
+        rewound. Stats and audit history remain intact.
+      operationId: resetProject
+      responses:
+        "200":
+          description: Reset complete.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "422":
+          description: Project is in `draft` (nothing to reset).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # =========================================================================
+  # AOI
+  # =========================================================================
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/aoi:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    get:
+      tags: [aoi]
+      summary: Get the AOI of a project.
+      description: |
+        Returns the AOI as a GeoJSON Feature (Polygon, EPSG:4326).
+        `404` if no AOI is set.
+      operationId: getProjectAoi
+      responses:
+        "200":
+          description: AOI.
+          content:
+            application/geo+json:
+              schema: { $ref: "#/components/schemas/AoiFeature" }
+            application/json:
+              schema: { $ref: "#/components/schemas/AoiFeature" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+    post:
+      tags: [aoi]
+      summary: Upload or replace the AOI.
+      description: |
+        LEAD only. Accepts a GeoJSON `Feature`, `FeatureCollection`
+        (single feature), or bare geometry. Geometry may be either
+        `Polygon` or `MultiPolygon` (EPSG:4326). Single-Polygon inputs
+        are upcast to MultiPolygon on insert; the storage column is
+        `GEOMETRY(MultiPolygon, 4326)`.
+
+        Project must be in `draft`. Replacing an AOI hard-deletes any
+        saved tasks.
+      operationId: uploadProjectAoi
+      requestBody:
+        required: true
+        content:
+          application/geo+json:
+            schema: { $ref: "#/components/schemas/AoiUploadRequest" }
+          application/json:
+            schema: { $ref: "#/components/schemas/AoiUploadRequest" }
+      responses:
+        "200":
+          description: AOI stored.
+          content:
+            application/geo+json:
+              schema: { $ref: "#/components/schemas/AoiFeature" }
+            application/json:
+              schema: { $ref: "#/components/schemas/AoiFeature" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    delete:
+      tags: [aoi]
+      summary: Delete the AOI.
+      description: |
+        LEAD only. Project must be in `draft`. Clears the AOI, hard-
+        deletes any saved tasks (releasing their locks in the same
+        transaction), clears `taskBoundaryType`. Returns 404 if no AOI
+        is set.
+      operationId: deleteProjectAoi
+      responses:
+        "204":
+          description: AOI deleted.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404":
+          description: Project not found, or project has no AOI.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Project is not in `draft`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # =========================================================================
+  # Tasks (validate + save + read)
+  # =========================================================================
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/validate:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    post:
+      tags: [tasks]
+      summary: Validate a GeoJSON FeatureCollection of candidate task boundaries.
+      description: |
+        LEAD only. Does NOT persist anything — the client must POST each
+        validated Feature to `/tasks/save` to commit.
+
+        Project preconditions: status `draft`, AOI uploaded.
+
+        Hard validation (422 on failure):
+          - Top-level type must be `FeatureCollection`.
+          - Every feature geometry must be `Polygon` (no MultiPolygon).
+          - Coordinates valid lon/lat (EPSG:4326).
+          - Every polygon lies within the project AOI (centroid-inside
+            is not sufficient).
+          - At least one feature.
+
+        Non-blocking warning:
+          - `polygon_exceeds_grid_size` — area exceeds
+            `TM_TASKING_GRID_SIZE_METERS`² (km²).
+      operationId: validateTasks
+      requestBody:
+        required: true
+        content:
+          application/geo+json:
+            schema:
+              { $ref: "#/components/schemas/TaskBoundariesFeatureCollection" }
+          application/json:
+            schema:
+              { $ref: "#/components/schemas/TaskBoundariesFeatureCollection" }
+      responses:
+        "200":
+          description: Validation result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidatePreviewResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/save:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/IdempotencyKeyHeader"
+    post:
+      tags: [tasks]
+      summary: Persist a single previewed feature as a new task.
+      description: |
+        LEAD only. Commits one feature per call. The client iterates
+        the validated FeatureCollection and calls this endpoint once
+        per feature with a fresh `Idempotency-Key`.
+
+        On each successful call the server:
+          1. Re-validates the feature against the project AOI.
+          2. Allocates the next sequential `taskNumber` (starts at 1).
+          3. Inserts the `tasking_tasks` row.
+          4. On the first feature, sets
+             `tasking_projects.task_boundary_type` to `source`.
+             Subsequent calls must use the same `source` — 409
+             otherwise.
+          5. Emits a `task_created` audit event.
+
+        Project preconditions: status `draft`, AOI set.
+
+        See the top-level idempotency contract for retry semantics.
+      operationId: saveTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SaveTaskRequest" }
+      responses:
+        "201":
+          description: Task created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SaveTaskResponse" }
+        "200":
+          description: |
+            Idempotent replay (same key + same body); `replayed: true`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SaveTaskResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "409":
+          description: |
+            One of:
+              - "Task boundary source differs from a previous save".
+              - "Idempotency key reused with a different request".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    get:
+      tags: [tasks]
+      summary: List tasks (geometry always included; serves list + map views).
+      description: |
+        Paginated. Any workspace contributor.
+      operationId: listTasks
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/TaskStatus" }
+        - in: query
+          name: lockedByUserId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: lastMapperId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
+      responses:
+        "200":
+          description: Tasks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/TaskNumberPath"
+    get:
+      tags: [tasks]
+      summary: Get task detail (geometry, status, lock, last mapper).
+      operationId: getTask
+      responses:
+        "200":
+          description: Task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Workspace, project, or task not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # =========================================================================
+  # Locking + Submit
+  # =========================================================================
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/lock:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/TaskNumberPath"
+    post:
+      tags: [locks]
+      summary: Acquire a lock on a task.
+      description: |
+        Eligibility:
+
+        | Task status | Allowed roles                                     |
+        |-------------|---------------------------------------------------|
+        | `to_map`    | CONTRIBUTOR, LEAD                                 |
+        | `to_remap`  | CONTRIBUTOR, LEAD                                 |
+        | `to_review` | VALIDATOR, LEAD — and NOT this task's last_mapper |
+        | `completed` | (none)                                            |
+
+        Other rules:
+          - No other active lock on this task.
+          - Caller holds no other active lock in this project (one-lock-
+            per-project rule). 409 response includes `existingLock`.
+          - Project status is `open`.
+
+        Side effects:
+          - INSERT `tasking_locks` with
+            `expires_at = NOW() + project.lock_timeout_hours`.
+          - Emit `task_locked` audit event.
+      operationId: lockTask
+      responses:
+        "200":
+          description: Lock acquired. Body is the updated task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Role does not permit locking in this status, or self-validation guard hit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
+        "409":
+          description: |
+            One of:
+              - "Task is already locked".
+              - "User already holds a lock in this project" — body includes `existingLock`.
+              - "Project is not open".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LockConflictError" }
+    delete:
+      tags: [locks]
+      summary: Release a lock on a task.
+      description: |
+        Default: caller must be the active lock holder
+        (`release_reason = manual`).
+
+        With `?force=true`: caller must be LEAD
+        (`release_reason = lead_release`).
+
+        Task `status` is unchanged in both modes. Force-release does
+        not relock — LEAD must POST `/lock` separately to take over.
+      operationId: unlockTask
+      parameters:
+        - in: query
+          name: force
+          schema: { type: boolean, default: false }
+      responses:
+        "204":
+          description: Released.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Not the lock holder (default mode) or not LEAD (force mode).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
+        "409":
+          description: Task has no active lock.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/extend:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/TaskNumberPath"
+    post:
+      tags: [locks]
+      summary: Extend the expiry of your own lock.
+      description: |
+        Caller must hold the active lock. Adds the project's
+        `lock_timeout_hours` to the current `expires_at` (slides from
+        the existing expiry, not from `NOW()`). Emits
+        `task_lock_extended`.
+      operationId: extendTaskLock
+      responses:
+        "200":
+          description: Lock extended.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Caller does not hold the active lock.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
+        "409":
+          description: Task has no active lock to extend.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/reset:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/TaskNumberPath"
+    post:
+      tags: [locks]
+      summary: Reset a single task back to `to_map`.
+      description: |
+        LEAD only. Restarts work on a task — useful when a contributor
+        or validator pushed a task into a wrong terminal state and
+        someone needs to redo it.
+
+        Effect (single transaction):
+          - If an active lock exists, it is released with
+            `release_reason = 'reset'` and a `task_unlocked` audit
+            event is emitted.
+          - Task `status` is set to `to_map`, `last_mapper_id` is
+            cleared, and a `task_state_changed` audit event is emitted
+            (only when the status actually changed).
+          - A `task_reset` audit event is emitted.
+
+        Existing changeset rows and remap-feedback rows are NOT
+        deleted — only the live task state is rewound.
+
+        Pre-conditions: project status is `open` or `done`.
+      operationId: resetTask
+      responses:
+        "200":
+          description: Task reset.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404":
+          { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
+        "422":
+          description: Project is in `draft` (no tasks to reset yet).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/submit:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/TaskNumberPath"
+    post:
+      tags: [submit]
+      summary: Submit an OSM changeset and optionally transition state.
+      description: |
+        The "Done?" flow. Caller must hold the active lock.
+
+        Effective actor role is inferred from current task status:
+          - `to_map` / `to_remap` → mapper context
+          - `to_review`           → validator context
+          (LEAD may act in either context.)
+
+        State transition (when `done:true`):
+
+        | Current     | Effective role     | Feedback? | New status                                              |
+        |-------------|--------------------|-----------|---------------------------------------------------------|
+        | `to_map`    | contributor / lead | n/a       | `to_review` if `review_required` else `completed`        |
+        | `to_remap`  | contributor / lead | n/a       | `to_review`                                              |
+        | `to_review` | validator / lead   | no        | `completed`                                              |
+        | `to_review` | validator / lead   | yes       | `to_remap` (and INSERT `tasking_remap_feedback`)         |
+
+        With `done:false` the state is unchanged but the lock's
+        `expires_at` slides forward to `submitted_at + lock_timeout_hours`
+        (emits `task_lock_renewed`).
+
+        OSM validation: a `404` from `OSM_CHANGESET_API_URL` returns
+        `422` with detail "Invalid OSM changeset id"; nothing is
+        written. Network failure to OSM → `502`.
+
+        `last_mapper_id` is updated only when the effective role is
+        mapper.
+
+        Feedback rules:
+          - `feedback` is meaningful only in validator context on
+            `to_review`. Otherwise its presence returns 422.
+          - For `to_review` → `to_remap`, `feedback.reasonCategory` is
+            required (422 if missing).
+      operationId: submitTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubmitRequest" }
+      responses:
+        "200":
+          description: Submission accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Caller does not hold the active lock.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "502":
+          description: Could not reach the OSM Changeset API.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # =========================================================================
+  # Roles
+  # =========================================================================
+
+  /workspaces/{workspace_id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+    get:
+      tags: [roles]
+      summary: List all users associated with the workspace and their role.
+      description: |
+        Returns every user with a `user_workspace_roles` row OR a TDEI
+        role in the workspace's owning project group, each with the
+        role the server resolves for them. Any workspace contributor.
+      operationId: listWorkspaceRoles
+      responses:
+        "200":
+          description: Roles.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceRoleListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
+
+  /workspaces/{workspace_id}/roles/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/UserIdPath"
+    get:
+      tags: [roles]
+      summary: Get a user's workspace-level role.
+      operationId: getWorkspaceRole
+      responses:
+        "200":
+          description: Role.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceRoleEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Workspace not found, or user has no association.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [roles]
+      summary: Set (upsert) the workspace-level role for a user.
+      description: |
+        LEAD only. Idempotent upsert into `user_workspace_roles`.
+
+        Last-LEAD guard: the workspace must always retain at least one
+        LEAD (counting both `user_workspace_roles` rows and TDEI-derived
+        LEAD via `poc` / `osw_data_generator`). 422 if violated.
+      operationId: putWorkspaceRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoleAssignmentBody" }
+      responses:
+        "200":
+          description: Upserted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceRoleEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
+        "422":
+          description: |
+            One of:
+              - "Cannot demote the last lead in this workspace".
+              - "User is not a member of the workspace's project group".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [roles]
+      summary: Remove the workspace-level role row for a user.
+      description: |
+        LEAD only. Deletes the row from `user_workspace_roles`; the
+        user's role falls back to their TDEI-derived role.
+      operationId: deleteWorkspaceRole
+      responses:
+        "204":
+          description: Removed.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404":
+          description: No row exists for this user/workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Would leave the workspace without a LEAD.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    get:
+      tags: [roles]
+      summary: List project-level role overrides on a project.
+      description: |
+        Returns rows in `tasking_project_roles`. Sparse — only users
+        with an explicit override appear. Any workspace contributor.
+      operationId: listProjectRoles
+      responses:
+        "200":
+          description: Overrides.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectRoleListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/roles/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/UserIdPath"
+    get:
+      tags: [roles]
+      summary: Get a user's project-level role.
+      description: Project override if set, otherwise the workspace-level role.
+      operationId: getProjectRole
+      responses:
+        "200":
+          description: Role.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectRoleEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+    put:
+      tags: [roles]
+      summary: Set (upsert) a project-level role override.
+      description: |
+        LEAD only. Inserts/updates a row in `tasking_project_roles`.
+        Project must not be `done` (422 otherwise). User must be a
+        member of the workspace's project group (422 otherwise).
+      operationId: putProjectRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoleAssignmentBody" }
+      responses:
+        "200":
+          description: Upserted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectRoleEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "422":
+          description: |
+            One of:
+              - "User is not a member of the workspace's project group".
+              - "Project is closed".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [roles]
+      summary: Clear a project-level role override.
+      description: LEAD only. Falls back to the workspace-level role.
+      operationId: deleteProjectRole
+      responses:
+        "204":
+          description: Removed.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404":
+          description: No override row for this user/project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /me/workspaces/{workspace_id}/tasking/projects/roles:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+    get:
+      tags: [roles]
+      summary: List the caller's role for every project in a workspace.
+      description: |
+        Single round-trip for the project-list page: returns one entry
+        per project with the caller's role on that project.
+      operationId: listSelfProjectRoles
+      responses:
+        "200":
+          description: Project roles for the caller.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SelfProjectRolesResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
+
+  # =========================================================================
+  # Audit
+  # =========================================================================
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/audit:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    get:
+      tags: [audit]
+      summary: List project-level audit events.
+      description: |
+        Paginated, newest first. Any workspace contributor. Soft-deleted
+        projects are visible only with `includeDeleted=true`.
+      operationId: listProjectAudit
+      parameters:
+        - in: query
+          name: eventType
+          schema: { $ref: "#/components/schemas/AuditEventType" }
+        - in: query
+          name: taskNumber
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: actorUserId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: occurredFrom
+          schema: { type: string, format: date-time }
+        - in: query
+          name: occurredTo
+          schema: { type: string, format: date-time }
+        - in: query
+          name: includeDeleted
+          schema: { type: boolean, default: false }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: orderByType
+          schema: { type: string, enum: [ASC, DESC], default: DESC }
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEventListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/audit:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+      - $ref: "#/components/parameters/TaskNumberPath"
+    get:
+      tags: [audit]
+      summary: List task-level audit events.
+      description: Newest first. Any workspace contributor.
+      operationId: listTaskAudit
+      parameters:
+        - in: query
+          name: eventType
+          schema: { $ref: "#/components/schemas/AuditEventType" }
+        - in: query
+          name: actorUserId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: occurredFrom
+          schema: { type: string, format: date-time }
+        - in: query
+          name: occurredTo
+          schema: { type: string, format: date-time }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+        - in: query
+          name: orderByType
+          schema: { type: string, enum: [ASC, DESC], default: DESC }
+      responses:
+        "200":
+          description: Events for the task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEventListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
+
+  # =========================================================================
+  # Stats
+  # =========================================================================
+
+  /workspaces/{workspace_id}/tasking/projects/{project_id}/stats:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/ProjectIdPath"
+    get:
+      tags: [stats]
+      summary: Project statistics summary.
+      description: |
+        Live-computed. Any workspace contributor.
+
+        Field semantics:
+          - `tasksByStatus` always zero-fills all four states.
+          - `percentMapped` — share of tasks past `to_map` at least
+            once. Rounded to nearest integer.
+          - `percentCompleted` — share whose current status is
+            `completed`.
+          - `avgTaskDurationMinutes` — mean across completed tasks of
+            the sum of `(released_at - locked_at)` over that task's
+            locks. `null` when no task is completed yet.
+          - `uniqueMappers` — distinct submitters with at least one
+            changeset while task was in `to_map` or `to_remap`.
+          - `uniqueValidators` — distinct submitters with at least one
+            changeset while task was in `to_review`.
+      operationId: getProjectStats
+      responses:
+        "200":
+          description: Stats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectStats" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+
+  /workspaces/{workspace_id}/tasking/users/{user_id}/stats:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/UserIdPath"
+    get:
+      tags: [stats]
+      summary: Cross-project stats for a user within a workspace.
+      description: |
+        `totals` sums across the workspace's non-deleted projects.
+        `byProject` lists only projects with non-zero contribution.
+
+        Counting rules:
+          - `tasksMapped` — distinct tasks where the user submitted at
+            least one `done:true` changeset while the task was in
+            `to_map` or `to_remap`.
+          - `tasksValidated` — distinct tasks where the user submitted
+            at least one `done:true` changeset while in `to_review`.
+          - `totalMappingMinutes` / `totalValidationMinutes` — sum of
+            `(released_at - locked_at)` over the user's lock sessions
+            in mapping/validation context.
+          - `totalAreaSqkm` — sum of `tasking_tasks.area_sqkm` over
+            tasks the user mapped (each task counted once).
+      operationId: getUserStats
+      responses:
+        "200":
+          description: User stats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserStats" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Workspace not found, user has no activity, or outside tenancy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    WorkspaceIdPath:
+      name: workspace_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ProjectIdPath:
+      name: project_id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    TaskNumberPath:
+      name: task_number
+      in: path
+      required: true
+      description: Sequential, human-readable id scoped to the project. Starts at 1.
+      schema: { type: integer, minimum: 1 }
+    UserIdPath:
+      name: user_id
+      in: path
+      required: true
+      description: TDEI auth user uuid.
+      schema: { type: string, format: uuid }
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Client-generated unique value (UUID recommended). Scoped per project.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+
+  schemas:
+    # ---------- Enums ----------
+
+    ProjectStatus:
+      type: string
+      enum: [draft, open, done]
+
+    TaskStatus:
+      type: string
+      enum: [to_map, to_review, to_remap, completed]
+
+    TaskBoundaryType:
+      type: string
+      enum: [grid, import]
+      nullable: true
+
+    GridSource:
+      type: string
+      enum: [grid, import]
+
+    WorkspaceUserRoleType:
+      type: string
+      enum: [lead, validator, contributor]
+
+    LockReleaseReason:
+      type: string
+      enum: [auto_unlock, manual, lead_release, stale_timeout, reset]
+      description: |
+        `auto_unlock`    — released by a successful `/submit` with `done:true`.
+        `manual`         — caller released their own lock via `DELETE /lock`.
+        `lead_release`   — LEAD force-released via `DELETE /lock?force=true`.
+        `stale_timeout`  — released by the background job (`expires_at < NOW()`).
+        `reset`          — released by `POST /reset` on the task or its project.
+
+    RemapFeedbackReason:
+      type: string
+      enum: [incomplete_mapping, data_quality_issue, wrong_area, other]
+
+    AuditEventType:
+      type: string
+      enum:
+        - project_created
+        - project_activated
+        - project_closed
+        - project_edited
+        - project_deleted
+        - aoi_uploaded
+        - aoi_deleted
+        - task_created
+        - task_state_changed
+        - task_locked
+        - task_lock_extended
+        - task_lock_renewed
+        - task_unlocked
+        - task_reset
+        - project_reset
+        - changeset_submitted
+        - remap_feedback
+
+    # ---------- GeoJSON ----------
+
+    GeoJsonPolygon:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type: { type: string, enum: [Polygon] }
+        coordinates:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            minItems: 4
+            items:
+              type: array
+              minItems: 2
+              maxItems: 3
+              items: { type: number }
+
+    GeoJsonMultiPolygon:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type: { type: string, enum: [MultiPolygon] }
+        coordinates:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            minItems: 1
+            items:
+              type: array
+              minItems: 4
+              items:
+                type: array
+                minItems: 2
+                maxItems: 3
+                items: { type: number }
+
+    AoiGeometry:
+      description: AOI accepts either a single Polygon or a MultiPolygon (EPSG:4326). Servers store both as MultiPolygon (single-Polygon inputs are upcast on insert).
+      oneOf:
+        - $ref: "#/components/schemas/GeoJsonPolygon"
+        - $ref: "#/components/schemas/GeoJsonMultiPolygon"
+
+    AoiFeature:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type: { type: string, enum: [Feature] }
+        geometry: { $ref: "#/components/schemas/AoiGeometry" }
+        properties:
+          type: object
+          additionalProperties: true
+
+    AoiFeatureCollection:
+      type: object
+      required: [type, features]
+      properties:
+        type: { type: string, enum: [FeatureCollection] }
+        features:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { $ref: "#/components/schemas/AoiFeature" }
+
+    AoiUploadRequest:
+      oneOf:
+        - $ref: "#/components/schemas/AoiFeature"
+        - $ref: "#/components/schemas/AoiFeatureCollection"
+        - $ref: "#/components/schemas/AoiGeometry"
+
+    TaskBoundaryFeature:
+      type: object
+      required: [type, geometry]
+      properties:
+        type: { type: string, enum: [Feature] }
+        geometry: { $ref: "#/components/schemas/GeoJsonPolygon" }
+        properties:
+          type: object
+          additionalProperties: true
+
+    TaskBoundariesFeatureCollection:
+      type: object
+      required: [type, features]
+      properties:
+        type: { type: string, enum: [FeatureCollection] }
+        features:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/TaskBoundaryFeature" }
+
+    # ---------- Projects ----------
+
+    Project:
+      type: object
+      required:
+        - id
+        - workspaceId
+        - name
+        - status
+        - reviewRequired
+        - lockTimeoutHours
+        - createdBy
+        - createdAt
+        - updatedAt
+        - hasAoi
+        - taskCount
+      properties:
+        id: { type: integer, format: int64 }
+        workspaceId: { type: integer, format: int64 }
+        name: { type: string, maxLength: 255 }
+        instructions: { type: string, nullable: true }
+        status: { $ref: "#/components/schemas/ProjectStatus" }
+        reviewRequired: { type: boolean, default: true }
+        lockTimeoutHours:
+          { type: integer, minimum: 1, maximum: 720, default: 8 }
+        taskBoundaryType: { $ref: "#/components/schemas/TaskBoundaryType" }
+        hasAoi: { type: boolean }
+        taskCount: { type: integer, minimum: 0 }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ProjectListItem:
+      type: object
+      required: [id, name, status, taskCount, percentCompleted, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/ProjectStatus" }
+        taskCount: { type: integer, minimum: 0 }
+        percentCompleted: { type: integer, minimum: 0, maximum: 100 }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ProjectListResponse:
+      type: object
+      required: [results, pagination]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectListItem" }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+
+    ProjectCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Unique within the workspace (case-insensitive) among non-deleted projects.
+        instructions:
+          type: string
+          maxLength: 10000
+          nullable: true
+        reviewRequired:
+          type: boolean
+          default: true
+          description: If false, tasks transition straight to `completed` on mapper submit. Immutable after activation.
+        lockTimeoutHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          default: 8
+        aoi:
+          allOf:
+            - $ref: "#/components/schemas/AoiUploadRequest"
+          nullable: true
+          description: Optional inline AOI (same validation as `POST .../aoi`).
+        roleAssignments:
+          type: array
+          description: |
+            Optional list of project-level role assignments to seed at
+            creation. Each entry is upserted into `tasking_project_roles`
+            in the same transaction as the project insert.
+
+            The creator is auto-added as `lead` on `tasking_project_roles`
+            and does not need to appear here.
+
+            Each `userId` must be a member of the workspace's TDEI
+            project group; entries failing this check are rejected with
+            422 and no rows are written.
+          items: { $ref: "#/components/schemas/ProjectRoleAssignment" }
+
+    ProjectRoleAssignment:
+      type: object
+      required: [userId, role]
+      properties:
+        userId: { type: string, format: uuid }
+        role:   { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    ProjectUpdateRequest:
+      type: object
+      description: All fields optional. Server enforces per-status mutability.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        instructions: { type: string, maxLength: 10000, nullable: true }
+        lockTimeoutHours: { type: integer, minimum: 1, maximum: 720 }
+        reviewRequired: { type: boolean }
+
+    # ---------- Tasks ----------
+
+    TaskLockSummary:
+      type: object
+      required: [userId, lockedAt, expiresAt]
+      properties:
+        userId: { type: string, format: uuid }
+        userName: { type: string, nullable: true }
+        lockedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+
+    LastMapper:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+        userName: { type: string, nullable: true }
+
+    Task:
+      type: object
+      required:
+        [id, taskNumber, status, geometry, areaSqkm, createdAt, updatedAt]
+      properties:
+        id: { type: integer, format: int64 }
+        taskNumber: { type: integer, minimum: 1 }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        geometry: { $ref: "#/components/schemas/GeoJsonPolygon" }
+        areaSqkm: { type: number }
+        lock:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TaskLockSummary"
+        lastMapper:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/LastMapper"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    TaskListResponse:
+      type: object
+      required: [tasks, pagination]
+      properties:
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+
+    ValidateWarning:
+      type: object
+      required: [taskIndex, issue]
+      properties:
+        taskIndex:
+          type: integer
+          description: 0-based index into the submitted `features` array.
+        issue:
+          type: string
+          enum: [polygon_exceeds_grid_size]
+        areaSqkm:
+          type: number
+
+    ValidatePreviewResponse:
+      type: object
+      required: [valid, warnings, source, featureCollection]
+      properties:
+        valid:
+          type: boolean
+          description: True when no hard failures. Warnings do not affect this.
+        warnings:
+          type: array
+          items: { $ref: "#/components/schemas/ValidateWarning" }
+        source:
+          $ref: "#/components/schemas/GridSource"
+          description: Always `import` for this response. Pass through unchanged to `/save`.
+        featureCollection:
+          $ref: "#/components/schemas/TaskBoundariesFeatureCollection"
+
+    SaveTaskRequest:
+      type: object
+      required: [source, feature]
+      properties:
+        source:
+          $ref: "#/components/schemas/GridSource"
+          description: First save sets `tasking_projects.task_boundary_type`; subsequent saves must use the same source.
+        feature:
+          $ref: "#/components/schemas/TaskBoundaryFeature"
+
+    SaveTaskResponse:
+      type: object
+      required: [projectId, taskBoundaryType, task]
+      properties:
+        projectId: { type: integer, format: int64 }
+        taskBoundaryType: { $ref: "#/components/schemas/GridSource" }
+        task: { $ref: "#/components/schemas/Task" }
+        idempotencyKey:
+          type: string
+          nullable: true
+        replayed:
+          type: boolean
+          default: false
+          description: True on idempotent replay (HTTP 200 case).
+
+    # ---------- Submit / Lock ----------
+
+    RemapFeedback:
+      type: object
+      required: [reasonCategory]
+      properties:
+        reasonCategory: { $ref: "#/components/schemas/RemapFeedbackReason" }
+        notes:
+          type: string
+          maxLength: 4000
+          nullable: true
+
+    SubmitRequest:
+      type: object
+      required: [osmChangesetId, done]
+      properties:
+        osmChangesetId:
+          type: integer
+          format: int64
+          minimum: 1
+        done:
+          type: boolean
+          description: |
+            `true` — auto-unlocks and transitions state per the table.
+            `false` — records the changeset, state unchanged, lock
+            `expires_at` slides forward to `submitted_at +
+            lock_timeout_hours`.
+        feedback:
+          allOf:
+            - $ref: "#/components/schemas/RemapFeedback"
+          description: Meaningful only in validator context on `to_review`.
+
+    ExistingLockSummary:
+      type: object
+      required: [taskNumber, taskStatus, lockedAt, expiresAt]
+      properties:
+        taskNumber: { type: integer, minimum: 1 }
+        taskStatus: { $ref: "#/components/schemas/TaskStatus" }
+        lockedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+
+    LockConflictError:
+      allOf:
+        - $ref: "#/components/schemas/Error"
+        - type: object
+          properties:
+            existingLock:
+              $ref: "#/components/schemas/ExistingLockSummary"
+
+    # ---------- Roles ----------
+
+    UserSummary:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+
+    RoleAssignmentBody:
+      type: object
+      required: [role]
+      properties:
+        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    WorkspaceRoleEntry:
+      type: object
+      required: [user, role]
+      properties:
+        user: { $ref: "#/components/schemas/UserSummary" }
+        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    WorkspaceRoleListResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/WorkspaceRoleEntry" }
+
+    ProjectRoleEntry:
+      type: object
+      required: [user, role]
+      properties:
+        user: { $ref: "#/components/schemas/UserSummary" }
+        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    ProjectRoleListResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectRoleEntry" }
+
+    SelfProjectRolesItem:
+      type: object
+      required: [projectId, projectName, role]
+      properties:
+        projectId: { type: integer, format: int64 }
+        projectName: { type: string }
+        projectStatus: { $ref: "#/components/schemas/ProjectStatus" }
+        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    SelfProjectRolesResponse:
+      type: object
+      required: [workspaceRole, projects]
+      properties:
+        workspaceRole: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+        projects:
+          type: array
+          items: { $ref: "#/components/schemas/SelfProjectRolesItem" }
+
+    # ---------- Audit ----------
+
+    ActorRef:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string, nullable: true }
+
+    AuditEvent:
+      type: object
+      required: [id, eventType, projectId, actor, occurredAt, details]
+      properties:
+        id: { type: integer, format: int64 }
+        eventType: { $ref: "#/components/schemas/AuditEventType" }
+        projectId: { type: integer, format: int64 }
+        taskId:
+          type: integer
+          format: int64
+          nullable: true
+        taskNumber:
+          type: integer
+          nullable: true
+          description: Convenience copy from `details` (so list renderers don't peek inside JSONB).
+        actor: { $ref: "#/components/schemas/ActorRef" }
+        occurredAt: { type: string, format: date-time }
+        details:
+          type: object
+          additionalProperties: true
+        projectDeleted:
+          type: boolean
+          default: false
+
+    AuditEventListResponse:
+      type: object
+      required: [results, pagination]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEvent" }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+
+    # ---------- Stats ----------
+
+    TaskStatusCounts:
+      type: object
+      required: [to_map, to_review, to_remap, completed]
+      properties:
+        to_map: { type: integer, minimum: 0 }
+        to_review: { type: integer, minimum: 0 }
+        to_remap: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+
+    ProjectStats:
+      type: object
+      required:
+        - projectId
+        - totalTasks
+        - tasksByStatus
+        - percentMapped
+        - percentCompleted
+        - uniqueMappers
+        - uniqueValidators
+      properties:
+        projectId: { type: integer, format: int64 }
+        totalTasks: { type: integer, minimum: 0 }
+        tasksByStatus: { $ref: "#/components/schemas/TaskStatusCounts" }
+        percentMapped: { type: integer, minimum: 0, maximum: 100 }
+        percentCompleted: { type: integer, minimum: 0, maximum: 100 }
+        avgTaskDurationMinutes:
+          type: number
+          nullable: true
+        uniqueMappers: { type: integer, minimum: 0 }
+        uniqueValidators: { type: integer, minimum: 0 }
+
+    UserStatsTotals:
+      type: object
+      required:
+        - tasksMapped
+        - tasksValidated
+        - totalMappingMinutes
+        - totalValidationMinutes
+        - totalChangesets
+        - totalAreaSqkm
+      properties:
+        tasksMapped: { type: integer, minimum: 0 }
+        tasksValidated: { type: integer, minimum: 0 }
+        totalMappingMinutes: { type: integer, minimum: 0 }
+        totalValidationMinutes: { type: integer, minimum: 0 }
+        totalChangesets: { type: integer, minimum: 0 }
+        totalAreaSqkm: { type: number, minimum: 0 }
+
+    UserStatsByProject:
+      type: object
+      required: [projectId, projectName, tasksMapped, tasksValidated]
+      properties:
+        projectId: { type: integer, format: int64 }
+        projectName: { type: string }
+        tasksMapped: { type: integer, minimum: 0 }
+        tasksValidated: { type: integer, minimum: 0 }
+        totalChangesets: { type: integer, minimum: 0 }
+        totalAreaSqkm: { type: number, minimum: 0 }
+
+    UserStats:
+      type: object
+      required: [workspaceId, userId, totals, byProject]
+      properties:
+        workspaceId: { type: integer, format: int64 }
+        userId: { type: string, format: uuid }
+        totals: { $ref: "#/components/schemas/UserStatsTotals" }
+        byProject:
+          type: array
+          items: { $ref: "#/components/schemas/UserStatsByProject" }
+
+    # ---------- Shared ----------
+
+    Pagination:
+      type: object
+      required: [page, pageSize, total]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1 }
+        total: { type: integer, minimum: 0 }
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: object, additionalProperties: true }
+          description: FastAPI default error shape — string for raised `HTTPException`, structured list for pydantic validation errors.
+
+  responses:
+    BadRequest:
+      description: Malformed JSON or schema-level failure.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ForbiddenLeadRequired:
+      description: Caller is a workspace contributor but does not hold LEAD.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    WorkspaceNotFound:
+      description: Workspace does not exist, or is outside the caller's tenancy.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ProjectOrWorkspaceNotFound:
+      description: Workspace or project does not exist, or is outside the caller's tenancy.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TaskOrProjectOrWorkspaceNotFound:
+      description: Workspace, project, or task does not exist, or is outside the caller's tenancy.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UnprocessableEntity:
+      description: Well-formed request that violates a business rule.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
