@@ -1,0 +1,3157 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Workspaces Tasking Manager API",
+    "version": "1.0.0",
+    "description": "Tasking Manager API for the Workspaces Tasking Manager MVP.\n"
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "workspaces-backend FastAPI app \u2014 all routers are mounted under `/api/v1` (see `api/main.py`)."
+    }
+  ],
+  "tags": [
+    {
+      "name": "projects",
+      "description": "Tasking project CRUD and lifecycle."
+    },
+    {
+      "name": "aoi",
+      "description": "Project area-of-interest upload, retrieval, deletion."
+    },
+    {
+      "name": "tasks",
+      "description": "Task validation, persistence and read access."
+    },
+    {
+      "name": "locks",
+      "description": "Lock lifecycle on a task."
+    },
+    {
+      "name": "submit",
+      "description": "Done? submit flow \u2014 changeset + state transition."
+    },
+    {
+      "name": "roles",
+      "description": "Workspace and project role management."
+    },
+    {
+      "name": "audit",
+      "description": "Audit trail."
+    },
+    {
+      "name": "stats",
+      "description": "Project and user statistics."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/workspaces/{workspace_id}/tasking/projects": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List tasking projects in a workspace.",
+        "description": "Paginated list of non-deleted projects. Any workspace contributor.",
+        "operationId": "listProjects",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "$ref": "#/components/schemas/ProjectStatus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "textSearch",
+            "schema": {
+              "type": "string",
+              "maxLength": 255
+            },
+            "description": "Case-insensitive substring match on `name`."
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "orderBy",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "updatedAt",
+                "name"
+              ],
+              "default": "createdAt"
+            }
+          },
+          {
+            "in": "query",
+            "name": "orderByType",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "DESC"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/WorkspaceNotFound"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create a tasking project (optionally with AOI and role assignments).",
+        "description": "LEAD only. Creates a project in `draft` status.\n\nOptional inline AOI may be provided (same validation as\n`POST .../aoi`).\n\nOptional `roleAssignments` may be provided to seed the\nproject-level role overrides table (`tasking_project_roles`) in\nthe same transaction. The creator is auto-added with\n`role = lead`; other users may be added with any of `lead`,\n`validator`, `contributor`.\n\nActivation later requires at least one user assigned with\n`contributor` or `validator` so the project has at least one\nworker before it goes live \u2014 see `POST .../activate`.\n",
+        "operationId": "createProject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/WorkspaceNotFound"
+          },
+          "409": {
+            "description": "A non-deleted project with this name already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get a tasking project.",
+        "operationId": "getProject",
+        "responses": {
+          "200": {
+            "description": "Project detail.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Update editable settings.",
+        "description": "LEAD only. Per-status mutability:\n\n| Field              | draft | open | done |\n|--------------------|-------|------|------|\n| name               | yes   | yes  | no   |\n| instructions       | yes   | yes  | no   |\n| lockTimeoutHours   | yes   | yes  | no   |\n| reviewRequired     | yes   | NO   | no   |\n\nAOI is updated through the dedicated AOI endpoints, not PATCH.\nImmutable-field writes return 422.\n",
+        "operationId": "updateProject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Soft-delete a tasking project.",
+        "description": "LEAD only. Sets `deletedAt`, hard-deletes child tasks, retains\naudit rows (flagged with `project_deleted=true`). Returns 409\nif any task currently has an active lock \u2014 force-release first.\n",
+        "operationId": "deleteProject",
+        "responses": {
+          "204": {
+            "description": "Soft-deleted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "409": {
+            "description": "Project has active task locks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/activate": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Activate a draft project (`draft` \u2192 `open`).",
+        "description": "LEAD only. Pre-conditions (all must hold; 422 with a clear\n`detail` otherwise):\n  - Project has a `name`.\n  - Project has an AOI set.\n  - Project has at least one saved task.\n  - At least one user is allocated to the project with role\n    `contributor` or `validator` in `tasking_project_roles`\n    (the creator's auto-`lead` row does not satisfy this \u2014 a\n    worker must be assigned).\n",
+        "operationId": "activateProject",
+        "responses": {
+          "200": {
+            "description": "Activated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/close": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Close an open project (`open` \u2192 `done`).",
+        "description": "LEAD only. Requires every task to be `completed` and no active\nlocks.\n",
+        "operationId": "closeProject",
+        "responses": {
+          "200": {
+            "description": "Closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "409": {
+            "description": "One or more tasks are still locked or not completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/reset": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Reset all tasks in a project back to `to_map`.",
+        "description": "LEAD only. Restarts work on the whole project so contributors\ncan re-map and re-validate.\n\nEffect (single transaction):\n  - Releases every active lock with `release_reason = 'reset'`,\n    emitting one `task_unlocked` audit event per released lock.\n  - Sets every task's `status` to `to_map`, clears\n    `last_mapper_id`, emits a `task_state_changed` audit event\n    for every task whose status actually changed.\n  - If the project was `done`, transitions it back to `open`.\n  - Emits one `project_reset` audit event for the project.\n\nTasks themselves (geometry, history of changesets and remap\nfeedback) are NOT deleted \u2014 only their lifecycle state is\nrewound. Stats and audit history remain intact.\n",
+        "operationId": "resetProject",
+        "responses": {
+          "200": {
+            "description": "Reset complete.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "description": "Project is in `draft` (nothing to reset).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/aoi": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "aoi"
+        ],
+        "summary": "Get the AOI of a project.",
+        "description": "Returns the AOI as a GeoJSON Feature (Polygon, EPSG:4326).\n`404` if no AOI is set.\n",
+        "operationId": "getProjectAoi",
+        "responses": {
+          "200": {
+            "description": "AOI.",
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AoiFeature"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AoiFeature"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aoi"
+        ],
+        "summary": "Upload or replace the AOI.",
+        "description": "LEAD only. Accepts a GeoJSON `Feature`, `FeatureCollection`\n(single feature), or bare geometry. Geometry may be either\n`Polygon` or `MultiPolygon` (EPSG:4326). Single-Polygon inputs\nare upcast to MultiPolygon on insert; the storage column is\n`GEOMETRY(MultiPolygon, 4326)`.\n\nProject must be in `draft`. Replacing an AOI hard-deletes any\nsaved tasks.\n",
+        "operationId": "uploadProjectAoi",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/geo+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AoiUploadRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AoiUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AOI stored.",
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AoiFeature"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AoiFeature"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "aoi"
+        ],
+        "summary": "Delete the AOI.",
+        "description": "LEAD only. Project must be in `draft`. Clears the AOI, hard-\ndeletes any saved tasks (releasing their locks in the same\ntransaction), clears `taskBoundaryType`. Returns 404 if no AOI\nis set.\n",
+        "operationId": "deleteProjectAoi",
+        "responses": {
+          "204": {
+            "description": "AOI deleted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "description": "Project not found, or project has no AOI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Project is not in `draft`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/validate": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Validate a GeoJSON FeatureCollection of candidate task boundaries.",
+        "description": "LEAD only. Does NOT persist anything \u2014 the client must POST each\nvalidated Feature to `/tasks/save` to commit.\n\nProject preconditions: status `draft`, AOI uploaded.\n\nHard validation (422 on failure):\n  - Top-level type must be `FeatureCollection`.\n  - Every feature geometry must be `Polygon` (no MultiPolygon).\n  - Coordinates valid lon/lat (EPSG:4326).\n  - Every polygon lies within the project AOI (centroid-inside\n    is not sufficient).\n  - At least one feature.\n\nNon-blocking warning:\n  - `polygon_exceeds_grid_size` \u2014 area exceeds\n    `TM_TASKING_GRID_SIZE_METERS`\u00b2 (km\u00b2).\n",
+        "operationId": "validateTasks",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/geo+json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBoundariesFeatureCollection"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBoundariesFeatureCollection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidatePreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/save": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/IdempotencyKeyHeader"
+        }
+      ],
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Persist a validated FeatureCollection as the project's tasks (bulk).",
+        "description": "LEAD only. Commits the **entire** FeatureCollection as\n`tasking_tasks` rows in a single transaction.\n\nEffect (single transaction; all-or-nothing):\n  1. Re-validates every feature against the project AOI (same\n     rules as `POST /tasks/validate`). Any hard failure aborts\n     the transaction \u2014 no rows are written.\n  2. Allocates sequential `taskNumber`s starting at 1, in the\n     order features appear in the request.\n  3. Bulk-inserts the `tasking_tasks` rows.\n  4. Sets `tasking_projects.task_boundary_type` to `source`.\n  5. Emits one `task_created` audit event per task.\n\nProject preconditions:\n  - Project must be in `draft`.\n  - Project must have an AOI set.\n  - Project must currently have **no tasks** (a second save is\n    rejected with 409 `\"Tasks already saved\"`). To replace\n    tasks, re-upload the AOI in `draft` \u2014 that wipes existing\n    tasks and re-enables save.\n\nIdempotency: `Idempotency-Key` is honoured at the batch level.\nSame key + same body within the configured TTL replays the\noriginal response (HTTP 200, `replayed: true`). Same key with\ndifferent body returns 409\n`\"Idempotency key reused with a different request\"`. See the\ntop-level idempotency contract.\n",
+        "operationId": "saveTasks",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveTasksRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tasks created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveTasksResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay (same key + same body); `replayed: true`.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveTasksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "409": {
+            "description": "One of:\n  - \"Tasks already saved\" \u2014 project already has tasks; re-upload AOI to start over.\n  - \"Idempotency key reused with a different request\".\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List tasks (geometry always included; serves list + map views).",
+        "description": "Paginated. Any workspace contributor.\n",
+        "operationId": "listTasks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "$ref": "#/components/schemas/TaskStatus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lockedByUserId",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lastMapperId",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/TaskNumberPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get task detail (geometry, status, lock, last mapper).",
+        "operationId": "getTask",
+        "responses": {
+          "200": {
+            "description": "Task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Workspace, project, or task not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/lock": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/TaskNumberPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Acquire a lock on a task.",
+        "description": "Eligibility:\n\n| Task status | Allowed roles                                     |\n|-------------|---------------------------------------------------|\n| `to_map`    | CONTRIBUTOR, LEAD                                 |\n| `to_remap`  | CONTRIBUTOR, LEAD                                 |\n| `to_review` | VALIDATOR, LEAD \u2014 and NOT this task's last_mapper |\n| `completed` | (none)                                            |\n\nOther rules:\n  - No other active lock on this task.\n  - Caller holds no other active lock in this project (one-lock-\n    per-project rule). 409 response includes `existingLock`.\n  - Project status is `open`.\n\nSide effects:\n  - INSERT `tasking_locks` with\n    `expires_at = NOW() + project.lock_timeout_hours`.\n  - Emit `task_locked` audit event.\n",
+        "operationId": "lockTask",
+        "responses": {
+          "200": {
+            "description": "Lock acquired. Body is the updated task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Role does not permit locking in this status, or self-validation guard hit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskOrProjectOrWorkspaceNotFound"
+          },
+          "409": {
+            "description": "One of:\n  - \"Task is already locked\".\n  - \"User already holds a lock in this project\" \u2014 body includes `existingLock`.\n  - \"Project is not open\".\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LockConflictError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Release a lock on a task.",
+        "description": "Default: caller must be the active lock holder\n(`release_reason = manual`).\n\nWith `?force=true`: caller must be LEAD\n(`release_reason = lead_release`).\n\nTask `status` is unchanged in both modes. Force-release does\nnot relock \u2014 LEAD must POST `/lock` separately to take over.\n",
+        "operationId": "unlockTask",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "force",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Released."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Not the lock holder (default mode) or not LEAD (force mode).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskOrProjectOrWorkspaceNotFound"
+          },
+          "409": {
+            "description": "Task has no active lock.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/extend": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/TaskNumberPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Extend the expiry of your own lock.",
+        "description": "Caller must hold the active lock. Adds the project's\n`lock_timeout_hours` to the current `expires_at` (slides from\nthe existing expiry, not from `NOW()`). Emits\n`task_lock_extended`.\n",
+        "operationId": "extendTaskLock",
+        "responses": {
+          "200": {
+            "description": "Lock extended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller does not hold the active lock.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskOrProjectOrWorkspaceNotFound"
+          },
+          "409": {
+            "description": "Task has no active lock to extend.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/reset": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/TaskNumberPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "locks"
+        ],
+        "summary": "Reset a single task back to `to_map`.",
+        "description": "LEAD only. Restarts work on a task \u2014 useful when a contributor\nor validator pushed a task into a wrong terminal state and\nsomeone needs to redo it.\n\nEffect (single transaction):\n  - If an active lock exists, it is released with\n    `release_reason = 'reset'` and a `task_unlocked` audit\n    event is emitted.\n  - Task `status` is set to `to_map`, `last_mapper_id` is\n    cleared, and a `task_state_changed` audit event is emitted\n    (only when the status actually changed).\n  - A `task_reset` audit event is emitted.\n\nExisting changeset rows and remap-feedback rows are NOT\ndeleted \u2014 only the live task state is rewound.\n\nPre-conditions: project status is `open` or `done`.\n",
+        "operationId": "resetTask",
+        "responses": {
+          "200": {
+            "description": "Task reset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskOrProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "description": "Project is in `draft` (no tasks to reset yet).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/submit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/TaskNumberPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "submit"
+        ],
+        "summary": "Submit an OSM changeset and optionally transition state.",
+        "description": "The \"Done?\" flow. Caller must hold the active lock.\n\nEffective actor role is inferred from current task status:\n  - `to_map` / `to_remap` \u2192 mapper context\n  - `to_review`           \u2192 validator context\n  (LEAD may act in either context.)\n\nState transition (when `done:true`):\n\n| Current     | Effective role     | Feedback? | New status                                              |\n|-------------|--------------------|-----------|---------------------------------------------------------|\n| `to_map`    | contributor / lead | n/a       | `to_review` if `review_required` else `completed`        |\n| `to_remap`  | contributor / lead | n/a       | `to_review`                                              |\n| `to_review` | validator / lead   | no        | `completed`                                              |\n| `to_review` | validator / lead   | yes       | `to_remap` (and INSERT `tasking_feedback` with `reasonCategory` set) |\n\nWith `done:false` the state is unchanged but the lock's\n`expires_at` slides forward to `submitted_at + lock_timeout_hours`\n(emits `task_lock_renewed`).\n\n`osmChangesetId` is supplied by the client. In practice it is\nauto-populated by the editor (Rapid in the iframe) on save \u2014\nthe UI does not ask the user to type it. The id may optionally\nbe verified by looking it up in the internal `osm-web` service\n(same network); a verification miss returns `422` with detail\n\"Invalid OSM changeset id\" and nothing is written.\n\n`last_mapper_id` is updated only when the effective role is\nmapper.\n\nFeedback rules:\n  - `feedback` is meaningful only in validator context on\n    `to_review`. Otherwise its presence returns 422.\n  - For `to_review` \u2192 `to_remap`, `feedback.reasonCategory` is\n    required (422 if missing).\n",
+        "operationId": "submitTask",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Submission accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller does not hold the active lock.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskOrProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/users": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "List privileged workspace members (lead + validator role rows).",
+        "description": "Returns the rows in `user_workspace_roles` for this workspace,\njoined with their `users` record. Visible to any workspace\ncontributor (`isWorkspaceContributor`).\n\nDoes NOT include implicit contributors \u2014 only users with an\nexplicit LEAD or VALIDATOR row. The UI uses this for the team\nmanagement table; broader user listings come from the TDEI\nproxy (see `/assignable-users`).\n",
+        "operationId": "listWorkspaceMembers",
+        "responses": {
+          "200": {
+            "description": "Privileged members.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceUserRoleItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller is not a member of the workspace's project group.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/users/{user_id}/role": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/UserIdPath"
+        }
+      ],
+      "put": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "Assign (upsert) a privileged role for a user on a workspace.",
+        "description": "LEAD only. Idempotent upsert into `user_workspace_roles`.\n\nThe body's `role` must be `lead` or `validator` \u2014 assigning\n`contributor` is rejected with 422 (\"cannot assign implicit\nrole 'contributor' directly\"). Contributor is the default for\nany project-group member; to remove an explicit role and fall\nback to contributor, call `DELETE /users/{user_id}` below.\n\nThe named user must have signed in to Workspaces at least once\n(i.e. exist in `users.auth_uid`). If they have not, returns\n404 with detail \"User {uuid} has not signed in to Workspaces\nyet\".\n\nSide effect: the target user's `UserInfo` cache entry is\nevicted (`evict_user_from_cache`) so their next request\nreflects the new role immediately.\n",
+        "operationId": "assignWorkspaceMemberRole",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Role assigned (or updated)."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller is not LEAD on this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found, or the named user has not signed in to Workspaces yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "\"cannot assign implicit role 'contributor' directly\".",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/users/{user_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/UserIdPath"
+        }
+      ],
+      "delete": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "Remove a user's privileged role on a workspace.",
+        "description": "LEAD only. Deletes the row from `user_workspace_roles`; the\nuser's role falls back to implicit `contributor` (or to\nwhatever TDEI grants \u2014 `poc` still maps to LEAD).\n\nSide effect: the target user's `UserInfo` cache entry is\nevicted.\n",
+        "operationId": "removeWorkspaceMemberRole",
+        "responses": {
+          "204": {
+            "description": "Role row removed."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller is not LEAD on this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No role row exists for this user/workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/roles": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "List project-level role overrides on a project.",
+        "description": "Returns rows in `tasking_project_roles`. Sparse \u2014 only users\nwith an explicit override appear. Any workspace contributor.\n",
+        "operationId": "listProjectRoles",
+        "responses": {
+          "200": {
+            "description": "Overrides.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRoleListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/roles/{user_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/UserIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "Get a user's project-level role.",
+        "description": "Project override if set, otherwise the workspace-level role.",
+        "operationId": "getProjectRole",
+        "responses": {
+          "200": {
+            "description": "Role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRoleEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "Set (upsert) a project-level role override.",
+        "description": "LEAD only. Inserts/updates a row in `tasking_project_roles`.\nProject must not be `done` (422 otherwise). User must be a\nmember of the workspace's project group (422 otherwise).\n",
+        "operationId": "putProjectRole",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upserted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRoleEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          },
+          "422": {
+            "description": "One of:\n  - \"User is not a member of the workspace's project group\".\n  - \"Project is closed\".\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "Clear a project-level role override.",
+        "description": "LEAD only. Falls back to the workspace-level role.",
+        "operationId": "deleteProjectRole",
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenLeadRequired"
+          },
+          "404": {
+            "description": "No override row for this user/project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/workspaces/{workspace_id}/tasking/projects/roles": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "roles"
+        ],
+        "summary": "List the caller's role for every project in a workspace.",
+        "description": "Single round-trip for the project-list page: returns one entry\nper project with the caller's role on that project.\n",
+        "operationId": "listSelfProjectRoles",
+        "responses": {
+          "200": {
+            "description": "Project roles for the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfProjectRolesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/WorkspaceNotFound"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/audit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "List project-level audit events.",
+        "description": "Paginated, newest first. Any workspace contributor. Soft-deleted\nprojects are visible only with `includeDeleted=true`.\n",
+        "operationId": "listProjectAudit",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "eventType",
+            "schema": {
+              "$ref": "#/components/schemas/AuditEventType"
+            }
+          },
+          {
+            "in": "query",
+            "name": "taskNumber",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorUserId",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurredFrom",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurredTo",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeDeleted",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "orderByType",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "DESC"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/tasks/{task_number}/audit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/TaskNumberPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "List task-level audit events.",
+        "description": "Newest first. Any workspace contributor.",
+        "operationId": "listTaskAudit",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "eventType",
+            "schema": {
+              "$ref": "#/components/schemas/AuditEventType"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actorUserId",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurredFrom",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurredTo",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "name": "orderByType",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "DESC"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events for the task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskOrProjectOrWorkspaceNotFound"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/projects/{project_id}/stats": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Project statistics summary.",
+        "description": "Live-computed. Any workspace contributor.\n\nField semantics:\n  - `tasksByStatus` always zero-fills all four states.\n  - `percentMapped` \u2014 share of tasks past `to_map` at least\n    once. Rounded to nearest integer.\n  - `percentCompleted` \u2014 share whose current status is\n    `completed`.\n  - `avgTaskDurationMinutes` \u2014 mean across completed tasks of\n    the sum of `(released_at - locked_at)` over that task's\n    locks. `null` when no task is completed yet.\n  - `uniqueMappers` \u2014 distinct submitters with at least one\n    changeset while task was in `to_map` or `to_remap`.\n  - `uniqueValidators` \u2014 distinct submitters with at least one\n    changeset while task was in `to_review`.\n",
+        "operationId": "getProjectStats",
+        "responses": {
+          "200": {
+            "description": "Stats.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectStats"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProjectOrWorkspaceNotFound"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/tasking/users/{user_id}/stats": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkspaceIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/UserIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Cross-project stats for a user within a workspace.",
+        "description": "`totals` sums across the workspace's non-deleted projects.\n`byProject` lists only projects with non-zero contribution.\n\nCounting rules:\n  - `tasksMapped` \u2014 distinct tasks where the user submitted at\n    least one `done:true` changeset while the task was in\n    `to_map` or `to_remap`.\n  - `tasksValidated` \u2014 distinct tasks where the user submitted\n    at least one `done:true` changeset while in `to_review`.\n  - `totalMappingMinutes` / `totalValidationMinutes` \u2014 sum of\n    `(released_at - locked_at)` over the user's lock sessions\n    in mapping/validation context.\n  - `totalAreaSqkm` \u2014 sum of `tasking_tasks.area_sqkm` over\n    tasks the user mapped (each task counted once).\n",
+        "operationId": "getUserStats",
+        "responses": {
+          "200": {
+            "description": "User stats.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserStats"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Workspace not found, user has no activity, or outside tenancy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "parameters": {
+      "WorkspaceIdPath": {
+        "name": "workspace_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "ProjectIdPath": {
+        "name": "project_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "TaskNumberPath": {
+        "name": "task_number",
+        "in": "path",
+        "required": true,
+        "description": "Sequential, human-readable id scoped to the project. Starts at 1.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "UserIdPath": {
+        "name": "user_id",
+        "in": "path",
+        "required": true,
+        "description": "TDEI auth user uuid.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IdempotencyKeyHeader": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "Client-generated unique value (UUID recommended). Scoped per project.",
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        }
+      }
+    },
+    "schemas": {
+      "ProjectStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "open",
+          "done"
+        ]
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": [
+          "to_map",
+          "to_review",
+          "to_remap",
+          "completed"
+        ]
+      },
+      "TaskBoundaryType": {
+        "type": "string",
+        "enum": [
+          "grid",
+          "import"
+        ],
+        "nullable": true
+      },
+      "GridSource": {
+        "type": "string",
+        "enum": [
+          "grid",
+          "import"
+        ]
+      },
+      "WorkspaceUserRoleType": {
+        "type": "string",
+        "enum": [
+          "lead",
+          "validator",
+          "contributor"
+        ]
+      },
+      "LockReleaseReason": {
+        "type": "string",
+        "enum": [
+          "auto_unlock",
+          "manual",
+          "lead_release",
+          "stale_timeout",
+          "reset"
+        ],
+        "description": "`auto_unlock`    \u2014 released by a successful `/submit` with `done:true`.\n`manual`         \u2014 caller released their own lock via `DELETE /lock`.\n`lead_release`   \u2014 LEAD force-released via `DELETE /lock?force=true`.\n`stale_timeout`  \u2014 released by the background job (`expires_at < NOW()`).\n`reset`          \u2014 released by `POST /reset` on the task or its project.\n"
+      },
+      "FeedbackReason": {
+        "type": "string",
+        "enum": [
+          "incomplete_mapping",
+          "data_quality_issue",
+          "wrong_area",
+          "other"
+        ],
+        "description": "Reason categories persisted to `tasking_feedback.reason_category`.\nRequired when feedback is used to drive a `to_review \u2192 to_remap`\ntransition (see `POST /submit`); optional for generic free-form\nnotes on a task.\n"
+      },
+      "AuditEventType": {
+        "type": "string",
+        "enum": [
+          "project_created",
+          "project_activated",
+          "project_closed",
+          "project_edited",
+          "project_deleted",
+          "aoi_uploaded",
+          "aoi_deleted",
+          "task_created",
+          "task_state_changed",
+          "task_locked",
+          "task_lock_extended",
+          "task_lock_renewed",
+          "task_unlocked",
+          "task_reset",
+          "project_reset",
+          "changeset_submitted",
+          "feedback_submitted"
+        ]
+      },
+      "GeoJsonPolygon": {
+        "type": "object",
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Polygon"
+            ]
+          },
+          "coordinates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 3,
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "GeoJsonMultiPolygon": {
+        "type": "object",
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "MultiPolygon"
+            ]
+          },
+          "coordinates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "minItems": 4,
+                "items": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "AoiGeometry": {
+        "description": "AOI accepts either a single Polygon or a MultiPolygon (EPSG:4326). Servers store both as MultiPolygon (single-Polygon inputs are upcast on insert).",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GeoJsonPolygon"
+          },
+          {
+            "$ref": "#/components/schemas/GeoJsonMultiPolygon"
+          }
+        ]
+      },
+      "AoiFeature": {
+        "type": "object",
+        "required": [
+          "type",
+          "geometry",
+          "properties"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature"
+            ]
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/AoiGeometry"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "AoiFeatureCollection": {
+        "type": "object",
+        "required": [
+          "type",
+          "features"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "FeatureCollection"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/AoiFeature"
+            }
+          }
+        }
+      },
+      "AoiUploadRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AoiFeature"
+          },
+          {
+            "$ref": "#/components/schemas/AoiFeatureCollection"
+          },
+          {
+            "$ref": "#/components/schemas/AoiGeometry"
+          }
+        ]
+      },
+      "TaskBoundaryFeature": {
+        "type": "object",
+        "required": [
+          "type",
+          "geometry"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature"
+            ]
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonPolygon"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "TaskBoundariesFeatureCollection": {
+        "type": "object",
+        "required": [
+          "type",
+          "features"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "FeatureCollection"
+            ]
+          },
+          "features": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/TaskBoundaryFeature"
+            }
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "required": [
+          "id",
+          "workspaceId",
+          "name",
+          "status",
+          "reviewRequired",
+          "lockTimeoutHours",
+          "createdBy",
+          "createdAt",
+          "updatedAt",
+          "hasAoi",
+          "taskCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "workspaceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "instructions": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          },
+          "reviewRequired": {
+            "type": "boolean",
+            "default": true
+          },
+          "lockTimeoutHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720,
+            "default": 8
+          },
+          "taskBoundaryType": {
+            "$ref": "#/components/schemas/TaskBoundaryType"
+          },
+          "hasAoi": {
+            "type": "boolean"
+          },
+          "taskCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectListItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "taskCount",
+          "percentCompleted",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          },
+          "taskCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "percentCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "createdBy": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectListResponse": {
+        "type": "object",
+        "required": [
+          "results",
+          "pagination"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectListItem"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "ProjectCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Unique within the workspace (case-insensitive) among non-deleted projects."
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 10000,
+            "nullable": true
+          },
+          "reviewRequired": {
+            "type": "boolean",
+            "default": true,
+            "description": "If false, tasks transition straight to `completed` on mapper submit. Immutable after activation."
+          },
+          "lockTimeoutHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720,
+            "default": 8
+          },
+          "aoi": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AoiUploadRequest"
+              }
+            ],
+            "nullable": true,
+            "description": "Optional inline AOI (same validation as `POST .../aoi`)."
+          },
+          "roleAssignments": {
+            "type": "array",
+            "description": "Optional list of project-level role assignments to seed at\ncreation. Each entry is upserted into `tasking_project_roles`\nin the same transaction as the project insert.\n\nThe creator is auto-added as `lead` on `tasking_project_roles`\nand does not need to appear here.\n\nEach `userId` must be a member of the workspace's TDEI\nproject group; entries failing this check are rejected with\n422 and no rows are written.\n",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRoleAssignment"
+            }
+          }
+        }
+      },
+      "ProjectRoleAssignment": {
+        "type": "object",
+        "required": [
+          "userId",
+          "role"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceUserRoleType"
+          }
+        }
+      },
+      "ProjectUpdateRequest": {
+        "type": "object",
+        "description": "All fields optional. Server enforces per-status mutability.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 10000,
+            "nullable": true
+          },
+          "lockTimeoutHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
+          },
+          "reviewRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TaskLockSummary": {
+        "type": "object",
+        "required": [
+          "userId",
+          "lockedAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lockedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LastMapper": {
+        "type": "object",
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userName": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "required": [
+          "id",
+          "taskNumber",
+          "status",
+          "geometry",
+          "areaSqkm",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taskNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonPolygon"
+          },
+          "areaSqkm": {
+            "type": "number"
+          },
+          "lock": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TaskLockSummary"
+              }
+            ]
+          },
+          "lastMapper": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LastMapper"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TaskListResponse": {
+        "type": "object",
+        "required": [
+          "tasks",
+          "pagination"
+        ],
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "ValidateWarning": {
+        "type": "object",
+        "required": [
+          "taskIndex",
+          "issue"
+        ],
+        "properties": {
+          "taskIndex": {
+            "type": "integer",
+            "description": "0-based index into the submitted `features` array."
+          },
+          "issue": {
+            "type": "string",
+            "enum": [
+              "polygon_exceeds_grid_size"
+            ]
+          },
+          "areaSqkm": {
+            "type": "number"
+          }
+        }
+      },
+      "ValidatePreviewResponse": {
+        "type": "object",
+        "required": [
+          "valid",
+          "warnings",
+          "source",
+          "featureCollection"
+        ],
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "True when no hard failures. Warnings do not affect this."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidateWarning"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/GridSource",
+            "description": "Always `import` for this response. Pass through unchanged to `/save`."
+          },
+          "featureCollection": {
+            "$ref": "#/components/schemas/TaskBoundariesFeatureCollection"
+          }
+        }
+      },
+      "SaveTasksRequest": {
+        "type": "object",
+        "required": [
+          "source",
+          "featureCollection"
+        ],
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/GridSource",
+            "description": "Sets `tasking_projects.task_boundary_type` for the project."
+          },
+          "featureCollection": {
+            "$ref": "#/components/schemas/TaskBoundariesFeatureCollection"
+          }
+        }
+      },
+      "SaveTasksResponse": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "taskBoundaryType",
+          "taskCount",
+          "tasks"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taskBoundaryType": {
+            "$ref": "#/components/schemas/GridSource"
+          },
+          "taskCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of tasks created (== `featureCollection.features.length`)."
+          },
+          "tasks": {
+            "type": "array",
+            "description": "All created tasks in the same order as the request's `features[]`. `taskNumber` is sequential starting at 1.",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "replayed": {
+            "type": "boolean",
+            "default": false,
+            "description": "True on idempotent replay (HTTP 200 case)."
+          }
+        }
+      },
+      "Feedback": {
+        "type": "object",
+        "description": "Feedback payload \u2014 persisted to `tasking_feedback`. Used by\n`POST /submit` to attach a validator's remap-rejection note,\nand reusable by any future endpoint that records free-form\ntask feedback.\n",
+        "required": [
+          "notes"
+        ],
+        "properties": {
+          "reasonCategory": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackReason"
+              }
+            ],
+            "nullable": true,
+            "description": "Required when the feedback drives `to_review \u2192 to_remap`; optional otherwise."
+          },
+          "notes": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "SubmitRequest": {
+        "type": "object",
+        "required": [
+          "osmChangesetId",
+          "done"
+        ],
+        "properties": {
+          "osmChangesetId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "done": {
+            "type": "boolean",
+            "description": "`true` \u2014 auto-unlocks and transitions state per the table.\n`false` \u2014 records the changeset, state unchanged, lock\n`expires_at` slides forward to `submitted_at +\nlock_timeout_hours`.\n"
+          },
+          "feedback": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Feedback"
+              }
+            ],
+            "description": "Meaningful only in validator context on `to_review`. When\nprovided here, `feedback.reasonCategory` is required (drives\nthe `to_remap` transition) and the row is persisted to\n`tasking_feedback`.\n"
+          }
+        }
+      },
+      "ExistingLockSummary": {
+        "type": "object",
+        "required": [
+          "taskNumber",
+          "taskStatus",
+          "lockedAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "taskNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "taskStatus": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "lockedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LockConflictError": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Error"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "existingLock": {
+                "$ref": "#/components/schemas/ExistingLockSummary"
+              }
+            }
+          }
+        ]
+      },
+      "UserSummary": {
+        "type": "object",
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AssignableRoleType": {
+        "type": "string",
+        "enum": [
+          "lead",
+          "validator"
+        ],
+        "description": "Roles assignable via `PUT /workspaces/{wid}/users/{uid}/role`.\nCONTRIBUTOR is implicit (project-group membership grants it\nautomatically) and cannot be set by this endpoint.\n"
+      },
+      "SetRoleRequest": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/AssignableRoleType"
+          }
+        }
+      },
+      "WorkspaceUserRoleItem": {
+        "type": "object",
+        "description": "Privileged-member DTO returned by `GET /workspaces/{wid}/users`.\nMirrors the shipped `WorkspaceUserRoleItem` from\n`api/src/users/schemas.py` on the `roles` branch.\n",
+        "required": [
+          "id",
+          "auth_uid",
+          "email",
+          "display_name",
+          "role"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Internal OSM-DB `users.id`."
+          },
+          "auth_uid": {
+            "type": "string",
+            "description": "TDEI auth user uuid as string (`users.auth_uid`)."
+          },
+          "email": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceUserRoleType"
+          }
+        }
+      },
+      "ProjectRoleEntry": {
+        "type": "object",
+        "required": [
+          "user",
+          "role"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceUserRoleType"
+          }
+        }
+      },
+      "ProjectRoleListResponse": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRoleEntry"
+            }
+          }
+        }
+      },
+      "SelfProjectRolesItem": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "projectName",
+          "role"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "projectStatus": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceUserRoleType"
+          }
+        }
+      },
+      "SelfProjectRolesResponse": {
+        "type": "object",
+        "required": [
+          "workspaceRole",
+          "projects"
+        ],
+        "properties": {
+          "workspaceRole": {
+            "$ref": "#/components/schemas/WorkspaceUserRoleType"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SelfProjectRolesItem"
+            }
+          }
+        }
+      },
+      "ActorRef": {
+        "type": "object",
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AuditEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "eventType",
+          "projectId",
+          "actor",
+          "occurredAt",
+          "details"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "eventType": {
+            "$ref": "#/components/schemas/AuditEventType"
+          },
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taskId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "taskNumber": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Convenience copy from `details` (so list renderers don't peek inside JSONB)."
+          },
+          "actor": {
+            "$ref": "#/components/schemas/ActorRef"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "projectDeleted": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "AuditEventListResponse": {
+        "type": "object",
+        "required": [
+          "results",
+          "pagination"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "TaskStatusCounts": {
+        "type": "object",
+        "required": [
+          "to_map",
+          "to_review",
+          "to_remap",
+          "completed"
+        ],
+        "properties": {
+          "to_map": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_review": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_remap": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ProjectStats": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "totalTasks",
+          "tasksByStatus",
+          "percentMapped",
+          "percentCompleted",
+          "uniqueMappers",
+          "uniqueValidators"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalTasks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tasksByStatus": {
+            "$ref": "#/components/schemas/TaskStatusCounts"
+          },
+          "percentMapped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "percentCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "avgTaskDurationMinutes": {
+            "type": "number",
+            "nullable": true
+          },
+          "uniqueMappers": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueValidators": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "UserStatsTotals": {
+        "type": "object",
+        "required": [
+          "tasksMapped",
+          "tasksValidated",
+          "totalMappingMinutes",
+          "totalValidationMinutes",
+          "totalChangesets",
+          "totalAreaSqkm"
+        ],
+        "properties": {
+          "tasksMapped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tasksValidated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalMappingMinutes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalValidationMinutes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalChangesets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalAreaSqkm": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "UserStatsByProject": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "projectName",
+          "tasksMapped",
+          "tasksValidated"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "tasksMapped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tasksValidated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalChangesets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalAreaSqkm": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "UserStats": {
+        "type": "object",
+        "required": [
+          "workspaceId",
+          "userId",
+          "totals",
+          "byProject"
+        ],
+        "properties": {
+          "workspaceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UserStatsTotals"
+          },
+          "byProject": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserStatsByProject"
+            }
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "required": [
+          "page",
+          "pageSize",
+          "total"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            ],
+            "description": "FastAPI default error shape \u2014 string for raised `HTTPException`, structured list for pydantic validation errors."
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed JSON or schema-level failure.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing or invalid bearer token.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ForbiddenLeadRequired": {
+        "description": "Caller is a workspace contributor but does not hold LEAD.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "WorkspaceNotFound": {
+        "description": "Workspace does not exist, or is outside the caller's tenancy.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ProjectOrWorkspaceNotFound": {
+        "description": "Workspace or project does not exist, or is outside the caller's tenancy.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TaskOrProjectOrWorkspaceNotFound": {
+        "description": "Workspace, project, or task does not exist, or is outside the caller's tenancy.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "UnprocessableEntity": {
+        "description": "Well-formed request that violates a business rule.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}
