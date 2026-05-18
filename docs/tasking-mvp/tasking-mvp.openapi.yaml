@@ -6,8 +6,8 @@ info:
     Tasking Manager API for the Workspaces Tasking Manager MVP.
 
 servers:
-  - url: /
-    description: workspaces-backend root.
+  - url: /api/v1
+    description: workspaces-backend FastAPI app — all routers are mounted under `/api/v1` (see `api/main.py`).
 
 tags:
   - name: projects
@@ -417,43 +417,53 @@ paths:
       - $ref: "#/components/parameters/IdempotencyKeyHeader"
     post:
       tags: [tasks]
-      summary: Persist a single previewed feature as a new task.
+      summary: Persist a validated FeatureCollection as the project's tasks (bulk).
       description: |
-        LEAD only. Commits one feature per call. The client iterates
-        the validated FeatureCollection and calls this endpoint once
-        per feature with a fresh `Idempotency-Key`.
+        LEAD only. Commits the **entire** FeatureCollection as
+        `tasking_tasks` rows in a single transaction.
 
-        On each successful call the server:
-          1. Re-validates the feature against the project AOI.
-          2. Allocates the next sequential `taskNumber` (starts at 1).
-          3. Inserts the `tasking_tasks` row.
-          4. On the first feature, sets
-             `tasking_projects.task_boundary_type` to `source`.
-             Subsequent calls must use the same `source` — 409
-             otherwise.
-          5. Emits a `task_created` audit event.
+        Effect (single transaction; all-or-nothing):
+          1. Re-validates every feature against the project AOI (same
+             rules as `POST /tasks/validate`). Any hard failure aborts
+             the transaction — no rows are written.
+          2. Allocates sequential `taskNumber`s starting at 1, in the
+             order features appear in the request.
+          3. Bulk-inserts the `tasking_tasks` rows.
+          4. Sets `tasking_projects.task_boundary_type` to `source`.
+          5. Emits one `task_created` audit event per task.
 
-        Project preconditions: status `draft`, AOI set.
+        Project preconditions:
+          - Project must be in `draft`.
+          - Project must have an AOI set.
+          - Project must currently have **no tasks** (a second save is
+            rejected with 409 `"Tasks already saved"`). To replace
+            tasks, re-upload the AOI in `draft` — that wipes existing
+            tasks and re-enables save.
 
-        See the top-level idempotency contract for retry semantics.
-      operationId: saveTask
+        Idempotency: `Idempotency-Key` is honoured at the batch level.
+        Same key + same body within the configured TTL replays the
+        original response (HTTP 200, `replayed: true`). Same key with
+        different body returns 409
+        `"Idempotency key reused with a different request"`. See the
+        top-level idempotency contract.
+      operationId: saveTasks
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SaveTaskRequest" }
+            schema: { $ref: "#/components/schemas/SaveTasksRequest" }
       responses:
         "201":
-          description: Task created.
+          description: Tasks created.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SaveTaskResponse" }
+              schema: { $ref: "#/components/schemas/SaveTasksResponse" }
         "200":
           description: |
             Idempotent replay (same key + same body); `replayed: true`.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SaveTaskResponse" }
+              schema: { $ref: "#/components/schemas/SaveTasksResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
@@ -461,7 +471,7 @@ paths:
         "409":
           description: |
             One of:
-              - "Task boundary source differs from a previous save".
+              - "Tasks already saved" — project already has tasks; re-upload AOI to start over.
               - "Idempotency key reused with a different request".
           content:
             application/json:
@@ -715,15 +725,18 @@ paths:
         | `to_map`    | contributor / lead | n/a       | `to_review` if `review_required` else `completed`        |
         | `to_remap`  | contributor / lead | n/a       | `to_review`                                              |
         | `to_review` | validator / lead   | no        | `completed`                                              |
-        | `to_review` | validator / lead   | yes       | `to_remap` (and INSERT `tasking_remap_feedback`)         |
+        | `to_review` | validator / lead   | yes       | `to_remap` (and INSERT `tasking_feedback` with `reasonCategory` set) |
 
         With `done:false` the state is unchanged but the lock's
         `expires_at` slides forward to `submitted_at + lock_timeout_hours`
         (emits `task_lock_renewed`).
 
-        OSM validation: a `404` from `OSM_CHANGESET_API_URL` returns
-        `422` with detail "Invalid OSM changeset id"; nothing is
-        written. Network failure to OSM → `502`.
+        `osmChangesetId` is supplied by the client. In practice it is
+        auto-populated by the editor (Rapid in the iframe) on save —
+        the UI does not ask the user to type it. The id may optionally
+        be verified by looking it up in the internal `osm-web` service
+        (same network); a verification miss returns `422` with detail
+        "Invalid OSM changeset id" and nothing is written.
 
         `last_mapper_id` is updated only when the effective role is
         mapper.
@@ -755,108 +768,125 @@ paths:
         "404":
           { $ref: "#/components/responses/TaskOrProjectOrWorkspaceNotFound" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
-        "502":
-          description: Could not reach the OSM Changeset API.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
 
   # =========================================================================
   # Roles
   # =========================================================================
 
-  /workspaces/{workspace_id}/roles:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceIdPath"
-    get:
-      tags: [roles]
-      summary: List all users associated with the workspace and their role.
-      description: |
-        Returns every user with a `user_workspace_roles` row OR a TDEI
-        role in the workspace's owning project group, each with the
-        role the server resolves for them. Any workspace contributor.
-      operationId: listWorkspaceRoles
-      responses:
-        "200":
-          description: Roles.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/WorkspaceRoleListResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
+  # NOTE: the workspace-level role surface below mirrors the shipped
+  # endpoints on the `roles` branch (api/src/users/routes.py). It uses
+  # `/workspaces/{workspace_id}/users/...`, not `/.../roles/...`. Only
+  # privileged role rows (LEAD, VALIDATOR) are stored; CONTRIBUTOR is
+  # implicit for any project-group member and cannot be assigned via PUT.
 
-  /workspaces/{workspace_id}/roles/{user_id}:
+  /workspaces/{workspace_id}/users:
     parameters:
       - $ref: "#/components/parameters/WorkspaceIdPath"
-      - $ref: "#/components/parameters/UserIdPath"
     get:
       tags: [roles]
-      summary: Get a user's workspace-level role.
-      operationId: getWorkspaceRole
+      summary: List privileged workspace members (lead + validator role rows).
+      description: |
+        Returns the rows in `user_workspace_roles` for this workspace,
+        joined with their `users` record. Visible to any workspace
+        contributor (`isWorkspaceContributor`).
+
+        Does NOT include implicit contributors — only users with an
+        explicit LEAD or VALIDATOR row. The UI uses this for the team
+        management table; broader user listings come from the TDEI
+        proxy (see `/assignable-users`).
+      operationId: listWorkspaceMembers
       responses:
         "200":
-          description: Role.
+          description: Privileged members.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/WorkspaceRoleEntry" }
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WorkspaceUserRoleItem" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404":
-          description: Workspace not found, or user has no association.
+        "403":
+          description: Caller is not a member of the workspace's project group.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/users/{user_id}/role:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/UserIdPath"
     put:
       tags: [roles]
-      summary: Set (upsert) the workspace-level role for a user.
+      summary: Assign (upsert) a privileged role for a user on a workspace.
       description: |
         LEAD only. Idempotent upsert into `user_workspace_roles`.
 
-        Last-LEAD guard: the workspace must always retain at least one
-        LEAD (counting both `user_workspace_roles` rows and TDEI-derived
-        LEAD via `poc` / `osw_data_generator`). 422 if violated.
-      operationId: putWorkspaceRole
+        The body's `role` must be `lead` or `validator` — assigning
+        `contributor` is rejected with 422 ("cannot assign implicit
+        role 'contributor' directly"). Contributor is the default for
+        any project-group member; to remove an explicit role and fall
+        back to contributor, call `DELETE /users/{user_id}` below.
+
+        The named user must have signed in to Workspaces at least once
+        (i.e. exist in `users.auth_uid`). If they have not, returns
+        404 with detail "User {uuid} has not signed in to Workspaces
+        yet".
+
+        Side effect: the target user's `UserInfo` cache entry is
+        evicted (`evict_user_from_cache`) so their next request
+        reflects the new role immediately.
+      operationId: assignWorkspaceMemberRole
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/RoleAssignmentBody" }
-      responses:
-        "200":
-          description: Upserted.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/WorkspaceRoleEntry" }
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
-        "404": { $ref: "#/components/responses/WorkspaceNotFound" }
-        "422":
-          description: |
-            One of:
-              - "Cannot demote the last lead in this workspace".
-              - "User is not a member of the workspace's project group".
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-    delete:
-      tags: [roles]
-      summary: Remove the workspace-level role row for a user.
-      description: |
-        LEAD only. Deletes the row from `user_workspace_roles`; the
-        user's role falls back to their TDEI-derived role.
-      operationId: deleteWorkspaceRole
+            schema: { $ref: "#/components/schemas/SetRoleRequest" }
       responses:
         "204":
-          description: Removed.
+          description: Role assigned (or updated).
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "403":
+          description: Caller is not LEAD on this workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404":
-          description: No row exists for this user/workspace.
+          description: Workspace not found, or the named user has not signed in to Workspaces yet.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "422":
-          description: Would leave the workspace without a LEAD.
+          description: '"cannot assign implicit role ''contributor'' directly".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /workspaces/{workspace_id}/users/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceIdPath"
+      - $ref: "#/components/parameters/UserIdPath"
+    delete:
+      tags: [roles]
+      summary: Remove a user's privileged role on a workspace.
+      description: |
+        LEAD only. Deletes the row from `user_workspace_roles`; the
+        user's role falls back to implicit `contributor` (or to
+        whatever TDEI grants — `poc` still maps to LEAD).
+
+        Side effect: the target user's `UserInfo` cache entry is
+        evicted.
+      operationId: removeWorkspaceMemberRole
+      responses:
+        "204":
+          description: Role row removed.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Caller is not LEAD on this workspace.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: No role row exists for this user/workspace.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -911,7 +941,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/RoleAssignmentBody" }
+            schema: { $ref: "#/components/schemas/SetRoleRequest" }
       responses:
         "200":
           description: Upserted.
@@ -1206,9 +1236,14 @@ components:
         `stale_timeout`  — released by the background job (`expires_at < NOW()`).
         `reset`          — released by `POST /reset` on the task or its project.
 
-    RemapFeedbackReason:
+    FeedbackReason:
       type: string
       enum: [incomplete_mapping, data_quality_issue, wrong_area, other]
+      description: |
+        Reason categories persisted to `tasking_feedback.reason_category`.
+        Required when feedback is used to drive a `to_review → to_remap`
+        transition (see `POST /submit`); optional for generic free-form
+        notes on a task.
 
     AuditEventType:
       type: string
@@ -1229,7 +1264,7 @@ components:
         - task_reset
         - project_reset
         - changeset_submitted
-        - remap_feedback
+        - feedback_submitted
 
     # ---------- GeoJSON ----------
 
@@ -1514,23 +1549,30 @@ components:
         featureCollection:
           $ref: "#/components/schemas/TaskBoundariesFeatureCollection"
 
-    SaveTaskRequest:
+    SaveTasksRequest:
       type: object
-      required: [source, feature]
+      required: [source, featureCollection]
       properties:
         source:
           $ref: "#/components/schemas/GridSource"
-          description: First save sets `tasking_projects.task_boundary_type`; subsequent saves must use the same source.
-        feature:
-          $ref: "#/components/schemas/TaskBoundaryFeature"
+          description: Sets `tasking_projects.task_boundary_type` for the project.
+        featureCollection:
+          $ref: "#/components/schemas/TaskBoundariesFeatureCollection"
 
-    SaveTaskResponse:
+    SaveTasksResponse:
       type: object
-      required: [projectId, taskBoundaryType, task]
+      required: [projectId, taskBoundaryType, taskCount, tasks]
       properties:
         projectId: { type: integer, format: int64 }
         taskBoundaryType: { $ref: "#/components/schemas/GridSource" }
-        task: { $ref: "#/components/schemas/Task" }
+        taskCount:
+          type: integer
+          minimum: 1
+          description: Number of tasks created (== `featureCollection.features.length`).
+        tasks:
+          type: array
+          description: All created tasks in the same order as the request's `features[]`. `taskNumber` is sequential starting at 1.
+          items: { $ref: "#/components/schemas/Task" }
         idempotencyKey:
           type: string
           nullable: true
@@ -1541,15 +1583,24 @@ components:
 
     # ---------- Submit / Lock ----------
 
-    RemapFeedback:
+    Feedback:
       type: object
-      required: [reasonCategory]
+      description: |
+        Feedback payload — persisted to `tasking_feedback`. Used by
+        `POST /submit` to attach a validator's remap-rejection note,
+        and reusable by any future endpoint that records free-form
+        task feedback.
+      required: [notes]
       properties:
-        reasonCategory: { $ref: "#/components/schemas/RemapFeedbackReason" }
+        reasonCategory:
+          allOf:
+            - $ref: "#/components/schemas/FeedbackReason"
+          nullable: true
+          description: Required when the feedback drives `to_review → to_remap`; optional otherwise.
         notes:
           type: string
+          minLength: 1
           maxLength: 4000
-          nullable: true
 
     SubmitRequest:
       type: object
@@ -1568,8 +1619,12 @@ components:
             lock_timeout_hours`.
         feedback:
           allOf:
-            - $ref: "#/components/schemas/RemapFeedback"
-          description: Meaningful only in validator context on `to_review`.
+            - $ref: "#/components/schemas/Feedback"
+          description: |
+            Meaningful only in validator context on `to_review`. When
+            provided here, `feedback.reasonCategory` is required (drives
+            the `to_remap` transition) and the row is persisted to
+            `tasking_feedback`.
 
     ExistingLockSummary:
       type: object
@@ -1598,26 +1653,38 @@ components:
         displayName: { type: string, nullable: true }
         email: { type: string, nullable: true }
 
-    RoleAssignmentBody:
+    AssignableRoleType:
+      type: string
+      enum: [lead, validator]
+      description: |
+        Roles assignable via `PUT /workspaces/{wid}/users/{uid}/role`.
+        CONTRIBUTOR is implicit (project-group membership grants it
+        automatically) and cannot be set by this endpoint.
+
+    SetRoleRequest:
       type: object
       required: [role]
       properties:
-        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+        role: { $ref: "#/components/schemas/AssignableRoleType" }
 
-    WorkspaceRoleEntry:
+    WorkspaceUserRoleItem:
       type: object
-      required: [user, role]
+      description: |
+        Privileged-member DTO returned by `GET /workspaces/{wid}/users`.
+        Mirrors the shipped `WorkspaceUserRoleItem` from
+        `api/src/users/schemas.py` on the `roles` branch.
+      required: [id, auth_uid, email, display_name, role]
       properties:
-        user: { $ref: "#/components/schemas/UserSummary" }
+        id:
+          type: integer
+          format: int64
+          description: Internal OSM-DB `users.id`.
+        auth_uid:
+          type: string
+          description: TDEI auth user uuid as string (`users.auth_uid`).
+        email: { type: string }
+        display_name: { type: string }
         role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
-
-    WorkspaceRoleListResponse:
-      type: object
-      required: [results]
-      properties:
-        results:
-          type: array
-          items: { $ref: "#/components/schemas/WorkspaceRoleEntry" }
 
     ProjectRoleEntry:
       type: object
