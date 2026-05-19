@@ -15,6 +15,13 @@ class AlreadyExistsException(HTTPException):
         super().__init__(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
 
+class ConflictException(HTTPException):
+    """Base exception for conflict errors."""
+
+    def __init__(self, detail: str = "Conflict"):
+        super().__init__(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
 class UnauthorizedException(HTTPException):
     """Base exception for unauthorized access errors."""
 

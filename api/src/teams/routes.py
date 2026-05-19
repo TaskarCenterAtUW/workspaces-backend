@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
@@ -9,8 +9,9 @@ from api.src.teams.schemas import (
     WorkspaceTeamItem,
     WorkspaceTeamUpdate,
 )
-from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
-from api.src.workspaces.schemas import User
+from api.src.users.repository import UserRepository
+from api.src.users.schemas import User
+from api.src.workspaces.repository import WorkspaceRepository
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/teams", tags=["teams"])
 
@@ -22,10 +23,10 @@ def get_workspace_repo(
     return repo
 
 
-def get_osm_repo(
+def get_user_repo(
     session: AsyncSession = Depends(get_osm_session),
-) -> OSMRepository:
-    repository = OSMRepository(session)
+) -> UserRepository:
+    repository = UserRepository(session)
     return repository
 
 
@@ -56,6 +57,12 @@ async def create_team_for_workspace(
     team_repo=Depends(get_team_repo),
     current_user: UserInfo = Depends(validate_token),
 ) -> int:
+    if not current_user.isWorkspaceLead(workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only workspace leads can create teams",
+        )
+
     # Repo guards if workspace doesn't exist or user cannot access:
     await workspace_repo.getById(current_user, workspace_id)
     return await team_repo.create(workspace_id, team)
@@ -84,6 +91,12 @@ async def update_team_for_workspace(
     team_repo=Depends(get_team_repo),
     current_user: UserInfo = Depends(validate_token),
 ):
+    if not current_user.isWorkspaceLead(workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only workspace leads can update teams",
+        )
+
     # Repo guards if workspace doesn't exist or user cannot access:
     await workspace_repo.getById(current_user, workspace_id)
     await team_repo.assert_team_in_workspace(team_id, workspace_id)
@@ -98,6 +111,12 @@ async def delete_team_from_workspace(
     team_repo=Depends(get_team_repo),
     current_user: UserInfo = Depends(validate_token),
 ):
+    if not current_user.isWorkspaceLead(workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only workspace leads can delete teams",
+        )
+
     # Repo guards if workspace doesn't exist or user cannot access:
     await workspace_repo.getById(current_user, workspace_id)
     await team_repo.assert_team_in_workspace(team_id, workspace_id)
@@ -123,14 +142,14 @@ async def join_workspace_team(
     workspace_id: int,
     team_id: int,
     workspace_repo=Depends(get_workspace_repo),
-    osm_repo=Depends(get_osm_repo),
+    user_repo=Depends(get_user_repo),
     team_repo=Depends(get_team_repo),
     current_user: UserInfo = Depends(validate_token),
 ) -> User:
     # Repo guards if workspace doesn't exist or user cannot access:
     await workspace_repo.getById(current_user, workspace_id)
     await team_repo.assert_team_in_workspace(team_id, workspace_id)
-    user = await osm_repo.get_current_user(current_user)
+    user = await user_repo.get_current_user(current_user)
     await team_repo.add_member(team_id, user.id)
     return user
 
@@ -144,6 +163,12 @@ async def add_member_to_workspace_team(
     team_repo=Depends(get_team_repo),
     current_user: UserInfo = Depends(validate_token),
 ):
+    if not current_user.isWorkspaceLead(workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only workspace leads can add team members",
+        )
+
     # Repo guards if workspace doesn't exist or user cannot access:
     await workspace_repo.getById(current_user, workspace_id)
     await team_repo.assert_team_in_workspace(team_id, workspace_id)
@@ -159,6 +184,12 @@ async def delete_member_from_workspace_team(
     team_repo=Depends(get_team_repo),
     current_user: UserInfo = Depends(validate_token),
 ):
+    if not current_user.isWorkspaceLead(workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only workspace leads can remove team members",
+        )
+
     # Repo guards if workspace doesn't exist or user cannot access:
     await workspace_repo.getById(current_user, workspace_id)
     await team_repo.assert_team_in_workspace(team_id, workspace_id)

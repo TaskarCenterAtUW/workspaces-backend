@@ -9,7 +9,7 @@ from api.src.teams.schemas import (
     WorkspaceTeamItem,
     WorkspaceTeamUpdate,
 )
-from api.src.workspaces.schemas import User
+from api.src.users.schemas import User
 
 
 class WorkspaceTeamRepository:
