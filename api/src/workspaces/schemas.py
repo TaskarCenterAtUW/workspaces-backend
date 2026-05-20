@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional, Self
 from uuid import UUID
 
 from geoalchemy2 import Geometry
+from pydantic import model_validator
 from sqlalchemy import JSON as SAJson
 from sqlalchemy import Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
@@ -72,6 +73,12 @@ class QuestDefinitionType(IntEnum):
     URL = 2
 
 
+class QuestDefinitionTypeName(StrEnum):
+    NONE = "NONE"
+    JSON = "JSON"
+    URL = "URL"
+
+
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -113,6 +120,76 @@ class WorkspaceImagery(SQLModel, table=True):
     modifiedByName: str
 
 
+class WorkspaceCreate(SQLModel):
+    """Fields the client may supply when creating a workspace"""
+
+    type: WorkspaceType
+    title: str
+    description: Optional[str] = None
+    tdeiProjectGroupId: UUID
+    tdeiRecordId: Optional[UUID] = None
+    tdeiServiceId: Optional[UUID] = None
+    tdeiMetadata: Optional[Any] = None
+
+
+class WorkspacePatch(SQLModel):
+    """Fields the client may supply when updating a workspace"""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    externalAppAccess: Optional[ExternalAppsDefinitionType] = None
+
+
+class QuestSettingsPatch(SQLModel):
+    """Fields the client may supply when saving long-form quest settings"""
+
+    type: QuestDefinitionTypeName
+    definition: Optional[str] = None
+    url: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_quest_settings(self) -> "QuestSettingsPatch":
+        if self.type == QuestDefinitionTypeName.NONE:
+            if self.definition:
+                raise ValueError("'definition' field not allowed when type is NONE.")
+            if self.url:
+                raise ValueError("'url' field not allowed when type is NONE.")
+        elif self.type == QuestDefinitionTypeName.JSON:
+            if not self.definition:
+                raise ValueError("'definition' is required when type is JSON.")
+            if self.url:
+                raise ValueError("'url' field not allowed when type is JSON.")
+            # Inexpensive early check. Full JSON parse and schema validation
+            # must call validate_quest_definition_schema():
+            if not self.definition.strip().startswith("{"):
+                raise ValueError("'definition' must be a JSON object.")
+        elif self.type == QuestDefinitionTypeName.URL:
+            if not self.url:
+                raise ValueError("'url' is required when type is URL.")
+            if self.definition:
+                raise ValueError("'definition' field not allowed when type is URL.")
+
+        return self
+
+
+class QuestSettingsResponse(SQLModel):
+    """Quest settings serialized for API responses"""
+
+    workspace_id: int
+    type: QuestDefinitionTypeName
+    definition: Optional[str] = None
+    url: Optional[str] = None
+    modified_at: datetime
+    modified_by: UUID
+    modified_by_name: str
+
+
+class ImagerySettingsPatch(SQLModel):
+    """Fields the client may supply when saving imagery settings"""
+
+    definition: Optional[list[Any]] = None
+
+
 class WorkspaceResponse(SQLModel):
     """
     Workspace serialized for API responses. Includes the effective role for the
@@ -133,9 +210,20 @@ class WorkspaceResponse(SQLModel):
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
     role: str
+    # Included in single-workspace GET for mobile app consumption. TODO: remove
+    # this when the app fetches these from dedicated endpoints:
+    longFormQuestDef: Optional[Any] = None
+    imageryListDef: Optional[Any] = None
 
     @classmethod
-    def from_workspace(cls, workspace: "Workspace", user: "UserInfo") -> Self:
+    def from_workspace(
+        cls,
+        workspace: "Workspace",
+        user: "UserInfo",
+        *,
+        imagery_list_def: Any = None,
+        long_form_quest_def: Any = None,
+    ) -> Self:
         return cls(
             id=workspace.id,
             type=workspace.type,
@@ -151,6 +239,8 @@ class WorkspaceResponse(SQLModel):
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
             role=user.effective_role(workspace.id),
+            imageryListDef=imagery_list_def,
+            longFormQuestDef=long_form_quest_def,
         )
 
 

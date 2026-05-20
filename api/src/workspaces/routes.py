@@ -1,20 +1,29 @@
+import json
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
+from api.core.json_schema import (
+    validate_imagery_definition_schema,
+    validate_quest_definition_schema,
+)
 from api.core.logging import get_logger
 from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
 from api.src.workspaces.schemas import (
-    QuestDefinitionType,
+    ImagerySettingsPatch,
+    QuestDefinitionTypeName,
+    QuestSettingsPatch,
+    QuestSettingsResponse,
     Workspace,
+    WorkspaceCreate,
     WorkspaceImagery,
-    WorkspaceLongQuest,
+    WorkspacePatch,
     WorkspaceResponse,
 )
 
@@ -22,7 +31,6 @@ from api.src.workspaces.schemas import (
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
-
 
 
 def get_workspace_repository(
@@ -68,14 +76,24 @@ async def get_workspace(
 ) -> WorkspaceResponse:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
+        quest_def_str = await WorkspaceRepository.resolve_quest_def(
+            workspace.longFormQuestDef
+        )
+        try:
+            quest_def = json.loads(quest_def_str) if quest_def_str else None
+        except json.JSONDecodeError:
+            quest_def = None
 
-        if workspace is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
-
-        return WorkspaceResponse.from_workspace(workspace, current_user)
+        return WorkspaceResponse.from_workspace(
+            workspace,
+            current_user,
+            imagery_list_def=(
+                workspace.imageryListDef.definition
+                if workspace.imageryListDef
+                else None
+            ),
+            long_form_quest_def=quest_def,
+        )
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -90,34 +108,22 @@ async def get_workspace_bbox(
 ):
     try:
         # this first query is for permissions checking
-        workspace = await repository_ws.getById(current_user, workspace_id)
-        if workspace is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
-
-        bbox = await repository_osm.getWorkspaceBBox(current_user, workspace_id)
-
-        if bbox is None:
-            raise HTTPException(
-                status_code=status.HTTP_204_NO_CONTENT,
-                detail="No Content",
-            )
-
+        await repository_ws.getById(current_user, workspace_id)
+        bbox = await repository_osm.getWorkspaceBBox(workspace_id)
+        return bbox
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
 
 # Returns 201 on success?
-@router.post("/", response_model=Workspace, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
-    workspace_data: dict[str, Any],
+    workspace_data: WorkspaceCreate,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     repository_users: UserRepository = Depends(get_user_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> Workspace:
+) -> dict[str, int]:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
 
@@ -136,31 +142,33 @@ async def create_workspace(
         #
         evict_user_from_cache(current_user.user_uuid)
 
-        return workspace
+        return {"workspaceId": workspace.id}
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
 
 
-# Returns the updated workspace on success.
-@router.patch("/{workspace_id}", response_model=Workspace)
+@router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_workspace(
     workspace_id: int,
-    workspace_data: dict[str, Any],
+    workspace_data: WorkspacePatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> Workspace:
+) -> None:
     if not current_user.isWorkspaceLead(workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User does not have permission to update this workspace",
         )
 
-    try:
-        workspace = await repository_ws.update(
-            current_user, workspace_id, workspace_data
+    if not workspace_data.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided to update.",
         )
-        return workspace
+
+    try:
+        await repository_ws.update(current_user, workspace_id, workspace_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
@@ -191,31 +199,66 @@ async def delete_workspace(
         raise
 
 
-### QUESTS
+# QUESTS
+
+
+# Return the resolved quest definition content as JSON, or 204 if not set:
+@router.get("/{workspace_id}/quests/long")
+async def get_long_quest_def(
+    workspace_id: int,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> Response:
+    try:
+        workspace = await repository_ws.getById(current_user, workspace_id)
+        definition = await WorkspaceRepository.resolve_quest_def(
+            workspace.longFormQuestDef
+        )
+
+        if definition is None:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+        return Response(content=definition, media_type="application/json")
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch quest def for workspace {workspace_id}: {str(e)}"
+        )
+        raise
 
 
 # Returns JSON payload or 204 if not set
-@router.get("/{workspace_id}/quests/long/settings", response_model=WorkspaceLongQuest)
+@router.get(
+    "/{workspace_id}/quests/long/settings", response_model=QuestSettingsResponse
+)
 async def get_long_quest_settings(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> WorkspaceLongQuest | None:
+) -> QuestSettingsResponse:
     try:
         workspace = await repository_ws.getById(current_user, workspace_id)
+        quest = workspace.longFormQuestDef
 
-        if workspace.longFormQuestDef is None:
-            return WorkspaceLongQuest(
+        if quest is None:
+            return QuestSettingsResponse(
                 workspace_id=workspace_id,
-                type=QuestDefinitionType.NONE,
+                type=QuestDefinitionTypeName.NONE,
                 definition=None,
                 url=None,
-                modifiedAt=workspace.createdAt,
-                modifiedBy=workspace.createdBy,
-                modifiedByName="",
+                modified_at=workspace.createdAt,
+                modified_by=workspace.createdBy,
+                modified_by_name="",
             )
-        else:
-            return workspace.longFormQuestDef
+
+        return QuestSettingsResponse(
+            workspace_id=quest.workspace_id,
+            type=QuestDefinitionTypeName(quest.type.name),
+            definition=quest.definition,
+            url=quest.url,
+            modified_at=quest.modifiedAt,
+            modified_by=quest.modifiedBy,
+            modified_by_name=quest.modifiedByName,
+        )
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -227,7 +270,7 @@ async def get_long_quest_settings(
 )
 async def update_long_quest_settings(
     workspace_id: int,
-    long_quest_data: dict[str, Any],
+    long_quest_data: QuestSettingsPatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
@@ -237,8 +280,11 @@ async def update_long_quest_settings(
             detail="User does not have permission to edit this workspace",
         )
 
+    if long_quest_data.type == QuestDefinitionTypeName.JSON:
+        await validate_quest_definition_schema(long_quest_data.definition)
+
     try:
-        await repository_ws.updateLongformQuest(
+        await repository_ws.save_longform_quest(
             current_user, workspace_id, long_quest_data
         )
     except Exception as e:
@@ -246,7 +292,7 @@ async def update_long_quest_settings(
         raise
 
 
-### IMAGERY
+# IMAGERY
 
 
 # Returns JSON payload or 204 if not set
@@ -268,7 +314,7 @@ async def get_imagery_settings(
                 modifiedByName="",
             )
         else:
-            return WorkspaceImagery(**workspace.imageryListDef.model_dump())
+            return workspace.imageryListDef
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
@@ -280,7 +326,7 @@ async def get_imagery_settings(
 )
 async def update_imagery_settings(
     workspace_id: int,
-    imagery_data: dict[str, Any],
+    imagery_data: ImagerySettingsPatch,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
@@ -290,8 +336,11 @@ async def update_imagery_settings(
             detail="User does not have permission to edit this workspace",
         )
 
+    if imagery_data.definition:
+        await validate_imagery_definition_schema(imagery_data.definition)
+
     try:
-        await repository_ws.updateImageryDef(current_user, workspace_id, imagery_data)
+        await repository_ws.save_imagery_def(current_user, workspace_id, imagery_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
