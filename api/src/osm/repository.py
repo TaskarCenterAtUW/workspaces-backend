@@ -34,3 +34,18 @@ class OSMRepository:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
 
         return retVal
+
+    async def getChangesetAdiff(
+        self,
+        workspace_id: int,
+        changeset_id: int
+    ) -> list:
+        await self.session.execute(
+            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
+        )
+        result = await self.session.execute(
+            text("SELECT * FROM osm_augmented_diff(:changeset_id)"),
+            {"changeset_id": changeset_id},
+        )
+
+        return result.mappings().all()
