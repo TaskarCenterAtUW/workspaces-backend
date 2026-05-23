@@ -22,6 +22,7 @@ from api.core.security import (
     init_tdei_client,
     validate_token,
 )
+from api.src.osm.routes import router as osm_router
 from api.src.teams.routes import router as teams_router
 from api.src.users.routes import router as users_router
 from api.src.workspaces.repository import WorkspaceRepository
@@ -88,6 +89,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(osm_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
