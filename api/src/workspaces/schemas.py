@@ -296,3 +296,4 @@ class Workspace(SQLModel, table=True):
             "cascade": "all, delete-orphan",
         }
     )
+
