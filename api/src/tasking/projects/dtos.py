@@ -20,15 +20,7 @@ from api.src.tasking.projects.schemas import (
 
 
 class WireModel(BaseModel):
-    """Common base for request and response DTOs.
-
-    `extra="forbid"` rejects unknown keys on input bodies with a 422 so
-    callers get explicit feedback when they misspell a field or send a
-    property the endpoint does not accept (e.g. `aoi` on PATCH project,
-    which has its own sub-resource at `/aoi`). Responses are unaffected
-    because Pydantic only enforces `extra` during input validation.
-    """
-
+   
     model_config = ConfigDict(extra="forbid")
 
 

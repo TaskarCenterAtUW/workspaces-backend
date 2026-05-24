@@ -39,17 +39,11 @@ class TaskingProject(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
-    # Cross-DB reference to workspaces.id; no FK by design, matching
-    # the existing `user_workspace_roles` convention.
     workspace_id: int = Field(nullable=False, index=True)
 
     name: str = Field(max_length=255, nullable=False)
     instructions: Optional[str] = None
 
-    # Bind to the Postgres enum from the migration. `name=` and
-    # `values_callable` are required so SQLAlchemy uses the existing
-    # `tasking_project_status` type (lowercase values) instead of
-    # auto-generating a new one keyed by member names.
     status: ProjectStatus = Field(
         default=ProjectStatus.DRAFT,
         sa_column=Column(
