@@ -11,6 +11,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect, text
+from sqlalchemy.dialects import postgresql
+
 
 # revision identifiers, used by Alembic.
 revision: str = "9221408912dd"
@@ -45,11 +47,11 @@ def upgrade() -> None:
     if not insp.has_table("user_workspace_roles"):
         op.create_table(
             "user_workspace_roles",
-            sa.Column("user_auth_uid", sa.Uuid(), nullable=False),
+            sa.Column("user_auth_uid", sa.String(), nullable=False),
             sa.Column("workspace_id", sa.BigInteger(), nullable=False),
             sa.Column(
                 "role",
-                sa.Enum(
+                postgresql.ENUM(
                     "lead",
                     "validator",
                     "contributor",
