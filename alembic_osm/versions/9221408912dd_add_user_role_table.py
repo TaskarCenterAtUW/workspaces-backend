@@ -45,7 +45,7 @@ def upgrade() -> None:
     if not insp.has_table("user_workspace_roles"):
         op.create_table(
             "user_workspace_roles",
-            sa.Column("user_auth_uid", sa.Uuid(), nullable=False),
+            sa.Column("user_auth_uid", sa.String(), nullable=False),
             sa.Column("workspace_id", sa.BigInteger(), nullable=False),
             sa.Column(
                 "role",
