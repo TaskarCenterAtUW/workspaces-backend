@@ -140,15 +140,13 @@ STRIP_REQUEST_HEADERS = HOP_BY_HOP_HEADERS | {
     "forwarded",
 }
 
-# Define paths that do not require X-Workspace header
-AUTH_WHITELIST_PATTERNS = [
-    re.compile(p)
-    for p in [
-        # Creating/deleting workspaces and JOSM path rewriting:
-        r"^/api/0\.6/workspaces.*$",
-        # Provisioning users during authentication:
-        r"^/api/0\.6/user/.*$",
-    ]
+# Paths that do not require X-Workspace header, scoped by HTTP method. Each
+# entry is a tuple of: (compiled regex, set of allowed methods).
+TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
+    # Creating/deleting a workspace (no tenant context applies):
+    (re.compile(r"^/api/0\.6/workspaces/\d+$"), {"PUT", "DELETE"}),
+    # Provisioning users during authentication:
+    (re.compile(r"^/api/0\.6/user/[^/]+$"), {"PUT"}),
 ]
 
 
@@ -225,7 +223,10 @@ async def catch_all(
                 detail="You do not have access to this workspace",
             )
     else:
-        if not any(p.fullmatch(request.url.path) for p in AUTH_WHITELIST_PATTERNS):
+        if not any(
+            p.fullmatch(request.url.path) and request.method in methods
+            for p, methods in TENANT_BYPASSES
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No X-Workspace header supplied",
