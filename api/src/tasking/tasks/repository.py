@@ -108,6 +108,29 @@ def _polygon_area_km2(geom: ShapelyPolygon) -> float:
     return float(geom.area) * _DEG2_TO_KM2
 
 
+# AOI containment is checked with `aoi.covers(poly)`, which uses exact
+# predicates. Grid generation produces cells clipped against the AOI;
+# the clipped vertices land on (or fractionally outside) the AOI edge
+# due to floating-point rounding, so `covers` returns False even though
+# the cell is topologically inside the AOI.
+#
+# Treat a polygon as inside the AOI when the area of `poly.difference(aoi)`
+# is below this fraction of the polygon's own area. 1e-9 corresponds to
+# ~1 µm² at this latitude — well below any real-world AOI authoring error.
+_AOI_COVER_REL_TOLERANCE = 1e-9
+
+
+def _aoi_covers(aoi_geom, poly: ShapelyPolygon) -> bool:
+    """Tolerant containment test for AOI vs. task polygon."""
+    if aoi_geom.covers(poly):
+        return True
+    poly_area = poly.area
+    if poly_area == 0:
+        return True
+    overrun = poly.difference(aoi_geom).area
+    return overrun <= _AOI_COVER_REL_TOLERANCE * poly_area
+
+
 def _generate_grid_over_aoi(
     aoi: ShapelyMultiPolygon,
     cell_size_m: float,
@@ -430,7 +453,7 @@ class TaskingTaskRepository:
         warnings: list[ValidateWarning] = []
         for idx, feat in enumerate(fc.features):
             poly = _polygon_to_shapely(feat.geometry.model_dump())
-            if not aoi_geom.covers(poly):
+            if not _aoi_covers(aoi_geom, poly):
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Task feature {idx} is not fully inside the project AOI",
@@ -523,7 +546,7 @@ class TaskingTaskRepository:
         created: list[TaskingTask] = []
         for idx, feat in enumerate(body.feature_collection.features):
             poly = _polygon_to_shapely(feat.geometry.model_dump())
-            if not aoi_geom.covers(poly):
+            if not _aoi_covers(aoi_geom, poly):
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Task feature {idx} is not fully inside the project AOI",
