@@ -84,25 +84,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    assert bind is not None
-    insp = inspect(bind)
-
-    if insp.has_table("user_workspace_roles"):
-        op.drop_table("user_workspace_roles")
-
-    # Drop the enum type
-    result = bind.execute(
-        text("SELECT 1 FROM pg_type WHERE typname = 'workspace_role'")
-    )
-    if result.scalar():
-        workspace_role = sa.Enum(
-            "lead", "validator", "contributor", name="workspace_role"
-        )
-        workspace_role.drop(bind)
-
-    constraint_exists = bind.execute(
-        text("SELECT 1 FROM pg_constraint WHERE conname = 'auth_uid_unique'")
-    ).scalar()
-    if constraint_exists:
-        op.drop_constraint("auth_uid_unique", "users", type_="unique")
+    op.drop_table("user_workspace_roles")
+    op.execute(text("DROP TYPE workspace_role"))
+    op.drop_constraint("auth_uid_unique", "users", type_="unique")
