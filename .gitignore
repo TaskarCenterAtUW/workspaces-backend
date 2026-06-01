@@ -164,3 +164,8 @@ alembic/versions/.DS_Store
 pg_user_cache.sqlite
 
 .env**
+integration-report.html
+docs/tasking-mvp/tasking-mvp.postman_collection.json
+docs/tasking-mvp/tasking-mvp.postman_environment.json
+docs/tasking-mvp/_enrich_postman.py
+docs/tasking-mvp/feature-coverage.md
