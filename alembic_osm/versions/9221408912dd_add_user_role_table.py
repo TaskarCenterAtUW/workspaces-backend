@@ -36,7 +36,9 @@ def upgrade() -> None:
             "users",
             # `id` matches the Rails `users.id` numeric PK so the FK
             # from `team_user.user_id` in the next migration can attach.
-            sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+            sa.Column(
+                "id", sa.BigInteger(), autoincrement=True, nullable=False
+            ),
             sa.Column("auth_uid", sa.String(), nullable=False),
             sa.Column("email", sa.String(), nullable=True),
             sa.Column("display_name", sa.String(), nullable=True),

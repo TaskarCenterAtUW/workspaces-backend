@@ -22,6 +22,7 @@ from api.src.tasking.projects.dtos import (
 )
 from api.src.tasking.projects.repository import TaskingProjectRepository
 from api.src.tasking.projects.schemas import AoiInput, ProjectStatus
+from uuid import UUID
 from api.src.workspaces.repository import WorkspaceRepository
 
 router = APIRouter(
@@ -355,6 +356,134 @@ async def remove_project_role(
     await project_repo.remove_role(workspace_id, project_id, user_id)
 
 
+# ---------------------------------------------------------------------------
+# Project role management
+#
+# Writes require either workspace LEAD or project LEAD (delegated to the
+# repository so the project-LEAD check can hit `tasking_project_roles`).
+# Reads are open to any caller who passes the workspace tenancy gate.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{project_id}/roles",
+    response_model=ProjectRoleListResponse,
+)
+async def list_project_roles(
+    workspace_id: int,
+    project_id: int,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    return await project_repo.list_roles(workspace_id, project_id)
+
+
+@router.post(
+    "/{project_id}/roles",
+    response_model=ProjectRoleItem,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_project_role(
+    workspace_id: int,
+    project_id: int,
+    body: ProjectRoleAddRequest,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    await project_repo.assert_can_manage_roles(
+        workspace_id, project_id, current_user
+    )
+    return await project_repo.add_role(workspace_id, project_id, body)
+
+
+@router.get(
+    "/{project_id}/roles/{user_id}",
+    response_model=ProjectRoleItem,
+)
+async def get_project_role(
+    workspace_id: int,
+    project_id: int,
+    user_id: UUID,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    return await project_repo.get_role(workspace_id, project_id, user_id)
+
+
+@router.put(
+    "/{project_id}/roles/{user_id}",
+    response_model=ProjectRoleItem,
+)
+async def put_project_role(
+    workspace_id: int,
+    project_id: int,
+    user_id: UUID,
+    body: ProjectRoleUpdateRequest,
+    response: Response,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    """Idempotent upsert. 201 on insert, 200 on update. Last-LEAD guarded."""
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    await project_repo.assert_can_manage_roles(
+        workspace_id, project_id, current_user
+    )
+    item, created = await project_repo.upsert_role(
+        workspace_id, project_id, user_id, body
+    )
+    if created:
+        response.status_code = status.HTTP_201_CREATED
+    return item
+
+
+@router.patch(
+    "/{project_id}/roles/{user_id}",
+    response_model=ProjectRoleItem,
+)
+async def update_project_role(
+    workspace_id: int,
+    project_id: int,
+    user_id: UUID,
+    body: ProjectRoleUpdateRequest,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    await project_repo.assert_can_manage_roles(
+        workspace_id, project_id, current_user
+    )
+    return await project_repo.update_role(
+        workspace_id, project_id, user_id, body
+    )
+
+
+@router.delete(
+    "/{project_id}/roles/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_project_role(
+    workspace_id: int,
+    project_id: int,
+    user_id: UUID,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    await project_repo.assert_can_manage_roles(
+        workspace_id, project_id, current_user
+    )
+    await project_repo.remove_role(workspace_id, project_id, user_id)
+
+
 @router.delete("/{project_id}/aoi", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project_aoi(
     workspace_id: int,
@@ -365,7 +494,7 @@ async def delete_project_aoi(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    await project_repo.delete_aoi(workspace_id, project_id, current_user)
+    await project_repo.delete_aoi(workspace_id, project_id)
 
 
 # ---------------------------------------------------------------------------
@@ -394,4 +523,6 @@ async def list_self_project_roles(
     Single round-trip for the project-list page.
     """
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
-    return await project_repo.list_self_project_roles(workspace_id, current_user)
+    return await project_repo.list_self_project_roles(
+        workspace_id, current_user
+    )

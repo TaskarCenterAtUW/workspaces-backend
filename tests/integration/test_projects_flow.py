@@ -485,6 +485,154 @@ class TestProjectRoles:
         )
         assert r.status_code == 404
 
+
+# ---------------------------------------------------------------------------
+# Workflow 5 — project role management
+#   - LEAD can list/add/update/remove role assignments
+#   - workspace-LEAD passes the manage-roles gate even without a project row
+#   - contributor cannot manage roles (403)
+#   - 422 mapping for unknown user_id, duplicate (409), missing assignment (404)
+#   - last-LEAD guard blocks the demote / delete that would orphan the project
+# ---------------------------------------------------------------------------
+
+
+class TestProjectRoles:
+    async def test_list_includes_creator_auto_lead(
+        self, client, as_lead, seeded_workspace_id
+    ):
+        """Project creator is auto-seeded as LEAD and appears in GET /roles."""
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "roles-list-1"},
+        )
+        pid = r.json()["id"]
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles"
+        )
+        assert r.status_code == 200, r.text
+        rows = r.json()["results"]
+        assert len(rows) == 1
+        assert rows[0]["role"] == "lead"
+        assert rows[0]["user_id"] == str(as_lead.user_uuid)
+
+    async def test_add_role_round_trip(
+        self,
+        client,
+        as_lead,
+        seeded_workspace_id,
+        extra_user_factory,
+    ):
+        """POST /roles inserts a row; GET reflects it."""
+        contrib = await extra_user_factory("contributor")
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "roles-add"},
+        )
+        pid = r.json()["id"]
+
+        r = await client.post(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles",
+            json={"user_id": str(contrib.user_uuid), "role": "contributor"},
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["user_id"] == str(contrib.user_uuid)
+        assert body["role"] == "contributor"
+
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles"
+        )
+        ids = {row["user_id"] for row in r.json()["results"]}
+        assert str(contrib.user_uuid) in ids
+
+    async def test_add_duplicate_returns_409(
+        self,
+        client,
+        as_lead,
+        seeded_workspace_id,
+        extra_user_factory,
+    ):
+        """Re-adding the same user returns 409 with an actionable hint."""
+        contrib = await extra_user_factory("contributor")
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "roles-dup"},
+        )
+        pid = r.json()["id"]
+
+        path = f"{API.format(wid=seeded_workspace_id)}/{pid}/roles"
+        await client.post(
+            path,
+            json={"user_id": str(contrib.user_uuid), "role": "contributor"},
+        )
+        r2 = await client.post(
+            path,
+            json={"user_id": str(contrib.user_uuid), "role": "validator"},
+        )
+        assert r2.status_code == 409, r2.text
+        assert "patch" in r2.json()["detail"].lower()
+
+    async def test_add_unknown_user_returns_422(
+        self, client, as_lead, seeded_workspace_id
+    ):
+        """An unknown user_id surfaces as 422 + missing_user_ids list."""
+        bogus = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "roles-unknown"},
+        )
+        pid = r.json()["id"]
+
+        r = await client.post(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles",
+            json={"user_id": bogus, "role": "contributor"},
+        )
+        assert r.status_code == 422, r.text
+        assert bogus in r.json()["detail"]["missing_user_ids"]
+
+    async def test_update_role_promotes_contributor_to_validator(
+        self,
+        client,
+        as_lead,
+        seeded_workspace_id,
+        extra_user_factory,
+    ):
+        """PATCH /roles/{uid} changes the stored role."""
+        contrib = await extra_user_factory("contributor")
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "roles-patch"},
+        )
+        pid = r.json()["id"]
+        await client.post(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles",
+            json={"user_id": str(contrib.user_uuid), "role": "contributor"},
+        )
+
+        r = await client.patch(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
+            f"{contrib.user_uuid}",
+            json={"role": "validator"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["role"] == "validator"
+
+    async def test_update_unknown_user_returns_404(
+        self, client, as_lead, seeded_workspace_id
+    ):
+        """PATCH on a user without a role row returns 404."""
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "roles-patch-404"},
+        )
+        pid = r.json()["id"]
+        absent = "deadbeef-dead-dead-dead-deadbeefdead"
+        r = await client.patch(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/{absent}",
+            json={"role": "validator"},
+        )
+        assert r.status_code == 404
+
     async def test_remove_role_round_trip(
         self,
         client,
@@ -505,7 +653,8 @@ class TestProjectRoles:
         )
 
         r = await client.delete(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/" f"{contrib.user_uuid}"
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
+            f"{contrib.user_uuid}"
         )
         assert r.status_code == 204
 
@@ -517,7 +666,9 @@ class TestProjectRoles:
         )
         assert r.status_code == 404
 
-    async def test_last_lead_demote_blocked(self, client, as_lead, seeded_workspace_id):
+    async def test_last_lead_demote_blocked(
+        self, client, as_lead, seeded_workspace_id
+    ):
         """Cannot demote the only LEAD — projects must always have one."""
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -533,7 +684,9 @@ class TestProjectRoles:
         assert r.status_code == 422, r.text
         assert "last lead" in r.json()["detail"].lower()
 
-    async def test_last_lead_delete_blocked(self, client, as_lead, seeded_workspace_id):
+    async def test_last_lead_delete_blocked(
+        self, client, as_lead, seeded_workspace_id
+    ):
         """Cannot delete the only LEAD — would orphan the project."""
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -569,7 +722,8 @@ class TestProjectRoles:
 
         # Now demote the second lead — first lead is still there.
         r = await client.patch(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/" f"{lead2.user_uuid}",
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
+            f"{lead2.user_uuid}",
             json={"role": "contributor"},
         )
         assert r.status_code == 200, r.text
@@ -595,7 +749,8 @@ class TestProjectRoles:
         )
 
         r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/" f"{contrib.user_uuid}"
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
+            f"{contrib.user_uuid}"
         )
         assert r.status_code == 200, r.text
         body = r.json()

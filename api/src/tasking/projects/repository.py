@@ -878,7 +878,9 @@ class TaskingProjectRepository:
     # violations on `user_auth_uid` are caught with a preflight so the
     # caller gets a 422 listing the missing user id.
 
-    async def _is_project_lead(self, project_id: int, user_uuid: UUID) -> bool:
+    async def _is_project_lead(
+        self, project_id: int, user_uuid: UUID
+    ) -> bool:
         """True if the user holds a `lead` role on the given project."""
         from sqlalchemy import text
 
@@ -911,7 +913,8 @@ class TaskingProjectRepository:
         if await self._is_project_lead(project_id, current_user.user_uuid):
             return
         raise ForbiddenException(
-            "Only a workspace lead or project lead can manage roles " "on this project."
+            "Only a workspace lead or project lead can manage roles "
+            "on this project."
         )
 
     async def _lead_count(self, project_id: int) -> int:
@@ -1252,7 +1255,9 @@ class TaskingProjectRepository:
         )
         await self.session.commit()
 
-    async def _get_role(self, project_id: int, user_id: UUID) -> ProjectRoleItem:
+    async def _get_role(
+        self, project_id: int, user_id: UUID
+    ) -> ProjectRoleItem:
         item = await self._get_role_or_none(project_id, user_id)
         if item is None:  # pragma: no cover — only called after insert/update
             raise NotFoundException(
@@ -1285,9 +1290,7 @@ class TaskingProjectRepository:
             updated_at=updated,
         )
 
-    async def delete_aoi(
-        self, workspace_id: int, project_id: int, current_user: UserInfo
-    ) -> None:
+    async def delete_aoi(self, workspace_id: int, project_id: int) -> None:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
             raise HTTPException(

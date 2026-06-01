@@ -71,8 +71,9 @@ try:
 
     def pytest_html_results_table_row(report, cells):
         """Inject the docstring as the matching cell on each row."""
-        cells.insert(2, f"<td>{getattr(report, 'description', '') or '—'}</td>")
-
+        cells.insert(
+            2, f"<td>{getattr(report, 'description', '') or '—'}</td>"
+        )
 except ImportError:
     pass
 
