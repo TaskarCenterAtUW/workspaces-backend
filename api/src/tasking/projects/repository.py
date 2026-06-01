@@ -26,10 +26,17 @@ from api.src.tasking.projects.dtos import (
     ProjectListItem,
     ProjectListResponse,
     ProjectResponse,
+    ProjectRoleAddRequest,
+    ProjectRoleItem,
+    ProjectRoleListResponse,
+    ProjectRoleUpdateRequest,
     ProjectUpdateRequest,
+    SelfProjectRoleItem,
+    SelfProjectRolesResponse,
 )
 from api.src.tasking.projects.schemas import (
     AoiInput,
+    ProjectRoleType,
     ProjectStatus,
     TaskingProject,
     _Feature,
@@ -732,6 +739,427 @@ class TaskingProjectRepository:
         )
         await self.session.commit()
         return _shapely_to_aoi_feature(geom)
+
+    # ---- Project roles ------------------------------------------------
+    #
+    # Schema lives in `tasking_project_roles (project_id, user_auth_uid,
+    # role, updated_at)` with PK on (project_id, user_auth_uid) and a FK
+    # to `users.auth_uid`. The `add` path inserts via raw SQL so duplicate
+    # rows raise the PK uniqueness violation translated into a 409; FK
+    # violations on `user_auth_uid` are caught with a preflight so the
+    # caller gets a 422 listing the missing user id.
+
+    async def _is_project_lead(
+        self, project_id: int, user_uuid: UUID
+    ) -> bool:
+        """True if the user holds a `lead` role on the given project."""
+        from sqlalchemy import text
+
+        result = await self.session.execute(
+            text(
+                "SELECT 1 FROM tasking_project_roles "
+                "WHERE project_id = :pid AND user_auth_uid = :uid "
+                "AND role = 'lead' LIMIT 1"
+            ),
+            {"pid": project_id, "uid": str(user_uuid)},
+        )
+        return result.scalar() is not None
+
+    async def assert_can_manage_roles(
+        self,
+        workspace_id: int,
+        project_id: int,
+        current_user: UserInfo,
+    ) -> None:
+        """Permission gate for role-management endpoints.
+
+        Allows either a workspace-level LEAD (per `UserInfo.isWorkspaceLead`)
+        or a project-level LEAD recorded in `tasking_project_roles`. The
+        project must already exist; otherwise the underlying `_get_active`
+        call raises 404.
+        """
+        await self._get_active(workspace_id, project_id)
+        if current_user.isWorkspaceLead(workspace_id):
+            return
+        if await self._is_project_lead(project_id, current_user.user_uuid):
+            return
+        raise ForbiddenException(
+            "Only a workspace lead or project lead can manage roles "
+            "on this project."
+        )
+
+    async def _lead_count(self, project_id: int) -> int:
+        from sqlalchemy import text
+
+        result = await self.session.execute(
+            text(
+                "SELECT COUNT(*) FROM tasking_project_roles "
+                "WHERE project_id = :pid AND role = 'lead'"
+            ),
+            {"pid": project_id},
+        )
+        return int(result.scalar() or 0)
+
+    async def list_roles(
+        self, workspace_id: int, project_id: int
+    ) -> ProjectRoleListResponse:
+        """Return every role assignment on the project, newest first."""
+        await self._get_active(workspace_id, project_id)
+        from sqlalchemy import text
+
+        rows = await self.session.execute(
+            text(
+                "SELECT r.user_auth_uid, u.display_name, r.role, r.updated_at "
+                "FROM tasking_project_roles r "
+                "LEFT JOIN users u ON u.auth_uid = r.user_auth_uid "
+                "WHERE r.project_id = :pid "
+                "ORDER BY r.updated_at DESC"
+            ),
+            {"pid": project_id},
+        )
+        items = [
+            ProjectRoleItem(
+                user_id=UUID(uid),
+                user_name=name,
+                role=ProjectRoleType(role),
+                updated_at=updated,
+            )
+            for uid, name, role, updated in rows.all()
+        ]
+        return ProjectRoleListResponse(results=items)
+
+    async def add_role(
+        self,
+        workspace_id: int,
+        project_id: int,
+        body: ProjectRoleAddRequest,
+    ) -> ProjectRoleItem:
+        """Insert a new role row. 422 on missing user; 409 on duplicate."""
+        await self._get_active(workspace_id, project_id)
+
+        missing = await self._missing_user_auth_uids([body.user_id])
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": (
+                        "`user_id` refers to a user that has not signed in "
+                        "to Workspaces yet — no `users` row exists."
+                    ),
+                    "missing_user_ids": missing,
+                },
+            )
+
+        from sqlalchemy import text
+
+        existing = await self.session.execute(
+            text(
+                "SELECT 1 FROM tasking_project_roles "
+                "WHERE project_id = :pid AND user_auth_uid = :uid"
+            ),
+            {"pid": project_id, "uid": str(body.user_id)},
+        )
+        if existing.scalar() is not None:
+            raise AlreadyExistsException(
+                "This user is already assigned a role on the project. "
+                "Use PATCH to change their role."
+            )
+
+        try:
+            await self.session.execute(
+                text(
+                    "INSERT INTO tasking_project_roles "
+                    "(project_id, user_auth_uid, role, updated_at) "
+                    "VALUES (:pid, :uid, :role, NOW())"
+                ),
+                {
+                    "pid": project_id,
+                    "uid": str(body.user_id),
+                    "role": body.role.value,
+                },
+            )
+            await self.session.commit()
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise _translate_integrity_error(e) from e
+
+        # Re-read so the response carries server-set `updated_at` and the
+        # `display_name` join with `users`.
+        return await self._get_role(project_id, body.user_id)
+
+    async def update_role(
+        self,
+        workspace_id: int,
+        project_id: int,
+        user_id: UUID,
+        body: ProjectRoleUpdateRequest,
+    ) -> ProjectRoleItem:
+        """Change a user's role. 404 if not assigned. 422 if it would
+        remove the last LEAD (per spec — projects must always have one)."""
+        await self._get_active(workspace_id, project_id)
+
+        current = await self._get_role_or_none(project_id, user_id)
+        if current is None:
+            raise NotFoundException(
+                f"User {user_id} has no role on project {project_id}"
+            )
+
+        # Guard: demoting the only LEAD would orphan the project.
+        if (
+            current.role == ProjectRoleType.LEAD
+            and body.role != ProjectRoleType.LEAD
+            and await self._lead_count(project_id) <= 1
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Cannot demote the last LEAD on this project. Assign "
+                    "another LEAD first."
+                ),
+            )
+
+        from sqlalchemy import text
+
+        await self.session.execute(
+            text(
+                "UPDATE tasking_project_roles "
+                "SET role = :role, updated_at = NOW() "
+                "WHERE project_id = :pid AND user_auth_uid = :uid"
+            ),
+            {
+                "pid": project_id,
+                "uid": str(user_id),
+                "role": body.role.value,
+            },
+        )
+        await self.session.commit()
+        return await self._get_role(project_id, user_id)
+
+    async def list_self_project_roles(
+        self,
+        workspace_id: int,
+        current_user: UserInfo,
+    ) -> SelfProjectRolesResponse:
+        """One row per non-deleted project in the workspace with the
+        caller's effective role on that project.
+
+        Resolution rule:
+          1. If `tasking_project_roles` has an explicit row for this
+             user on the project, that wins.
+          2. Otherwise the caller's workspace-level role applies (the
+             implicit fallback that grants `contributor` access to
+             every project in the workspace).
+
+        Workspace-level role is mapped to the same `ProjectRoleType`
+        enum the project rows use.
+        """
+        # Workspace-level role first — used as the fallback for projects
+        # without an explicit override.
+        from api.src.users.schemas import WorkspaceUserRoleType
+
+        ws_role_raw = current_user.effective_role(workspace_id)
+        ws_role = ProjectRoleType(ws_role_raw.value)
+
+        from sqlalchemy import text
+
+        rows = await self.session.execute(
+            text(
+                "SELECT p.id, p.name, p.status, r.role "
+                "FROM tasking_projects p "
+                "LEFT JOIN tasking_project_roles r "
+                "  ON r.project_id = p.id "
+                " AND r.user_auth_uid = :uid "
+                "WHERE p.workspace_id = :wid "
+                "  AND p.deleted_at IS NULL "
+                "ORDER BY p.created_at DESC"
+            ),
+            {
+                "wid": workspace_id,
+                "uid": str(current_user.user_uuid),
+            },
+        )
+
+        items = [
+            SelfProjectRoleItem(
+                project_id=pid,
+                project_name=name,
+                project_status=ProjectStatus(status_value),
+                role=(
+                    ProjectRoleType(explicit_role)
+                    if explicit_role is not None
+                    else ws_role
+                ),
+            )
+            for pid, name, status_value, explicit_role in rows.all()
+        ]
+        return SelfProjectRolesResponse(
+            workspace_role=ws_role,
+            projects=items,
+        )
+
+    async def get_role(
+        self,
+        workspace_id: int,
+        project_id: int,
+        user_id: UUID,
+    ) -> ProjectRoleItem:
+        """Single-user role read. 404 if no assignment exists."""
+        await self._get_active(workspace_id, project_id)
+        item = await self._get_role_or_none(project_id, user_id)
+        if item is None:
+            raise NotFoundException(
+                f"User {user_id} has no role on project {project_id}"
+            )
+        return item
+
+    async def upsert_role(
+        self,
+        workspace_id: int,
+        project_id: int,
+        user_id: UUID,
+        body: ProjectRoleUpdateRequest,
+    ) -> tuple[ProjectRoleItem, bool]:
+        """PUT semantics: idempotent insert-or-update on a role row.
+
+        Returns ``(item, created)`` where ``created`` is True iff the
+        row did not exist before this call. The route layer uses that
+        flag to pick 201 vs 200.
+
+        Honours the last-LEAD guard: a PUT that would demote the only
+        remaining LEAD returns 422 — assign another LEAD first.
+        """
+        await self._get_active(workspace_id, project_id)
+
+        current = await self._get_role_or_none(project_id, user_id)
+
+        if current is not None:
+            # Update path — guard against orphaning the project.
+            if (
+                current.role == ProjectRoleType.LEAD
+                and body.role != ProjectRoleType.LEAD
+                and await self._lead_count(project_id) <= 1
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot demote the last LEAD on this project. "
+                        "Assign another LEAD first."
+                    ),
+                )
+        else:
+            # Insert path — `user_id` must exist in `users`. Preflight so
+            # the caller gets a 422 with `missing_user_ids` rather than
+            # a generic 23503 FK violation.
+            missing = await self._missing_user_auth_uids([user_id])
+            if missing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": (
+                            "`user_id` refers to a user that has not signed "
+                            "in to Workspaces yet — no `users` row exists."
+                        ),
+                        "missing_user_ids": missing,
+                    },
+                )
+
+        from sqlalchemy import text
+
+        try:
+            await self.session.execute(
+                text(
+                    "INSERT INTO tasking_project_roles "
+                    "(project_id, user_auth_uid, role, updated_at) "
+                    "VALUES (:pid, :uid, :role, NOW()) "
+                    "ON CONFLICT (project_id, user_auth_uid) DO UPDATE "
+                    "SET role = EXCLUDED.role, updated_at = NOW()"
+                ),
+                {
+                    "pid": project_id,
+                    "uid": str(user_id),
+                    "role": body.role.value,
+                },
+            )
+            await self.session.commit()
+        except IntegrityError as e:
+            await self.session.rollback()
+            raise _translate_integrity_error(e) from e
+
+        item = await self._get_role(project_id, user_id)
+        return item, current is None
+
+    async def remove_role(
+        self,
+        workspace_id: int,
+        project_id: int,
+        user_id: UUID,
+    ) -> None:
+        """Drop a role assignment. 404 if absent. 422 on last-LEAD removal."""
+        await self._get_active(workspace_id, project_id)
+
+        current = await self._get_role_or_none(project_id, user_id)
+        if current is None:
+            raise NotFoundException(
+                f"User {user_id} has no role on project {project_id}"
+            )
+
+        if (
+            current.role == ProjectRoleType.LEAD
+            and await self._lead_count(project_id) <= 1
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Cannot remove the last LEAD on this project. Assign "
+                    "another LEAD first."
+                ),
+            )
+
+        from sqlalchemy import text
+
+        await self.session.execute(
+            text(
+                "DELETE FROM tasking_project_roles "
+                "WHERE project_id = :pid AND user_auth_uid = :uid"
+            ),
+            {"pid": project_id, "uid": str(user_id)},
+        )
+        await self.session.commit()
+
+    async def _get_role(
+        self, project_id: int, user_id: UUID
+    ) -> ProjectRoleItem:
+        item = await self._get_role_or_none(project_id, user_id)
+        if item is None:  # pragma: no cover — only called after insert/update
+            raise NotFoundException(
+                f"User {user_id} has no role on project {project_id}"
+            )
+        return item
+
+    async def _get_role_or_none(
+        self, project_id: int, user_id: UUID
+    ) -> ProjectRoleItem | None:
+        from sqlalchemy import text
+
+        row = await self.session.execute(
+            text(
+                "SELECT r.user_auth_uid, u.display_name, r.role, r.updated_at "
+                "FROM tasking_project_roles r "
+                "LEFT JOIN users u ON u.auth_uid = r.user_auth_uid "
+                "WHERE r.project_id = :pid AND r.user_auth_uid = :uid"
+            ),
+            {"pid": project_id, "uid": str(user_id)},
+        )
+        result = row.first()
+        if result is None:
+            return None
+        uid, name, role, updated = result
+        return ProjectRoleItem(
+            user_id=UUID(uid),
+            user_name=name,
+            role=ProjectRoleType(role),
+            updated_at=updated,
+        )
 
     async def delete_aoi(self, workspace_id: int, project_id: int) -> None:
         project = await self._get_active(workspace_id, project_id)

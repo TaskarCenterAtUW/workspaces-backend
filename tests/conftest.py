@@ -60,14 +60,24 @@ def pytest_runtest_makereport(item, call):
     report.description = _test_description(item)
 
 
-def pytest_html_results_table_header(cells):
-    """Inject a 'Description' column header next to the test name."""
-    cells.insert(2, "<th>Description</th>")
+# The two hooks below are owned by the `pytest-html` plugin. When the
+# plugin isn't installed (e.g. `uv sync` doesn't include it as a base
+# dependency), pluggy refuses to register them and aborts collection.
+# Declare them conditionally so the suite runs either way.
+try:
+    import pytest_html  # noqa: F401
 
+    def pytest_html_results_table_header(cells):
+        """Inject a 'Description' column header next to the test name."""
+        cells.insert(2, "<th>Description</th>")
 
-def pytest_html_results_table_row(report, cells):
-    """Inject the docstring as the matching cell on each row."""
-    cells.insert(2, f"<td>{getattr(report, 'description', '') or '—'}</td>")
+    def pytest_html_results_table_row(report, cells):
+        """Inject the docstring as the matching cell on each row."""
+        cells.insert(
+            2, f"<td>{getattr(report, 'description', '') or '—'}</td>"
+        )
+except ImportError:
+    pass
 
 
 def _redact(headers) -> str:

@@ -897,19 +897,65 @@ paths:
       - $ref: "#/components/parameters/ProjectIdPath"
     get:
       tags: [roles]
-      summary: List project-level role overrides on a project.
+      summary: List role assignments on a project.
       description: |
-        Returns rows in `tasking_project_roles`. Sparse — only users
-        with an explicit override appear. Any workspace contributor.
+        Returns every row in `tasking_project_roles` for the project,
+        joined with `users.display_name` for human-readable labels.
+        Any workspace contributor; the workspace tenancy gate still
+        applies (404 for outsiders).
       operationId: listProjectRoles
       responses:
         "200":
-          description: Overrides.
+          description: All role assignments.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ProjectRoleListResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+    post:
+      tags: [roles]
+      summary: Add a role assignment to a project.
+      description: |
+        Workspace LEAD **or** project LEAD only. Inserts a row in
+        `tasking_project_roles`. Duplicate `(project_id, user_id)` pairs
+        return 409 — use PATCH to change a role. The `user_id` must
+        already exist in `users` (i.e. the user has signed in to
+        Workspaces at least once); otherwise 422 with a
+        `missing_user_ids` list.
+      operationId: addProjectRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectRoleAddRequest" }
+      responses:
+        "201":
+          description: Role added.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectRoleItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "409":
+          description: User already has a role on this project — use PATCH.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: "`user_id` does not exist in the `users` table."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: object
+                    properties:
+                      message: { type: string }
+                      missing_user_ids:
+                        type: array
+                        items: { type: string, format: uuid }
 
   /workspaces/{workspace_id}/tasking/projects/{project_id}/roles/{user_id}:
     parameters:
@@ -918,60 +964,120 @@ paths:
       - $ref: "#/components/parameters/UserIdPath"
     get:
       tags: [roles]
-      summary: Get a user's project-level role.
-      description: Project override if set, otherwise the workspace-level role.
+      summary: Get a single user's role on a project.
+      description: |
+        Returns the single `tasking_project_roles` row for this user on
+        this project. 404 if no assignment exists. Any workspace
+        contributor; the tenancy gate still applies.
       operationId: getProjectRole
       responses:
         "200":
-          description: Role.
+          description: Role assignment.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ProjectRoleEntry" }
+              schema: { $ref: "#/components/schemas/ProjectRoleItem" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
+        "404":
+          description: User has no role on this project, or project not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
     put:
       tags: [roles]
-      summary: Set (upsert) a project-level role override.
+      summary: Upsert a user's role on a project.
       description: |
-        LEAD only. Inserts/updates a row in `tasking_project_roles`.
-        Project must not be `done` (422 otherwise). User must be a
-        member of the workspace's project group (422 otherwise).
+        Workspace LEAD **or** project LEAD only. Idempotent insert-or-
+        update on `tasking_project_roles`. Returns **201** when the row
+        is created, **200** when an existing row is updated.
+
+        **Last-LEAD guard**: a PUT that demotes the only remaining LEAD
+        returns 422 — assign another LEAD first.
+
+        For partial-update semantics, prefer PATCH.
       operationId: putProjectRole
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SetRoleRequest" }
+            schema: { $ref: "#/components/schemas/ProjectRoleUpdateRequest" }
       responses:
         "200":
-          description: Upserted.
+          description: Existing assignment updated.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ProjectRoleEntry" }
-        "400": { $ref: "#/components/responses/BadRequest" }
+              schema: { $ref: "#/components/schemas/ProjectRoleItem" }
+        "201":
+          description: New assignment created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectRoleItem" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
         "404": { $ref: "#/components/responses/ProjectOrWorkspaceNotFound" }
         "422":
           description: |
             One of:
-              - "User is not a member of the workspace's project group".
-              - "Project is closed".
+              - `user_id` does not exist in `users` (insert path).
+              - Would remove the last LEAD (demote path).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    patch:
+      tags: [roles]
+      summary: Change a user's role on a project.
+      description: |
+        Workspace LEAD **or** project LEAD only. Updates the row in
+        `tasking_project_roles`. Returns 404 if the user has no role
+        assignment yet (use POST to add one).
+
+        **Last-LEAD guard**: demoting the only remaining LEAD on the
+        project returns 422 — assign another LEAD first.
+      operationId: updateProjectRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectRoleUpdateRequest" }
+      responses:
+        "200":
+          description: Role updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectRoleItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
+        "404":
+          description: User has no role on this project, or project not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Would remove the last LEAD on the project.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
     delete:
       tags: [roles]
-      summary: Clear a project-level role override.
-      description: LEAD only. Falls back to the workspace-level role.
-      operationId: deleteProjectRole
+      summary: Remove a role assignment from a project.
+      description: |
+        Workspace LEAD **or** project LEAD only. Deletes the row from
+        `tasking_project_roles`.
+
+        **Last-LEAD guard**: removing the only remaining LEAD on the
+        project returns 422 — assign another LEAD first.
+      operationId: removeProjectRole
       responses:
         "204":
-          description: Removed.
+          description: Role removed.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenLeadRequired" }
         "404":
-          description: No override row for this user/project.
+          description: User has no role on this project, or project not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Would remove the last LEAD on the project.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1686,12 +1792,24 @@ components:
         display_name: { type: string }
         role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
 
-    ProjectRoleEntry:
+    ProjectRoleItem:
       type: object
-      required: [user, role]
+      description: |
+        One row of `tasking_project_roles`, joined with `users` for the
+        display name. Returned by every `/projects/{pid}/roles[/{uid}]`
+        endpoint.
+      required: [user_id, role, updated_at]
       properties:
-        user: { $ref: "#/components/schemas/UserSummary" }
+        user_id:
+          type: string
+          format: uuid
+          description: Maps to `users.auth_uid`.
+        user_name:
+          type: string
+          nullable: true
+          description: Mirror of `users.display_name`, joined at read time.
         role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+        updated_at: { type: string, format: date-time }
 
     ProjectRoleListResponse:
       type: object
@@ -1699,25 +1817,44 @@ components:
       properties:
         results:
           type: array
-          items: { $ref: "#/components/schemas/ProjectRoleEntry" }
+          items: { $ref: "#/components/schemas/ProjectRoleItem" }
 
-    SelfProjectRolesItem:
+    ProjectRoleAddRequest:
       type: object
-      required: [projectId, projectName, role]
+      description: Body for `POST /projects/{pid}/roles`.
+      required: [user_id, role]
+      additionalProperties: false
       properties:
-        projectId: { type: integer, format: int64 }
-        projectName: { type: string }
-        projectStatus: { $ref: "#/components/schemas/ProjectStatus" }
+        user_id:
+          type: string
+          format: uuid
+        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    ProjectRoleUpdateRequest:
+      type: object
+      description: Body for `PATCH /projects/{pid}/roles/{user_id}`.
+      required: [role]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+
+    SelfProjectRoleItem:
+      type: object
+      required: [project_id, project_name, project_status, role]
+      properties:
+        project_id: { type: integer, format: int64 }
+        project_name: { type: string }
+        project_status: { $ref: "#/components/schemas/ProjectStatus" }
         role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
 
     SelfProjectRolesResponse:
       type: object
-      required: [workspaceRole, projects]
+      required: [workspace_role, projects]
       properties:
-        workspaceRole: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
+        workspace_role: { $ref: "#/components/schemas/WorkspaceUserRoleType" }
         projects:
           type: array
-          items: { $ref: "#/components/schemas/SelfProjectRolesItem" }
+          items: { $ref: "#/components/schemas/SelfProjectRoleItem" }
 
     # ---------- Audit ----------
 

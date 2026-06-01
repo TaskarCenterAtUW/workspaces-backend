@@ -22,6 +22,9 @@ from api.core.security import (
     init_tdei_client,
     validate_token,
 )
+from api.src.tasking.projects.routes import me_router as tasking_me_router
+from api.src.tasking.projects.routes import router as tasking_projects_router
+from api.src.tasking.tasks.routes import router as tasking_tasks_router
 from api.src.teams.routes import router as teams_router
 from api.src.users.routes import router as users_router
 from api.src.workspaces.repository import WorkspaceRepository
@@ -91,6 +94,9 @@ app.add_middleware(
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
+app.include_router(tasking_projects_router, prefix="/api/v1")
+app.include_router(tasking_me_router, prefix="/api/v1")
+app.include_router(tasking_tasks_router, prefix="/api/v1")
 
 
 @app.get("/health")
@@ -209,6 +215,20 @@ async def catch_all(
     """
     Catch-all route to proxy requests to the OSM service.
     """
+
+    # `/api/v1/...` paths belong to the FastAPI routers (workspaces,
+    # users, teams, tasking-projects, tasking-tasks). If none matched,
+    # the URL is wrong or the method is unsupported — surface that as
+    # a clean 404 instead of letting the OSM proxy swallow it with a
+    # misleading "No X-Workspace header supplied".
+    if request.url.path.startswith("/api/v1/"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No handler for {request.method} {request.url.path}. "
+                "Check the method and path; this URL is not proxied to OSM."
+            ),
+        )
 
     if request.headers.get("X-Workspace") is not None:
         try:

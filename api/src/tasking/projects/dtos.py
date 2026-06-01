@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field as PydField, field_validator
 
 from api.src.tasking.projects.schemas import (
     AoiInput,
+    ProjectRoleType,
     ProjectStatus,
     TaskBoundaryType,
     _MultiPolygon,
@@ -123,6 +124,59 @@ class AoiFeature(WireModel):
     properties: dict[str, Any] = PydField(default_factory=dict)
 
 
+# ---------------------------------------------------------------------------
+# Project-role management DTOs
+# ---------------------------------------------------------------------------
+
+
+class ProjectRoleItem(WireModel):
+    """One row of `GET /projects/{pid}/roles`."""
+
+    user_id: UUID
+    user_name: Optional[str] = None
+    role: ProjectRoleType
+    updated_at: datetime
+
+
+class ProjectRoleListResponse(WireModel):
+    """Paginated-but-flat list of role assignments for a project."""
+
+    results: list[ProjectRoleItem]
+
+
+class ProjectRoleAddRequest(WireModel):
+    """Body for `POST /projects/{pid}/roles`."""
+
+    user_id: UUID
+    role: ProjectRoleType
+
+
+class ProjectRoleUpdateRequest(WireModel):
+    """Body for `PATCH /projects/{pid}/roles/{user_id}`."""
+
+    role: ProjectRoleType
+
+
+# ---------------------------------------------------------------------------
+# Self project-roles — `GET /me/workspaces/{wid}/tasking/projects/roles`.
+# One row per project in the workspace with the caller's effective role on
+# that project: explicit `tasking_project_roles` row if present, else the
+# workspace-level role (which is the implicit fallback).
+# ---------------------------------------------------------------------------
+
+
+class SelfProjectRoleItem(WireModel):
+    project_id: int
+    project_name: str
+    project_status: ProjectStatus
+    role: ProjectRoleType
+
+
+class SelfProjectRolesResponse(WireModel):
+    workspace_role: ProjectRoleType
+    projects: list[SelfProjectRoleItem]
+
+
 __all__ = [
     "AoiFeature",
     "Pagination",
@@ -130,7 +184,13 @@ __all__ = [
     "ProjectListItem",
     "ProjectListResponse",
     "ProjectResponse",
+    "ProjectRoleAddRequest",
     "ProjectRoleAssignment",
+    "ProjectRoleItem",
+    "ProjectRoleListResponse",
+    "ProjectRoleUpdateRequest",
     "ProjectUpdateRequest",
+    "SelfProjectRoleItem",
+    "SelfProjectRolesResponse",
     "WireModel",
 ]

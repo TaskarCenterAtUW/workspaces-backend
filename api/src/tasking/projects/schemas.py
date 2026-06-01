@@ -95,6 +95,48 @@ class TaskingProject(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
+# Project role enum + table
+# ---------------------------------------------------------------------------
+
+
+class ProjectRoleType(StrEnum):
+    LEAD = "lead"
+    VALIDATOR = "validator"
+    CONTRIBUTOR = "contributor"
+
+
+class TaskingProjectRole(SQLModel, table=True):
+    """Per-project role override stored in ``tasking_project_roles``.
+
+    Maps a user (`users.auth_uid`) to a role within a single tasking
+    project. Created at project-seed time and managed via the
+    ``/projects/{pid}/roles`` endpoints thereafter. Cascades on project
+    delete; the user FK is intentionally non-cascading so user records
+    are not destroyed by project deletions.
+    """
+
+    __tablename__ = "tasking_project_roles"  # type: ignore[assignment]
+
+    project_id: int = Field(primary_key=True, nullable=False)
+    user_auth_uid: str = Field(primary_key=True, nullable=False)
+    role: ProjectRoleType = Field(
+        sa_column=Column(
+            SAEnum(
+                ProjectRoleType,
+                name="workspace_role",
+                create_type=False,
+                values_callable=lambda enum: [m.value for m in enum],
+            ),
+            nullable=False,
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column_kwargs={"nullable": False, "onupdate": datetime.now},
+    )
+
+
+# ---------------------------------------------------------------------------
 # GeoJSON input shapes — accepted by the AOI endpoints. Polygon inputs
 # are upcast to single-member MultiPolygon at the repository layer.
 # ---------------------------------------------------------------------------
@@ -126,9 +168,11 @@ AoiInput = _Polygon | _MultiPolygon | _Feature | _FeatureCollection
 
 __all__ = [
     "AoiInput",
+    "ProjectRoleType",
     "ProjectStatus",
     "TaskBoundaryType",
     "TaskingProject",
+    "TaskingProjectRole",
     "_Feature",
     "_FeatureCollection",
     "_MultiPolygon",
