@@ -480,6 +480,39 @@ async def extra_user_factory(_pg_urls, seeded_workspace_id):
 
 
 # ---------------------------------------------------------------------------
+# TDEI stub — no real TDEI backend is available in integration. The default
+# stub returns an empty member list, so any role_assignments[].user_id that
+# is not already in `users` stays missing and surfaces as 422.
+#
+# Tests that exercise the auto-provisioning path append to
+# `tdei_project_group_users` to simulate TDEI returning specific members.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def tdei_project_group_users(monkeypatch):
+    """Stub `fetch_project_group_users` to return a controllable list."""
+    members: list = []
+
+    async def _fake_fetch(project_group_id: str, bearer_token: str):
+        return list(members)
+
+    import api.core.security
+    import api.src.tasking.projects.repository as proj_repo
+
+    monkeypatch.setattr(
+        api.core.security, "fetch_project_group_users", _fake_fetch
+    )
+    # The repository imports the symbol locally inside the helper, but be
+    # belt-and-braces in case that ever changes:
+    if hasattr(proj_repo, "fetch_project_group_users"):
+        monkeypatch.setattr(
+            proj_repo, "fetch_project_group_users", _fake_fetch
+        )
+    return members
+
+
+# ---------------------------------------------------------------------------
 # Per-test cleanup of tasking_* tables (opt-in).
 # ---------------------------------------------------------------------------
 

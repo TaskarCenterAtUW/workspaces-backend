@@ -43,6 +43,106 @@ async def close_tdei_client() -> None:
         _tdei_client = None
 
 
+class TdeiProjectGroupUser:
+    """One member of a TDEI project group, as returned by
+    ``GET /project-group/{pg_id}/users``.
+
+    Field names are normalised here because the upstream JSON shape varies
+    across deployments (`user_id` vs `id`, `username` vs `display_name`).
+    """
+
+    def __init__(
+        self,
+        *,
+        auth_uid: str,
+        email: str | None,
+        display_name: str | None,
+    ) -> None:
+        self.auth_uid = auth_uid
+        self.email = email
+        self.display_name = display_name
+
+
+async def fetch_project_group_users(
+    project_group_id: str,
+    bearer_token: str,
+) -> list[TdeiProjectGroupUser]:
+    """Page through ``GET /project-group/{pg_id}/users`` on TDEI.
+
+    Returns every member of the project group. The endpoint is paginated
+    server-side; we fetch all pages so the caller can look up an
+    arbitrary user UUID without guessing page numbers. Raises 502 if
+    TDEI is unreachable, 401 if the token is rejected.
+    """
+    if _tdei_client is None:  # pragma: no cover — lifespan should init this
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI client is not initialised",
+        )
+
+    headers = {"Authorization": f"Bearer {bearer_token}"}
+    page_no = 1
+    page_size = 200
+    out: list[TdeiProjectGroupUser] = []
+    while True:
+        try:
+            response = await _tdei_client.get(
+                f"project-group/{project_group_id}/users",
+                headers=headers,
+                params={"page_no": page_no, "page_size": page_size},
+            )
+        except httpx.RequestError:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not reach TDEI backend to fetch project group users",
+            ) from None
+
+        if response.status_code == 401:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="TDEI rejected the bearer token",
+            )
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    f"TDEI returned {response.status_code} when listing "
+                    f"users for project group {project_group_id}"
+                ),
+            )
+
+        try:
+            page = response.json()
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="TDEI returned a non-JSON body",
+            ) from None
+
+        if not isinstance(page, list) or not page:
+            break
+
+        for row in page:
+            uid = row.get("user_id")
+            if not uid:
+                continue
+            out.append(
+                TdeiProjectGroupUser(
+                    auth_uid=str(uid),
+                    email=row.get("email"),
+                    display_name=(
+                        row.get("username")
+                    ),
+                )
+            )
+
+        if len(page) < page_size:
+            break
+        page_no += 1
+
+    return out
+
+
 def evict_user_from_cache(auth_uid: UUID) -> None:
     """
     Evict a user's cached UserInfo object so that their next request re-fetches

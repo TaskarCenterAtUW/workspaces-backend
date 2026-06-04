@@ -120,9 +120,17 @@ async def create_project(
     workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
     project_repo: TaskingProjectRepository = Depends(get_project_repo),
 ):
-    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    # `getById` enforces the tenancy gate AND returns the workspace
+    # row, whose `tdeiProjectGroupId` we hand to the repository so it
+    # can auto-provision `role_assignments[]` users from TDEI.
+    workspace = await workspace_repo.getById(current_user, workspace_id)
     assert_workspace_lead(workspace_id, current_user)
-    return await project_repo.create(workspace_id, current_user, body)
+    return await project_repo.create(
+        workspace_id,
+        current_user,
+        body,
+        tdei_project_group_id=str(workspace.tdeiProjectGroupId),
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
