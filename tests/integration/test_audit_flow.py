@@ -1,10 +1,3 @@
-"""Integration tests for the tasking audit endpoints.
-
-Both readers are simple paginated GETs, but they need real rows in
-`tasking_audit_events` — produced by exercising the project + task
-lifecycle. Each class sets up enough state to verify a specific cut:
-listing, filtering, soft-delete visibility, task-scoped reads.
-"""
 
 from __future__ import annotations
 
