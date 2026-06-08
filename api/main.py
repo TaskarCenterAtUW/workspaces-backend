@@ -22,6 +22,7 @@ from api.core.security import (
     init_tdei_client,
     validate_token,
 )
+from api.src.tasking.audit.routes import router as tasking_audit_router
 from api.src.tasking.projects.routes import me_router as tasking_me_router
 from api.src.tasking.projects.routes import router as tasking_projects_router
 from api.src.tasking.tasks.routes import router as tasking_tasks_router
@@ -97,6 +98,7 @@ app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(tasking_projects_router, prefix="/api/v1")
 app.include_router(tasking_me_router, prefix="/api/v1")
 app.include_router(tasking_tasks_router, prefix="/api/v1")
+app.include_router(tasking_audit_router, prefix="/api/v1")
 
 
 @app.get("/health")

@@ -1114,35 +1114,35 @@ paths:
       summary: List project-level audit events.
       description: |
         Paginated, newest first. Any workspace contributor. Soft-deleted
-        projects are visible only with `includeDeleted=true`.
+        projects are visible only with `include_deleted=true`.
       operationId: listProjectAudit
       parameters:
         - in: query
-          name: eventType
+          name: event_type
           schema: { $ref: "#/components/schemas/AuditEventType" }
         - in: query
-          name: taskNumber
+          name: task_number
           schema: { type: integer, minimum: 1 }
         - in: query
-          name: actorUserId
+          name: actor_user_id
           schema: { type: string, format: uuid }
         - in: query
-          name: occurredFrom
+          name: occurred_from
           schema: { type: string, format: date-time }
         - in: query
-          name: occurredTo
+          name: occurred_to
           schema: { type: string, format: date-time }
         - in: query
-          name: includeDeleted
+          name: include_deleted
           schema: { type: boolean, default: false }
         - in: query
           name: page
           schema: { type: integer, minimum: 1, default: 1 }
         - in: query
-          name: pageSize
+          name: page_size
           schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
         - in: query
-          name: orderByType
+          name: order_by_type
           schema: { type: string, enum: [ASC, DESC], default: DESC }
       responses:
         "200":
@@ -1165,25 +1165,25 @@ paths:
       operationId: listTaskAudit
       parameters:
         - in: query
-          name: eventType
+          name: event_type
           schema: { $ref: "#/components/schemas/AuditEventType" }
         - in: query
-          name: actorUserId
+          name: actor_user_id
           schema: { type: string, format: uuid }
         - in: query
-          name: occurredFrom
+          name: occurred_from
           schema: { type: string, format: date-time }
         - in: query
-          name: occurredTo
+          name: occurred_to
           schema: { type: string, format: date-time }
         - in: query
           name: page
           schema: { type: integer, minimum: 1, default: 1 }
         - in: query
-          name: pageSize
+          name: page_size
           schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
         - in: query
-          name: orderByType
+          name: order_by_type
           schema: { type: string, enum: [ASC, DESC], default: DESC }
       responses:
         "200":
@@ -1860,32 +1860,32 @@ components:
 
     ActorRef:
       type: object
-      required: [userId]
+      required: [user_id]
       properties:
-        userId: { type: string, format: uuid }
-        displayName: { type: string, nullable: true }
+        user_id: { type: string, format: uuid }
+        display_name: { type: string, nullable: true }
 
     AuditEvent:
       type: object
-      required: [id, eventType, projectId, actor, occurredAt, details]
+      required: [id, event_type, project_id, actor, occurred_at, details]
       properties:
         id: { type: integer, format: int64 }
-        eventType: { $ref: "#/components/schemas/AuditEventType" }
-        projectId: { type: integer, format: int64 }
-        taskId:
+        event_type: { $ref: "#/components/schemas/AuditEventType" }
+        project_id: { type: integer, format: int64 }
+        task_id:
           type: integer
           format: int64
           nullable: true
-        taskNumber:
+        task_number:
           type: integer
           nullable: true
           description: Convenience copy from `details` (so list renderers don't peek inside JSONB).
         actor: { $ref: "#/components/schemas/ActorRef" }
-        occurredAt: { type: string, format: date-time }
+        occurred_at: { type: string, format: date-time }
         details:
           type: object
           additionalProperties: true
-        projectDeleted:
+        project_deleted:
           type: boolean
           default: false
 
