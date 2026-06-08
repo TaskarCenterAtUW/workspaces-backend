@@ -31,7 +31,14 @@ class FakeWorkspaceRepo:
         }
         if workspace_id not in all_ids:
             raise NotFoundException(f"Workspace {workspace_id} not found")
-        return SimpleNamespace(id=workspace_id)
+        # Echo the project-group id the user is a member of (any one
+        # works for unit tests — only the project-create route reads it).
+        pg_id = (
+            next(iter(current_user.accessibleWorkspaceIds.keys()))
+            if current_user.accessibleWorkspaceIds
+            else "00000000-0000-0000-0000-000000000000"
+        )
+        return SimpleNamespace(id=workspace_id, tdeiProjectGroupId=pg_id)
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +84,13 @@ class FakeProjectRepo:
 
     # ---- create / list / get / patch / delete --------------------------
 
-    async def create(self, workspace_id: int, current_user, body):
+    async def create(
+        self,
+        workspace_id: int,
+        current_user,
+        body,
+        tdei_project_group_id: str | None = None,
+    ):
         from api.core.exceptions import AlreadyExistsException
 
         if any(

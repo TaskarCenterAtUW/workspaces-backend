@@ -220,7 +220,7 @@ class TestProjectCreateErrors:
     async def test_role_assignment_with_unknown_user_returns_422(
         self, client, as_lead, seeded_workspace_id
     ):
-        """`role_assignments` with a uuid that has no `users` row → 422 + missing list, not a 409 / 500."""
+        """A uuid that TDEI does not list as a PG member → 422 + missing list."""
         bogus = "ffffffff-ffff-ffff-ffff-ffffffffffff"
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -236,7 +236,45 @@ class TestProjectCreateErrors:
         # FastAPI nests structured `detail` payloads under the `detail` key.
         assert "missing_user_ids" in body["detail"]
         assert bogus in body["detail"]["missing_user_ids"]
-        assert "users" in body["detail"]["message"].lower()
+        assert "project group" in body["detail"]["message"].lower()
+
+    async def test_role_assignment_auto_provisions_from_tdei(
+        self,
+        client,
+        as_lead,
+        seeded_workspace_id,
+        tdei_project_group_users,
+    ):
+        """A uuid that's not in `users` but IS a TDEI PG member is auto-provisioned + the project is created."""
+        from api.core.security import TdeiProjectGroupUser
+
+        new_user_uuid = "1abfdb85-54c0-449b-965c-0abfd835d6fa"
+        tdei_project_group_users.append(
+            TdeiProjectGroupUser(
+                auth_uid=new_user_uuid,
+                email=f"{new_user_uuid}@test.local",
+                display_name="Auto Provisioned",
+            )
+        )
+
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={
+                "name": "role-auto-provision",
+                "role_assignments": [
+                    {"user_id": new_user_uuid, "role": "validator"},
+                ],
+            },
+        )
+        assert r.status_code == 201, r.text
+        pid = r.json()["id"]
+
+        # Confirm the role assignment landed.
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/{new_user_uuid}"
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["role"] == "validator"
 
     async def test_duplicate_project_name_returns_409_with_specific_message(
         self, client, as_lead, seeded_workspace_id

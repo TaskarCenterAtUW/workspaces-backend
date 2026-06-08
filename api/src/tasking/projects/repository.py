@@ -219,6 +219,63 @@ class TaskingProjectRepository:
             updated_at=project.updated_at,
         )
 
+    async def _provision_users_from_tdei(
+        self,
+        missing_uuids: list[str],
+        project_group_id: str,
+        bearer_token: str,
+    ) -> list[str]:
+        """Look up `missing_uuids` against TDEI's project-group members
+        and insert matching rows into `users`. Return the UUIDs that are
+        still unknown (not members of the project group at all).
+
+        This is the auto-provisioning fallback for `role_assignments[]`:
+        a user who is known to TDEI but has not yet performed any action
+        that would write them into `users` (e.g. first-time sign-in).
+        """
+        from api.core.security import fetch_project_group_users
+        from sqlalchemy import text
+
+        try:
+            members = await fetch_project_group_users(
+                project_group_id, bearer_token
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to fetch project group users from TDEI: {e}",
+            ) from e
+
+        by_uid = {m.auth_uid: m for m in members}
+
+        resolved: set[str] = set()
+        for uid in missing_uuids:
+            member = by_uid.get(uid)
+            if member is None:
+                continue
+            await self.session.execute(
+                text(
+                    "INSERT INTO users (auth_uid, email, display_name) "
+                    "VALUES (:uid, :email, :name) "
+                    "ON CONFLICT (auth_uid) DO NOTHING"
+                ),
+                {
+                    "uid": uid,
+                    "email": member.email,
+                    "name": member.display_name,
+                },
+            )
+            resolved.add(uid)
+
+        if resolved:
+            # Commit the new `users` rows in their own transaction so the
+            # subsequent FK insert into `tasking_project_roles` resolves.
+            await self.session.commit()
+
+        return [u for u in missing_uuids if u not in resolved]
+
     async def _missing_user_auth_uids(
         self, uuids: list[UUID]
     ) -> list[str]:
@@ -359,38 +416,55 @@ class TaskingProjectRepository:
         workspace_id: int,
         current_user: UserInfo,
         body: ProjectCreateRequest,
+        tdei_project_group_id: str,
     ) -> ProjectResponse:
         # Preflight every user_auth_uid that will be inserted into
         # `tasking_project_roles` — the creator's auto-LEAD seed plus
-        # any explicit role_assignments. Returns a 422 listing the
-        # missing ids instead of a generic FK violation.
+        # any explicit role_assignments. Any UUID missing from `users`
+        # is looked up against TDEI's project-group member list and
+        # auto-provisioned; only UUIDs that are not members at all
+        # surface as a 422 to the caller.
         candidate_uuids: list[UUID] = [current_user.user_uuid]
         candidate_uuids.extend(ra.user_id for ra in body.role_assignments or [])
         missing = await self._missing_user_auth_uids(candidate_uuids)
+
         if missing:
             creator_uid = str(current_user.user_uuid)
             if creator_uid in missing:
-                # Signed-in caller is not yet provisioned in `users`;
-                # distinct from a bad role_assignments entry.
+                # The signed-in caller is not in `users`. Pull them
+                # from TDEI just like any other role-assignment user;
+                # if even TDEI doesn't know them, surface 409 because
+                # the request can never succeed.
+                pass
+
+            # Auto-provision via TDEI for the members of this project group.
+            still_missing = await self._provision_users_from_tdei(
+                missing,
+                project_group_id=tdei_project_group_id,
+                bearer_token=current_user.credentials,
+            )
+
+            if creator_uid in still_missing:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
-                        "Your user record has not been provisioned yet. "
-                        "Sign in to Workspaces once to create your `users` "
-                        "row, then retry."
+                        "Your user record could not be provisioned: TDEI "
+                        "does not list you as a member of this project "
+                        "group. Sign in to Workspaces once, then retry."
                     ),
                 )
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "message": (
-                        "One or more `role_assignments[].user_id` values "
-                        "refer to a user that has not signed in to "
-                        "Workspaces yet — no `users` row exists."
-                    ),
-                    "missing_user_ids": missing,
-                },
-            )
+            if still_missing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": (
+                            "One or more `role_assignments[].user_id` "
+                            "values are not members of this workspace's "
+                            "project group in TDEI."
+                        ),
+                        "missing_user_ids": still_missing,
+                    },
+                )
 
         project = TaskingProject(
             workspace_id=workspace_id,
