@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import pytest
@@ -10,7 +8,6 @@ from api.src.tasking.projects.dtos import (
     ProjectRoleAssignment,
     ProjectUpdateRequest,
 )
-
 
 # ---------------------------------------------------------------------------
 # ProjectCreateRequest

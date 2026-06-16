@@ -24,10 +24,7 @@ from api.core.exceptions import (
 )
 from api.core.security import UserInfo
 from api.src.tasking.projects.dtos import Pagination
-from api.src.tasking.projects.schemas import (
-    ProjectStatus,
-    TaskingProject,
-)
+from api.src.tasking.projects.schemas import ProjectStatus, TaskingProject
 from api.src.tasking.tasks.dtos import (
     ExistingLockSummary,
     FeedbackInput,
@@ -52,7 +49,6 @@ from api.src.tasking.tasks.schemas import (
     TaskingTask,
     TaskStatus,
 )
-
 
 # Equirectangular approximation for area calculations on small
 # EPSG:4326 polygons: 1 degree latitude ≈ 111.32 km. Sufficient for
@@ -149,9 +145,7 @@ def _generate_grid_over_aoi(
     minx, miny, maxx, maxy = aoi.bounds
     center_lat = (miny + maxy) / 2.0
     lat_step = cell_size_m / 111_320.0
-    lon_step = cell_size_m / (
-        111_320.0 * max(math.cos(math.radians(center_lat)), 0.01)
-    )
+    lon_step = cell_size_m / (111_320.0 * max(math.cos(math.radians(center_lat)), 0.01))
 
     cells: list[ShapelyPolygon] = []
     # Safety cap for accidental large-AOI + small-cell combinations.
@@ -176,15 +170,10 @@ def _generate_grid_over_aoi(
                     # `intersection` can return a Polygon, MultiPolygon,
                     # or GeometryCollection; retain polygon pieces only.
                     geoms = (
-                        list(clipped.geoms)
-                        if hasattr(clipped, "geoms")
-                        else [clipped]
+                        list(clipped.geoms) if hasattr(clipped, "geoms") else [clipped]
                     )
                     for piece in geoms:
-                        if (
-                            isinstance(piece, ShapelyPolygon)
-                            and piece.area > 0
-                        ):
+                        if isinstance(piece, ShapelyPolygon) and piece.area > 0:
                             cells.append(piece)
                             if len(cells) >= cell_cap:
                                 return cells
@@ -212,9 +201,7 @@ class TaskingTaskRepository:
 
     # ---- common helpers ---------------------------------------------------
 
-    async def _get_project(
-        self, workspace_id: int, project_id: int
-    ) -> TaskingProject:
+    async def _get_project(self, workspace_id: int, project_id: int) -> TaskingProject:
         rs = await self.session.execute(
             select(TaskingProject).where(
                 (TaskingProject.id == project_id)
@@ -227,9 +214,7 @@ class TaskingTaskRepository:
             raise NotFoundException(f"Project {project_id} not found")
         return project
 
-    async def _get_task(
-        self, project_id: int, task_number: int
-    ) -> TaskingTask:
+    async def _get_task(self, project_id: int, task_number: int) -> TaskingTask:
         rs = await self.session.execute(
             select(TaskingTask).where(
                 (TaskingTask.project_id == project_id)
@@ -243,13 +228,10 @@ class TaskingTaskRepository:
             )
         return task
 
-    async def _get_active_lock(
-        self, task_id: int
-    ) -> Optional[TaskingLock]:
+    async def _get_active_lock(self, task_id: int) -> Optional[TaskingLock]:
         rs = await self.session.execute(
             select(TaskingLock).where(
-                (TaskingLock.task_id == task_id)
-                & (TaskingLock.released_at.is_(None))
+                (TaskingLock.task_id == task_id) & (TaskingLock.released_at.is_(None))
             )
         )
         return rs.scalar_one_or_none()
@@ -320,15 +302,11 @@ class TaskingTaskRepository:
             },
         )
 
-    async def _lookup_user_display(
-        self, user_auth_uid: Optional[str]
-    ) -> Optional[str]:
+    async def _lookup_user_display(self, user_auth_uid: Optional[str]) -> Optional[str]:
         if not user_auth_uid:
             return None
         rs = await self.session.execute(
-            text(
-                "SELECT display_name FROM users WHERE auth_uid = :uid"
-            ),
+            text("SELECT display_name FROM users WHERE auth_uid = :uid"),
             {"uid": user_auth_uid},
         )
         return rs.scalar_one_or_none()
@@ -498,9 +476,7 @@ class TaskingTaskRepository:
                 detail="Project AOI is required before saving tasks",
             )
 
-        body_bytes = json.dumps(
-            body.model_dump(mode="json"), sort_keys=True
-        ).encode()
+        body_bytes = json.dumps(body.model_dump(mode="json"), sort_keys=True).encode()
         body_hash = hashlib.sha256(body_bytes).hexdigest()
 
         # Idempotent replay path.
@@ -530,9 +506,7 @@ class TaskingTaskRepository:
 
         # Refuse if tasks already exist (re-upload AOI to wipe).
         existing = await self.session.execute(
-            text(
-                "SELECT 1 FROM tasking_tasks WHERE project_id = :pid LIMIT 1"
-            ),
+            text("SELECT 1 FROM tasking_tasks WHERE project_id = :pid LIMIT 1"),
             {"pid": project.id},
         )
         if existing.scalar() is not None:
@@ -692,9 +666,7 @@ class TaskingTaskRepository:
         task = await self._get_task(project_id, task_number)
 
         # Eligibility table.
-        role = await self._project_role(
-            project_id, current_user, workspace_id
-        )
+        role = await self._project_role(project_id, current_user, workspace_id)
         if role is None:
             raise ForbiddenException("User has no access to this project")
 
@@ -708,13 +680,10 @@ class TaskingTaskRepository:
                 raise ForbiddenException(
                     "Role does not permit locking this task for validation"
                 )
-            if (
-                task.last_mapper_id
-                and task.last_mapper_id == str(current_user.user_uuid)
+            if task.last_mapper_id and task.last_mapper_id == str(
+                current_user.user_uuid
             ):
-                raise ForbiddenException(
-                    "Cannot validate a task you last mapped"
-                )
+                raise ForbiddenException("Cannot validate a task you last mapped")
         else:
             raise ForbiddenException("Task is in a terminal state")
 

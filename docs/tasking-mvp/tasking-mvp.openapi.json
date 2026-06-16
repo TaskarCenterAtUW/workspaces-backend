@@ -1652,19 +1652,19 @@
           "audit"
         ],
         "summary": "List project-level audit events.",
-        "description": "Paginated, newest first. Any workspace contributor. Soft-deleted\nprojects are visible only with `includeDeleted=true`.\n",
+        "description": "Paginated, newest first. Any workspace contributor. Soft-deleted\nprojects are visible only with `include_deleted=true`.\n",
         "operationId": "listProjectAudit",
         "parameters": [
           {
             "in": "query",
-            "name": "eventType",
+            "name": "event_type",
             "schema": {
               "$ref": "#/components/schemas/AuditEventType"
             }
           },
           {
             "in": "query",
-            "name": "taskNumber",
+            "name": "task_number",
             "schema": {
               "type": "integer",
               "minimum": 1
@@ -1672,7 +1672,7 @@
           },
           {
             "in": "query",
-            "name": "actorUserId",
+            "name": "actor_user_id",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -1680,7 +1680,7 @@
           },
           {
             "in": "query",
-            "name": "occurredFrom",
+            "name": "occurred_from",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -1688,7 +1688,7 @@
           },
           {
             "in": "query",
-            "name": "occurredTo",
+            "name": "occurred_to",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -1696,7 +1696,7 @@
           },
           {
             "in": "query",
-            "name": "includeDeleted",
+            "name": "include_deleted",
             "schema": {
               "type": "boolean",
               "default": false
@@ -1713,7 +1713,7 @@
           },
           {
             "in": "query",
-            "name": "pageSize",
+            "name": "page_size",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -1723,7 +1723,7 @@
           },
           {
             "in": "query",
-            "name": "orderByType",
+            "name": "order_by_type",
             "schema": {
               "type": "string",
               "enum": [
@@ -1776,14 +1776,14 @@
         "parameters": [
           {
             "in": "query",
-            "name": "eventType",
+            "name": "event_type",
             "schema": {
               "$ref": "#/components/schemas/AuditEventType"
             }
           },
           {
             "in": "query",
-            "name": "actorUserId",
+            "name": "actor_user_id",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -1791,7 +1791,7 @@
           },
           {
             "in": "query",
-            "name": "occurredFrom",
+            "name": "occurred_from",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -1799,7 +1799,7 @@
           },
           {
             "in": "query",
-            "name": "occurredTo",
+            "name": "occurred_to",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -1816,7 +1816,7 @@
           },
           {
             "in": "query",
-            "name": "pageSize",
+            "name": "page_size",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -1826,7 +1826,7 @@
           },
           {
             "in": "query",
-            "name": "orderByType",
+            "name": "order_by_type",
             "schema": {
               "type": "string",
               "enum": [
@@ -2983,14 +2983,14 @@
       "ActorRef": {
         "type": "object",
         "required": [
-          "userId"
+          "user_id"
         ],
         "properties": {
-          "userId": {
+          "user_id": {
             "type": "string",
             "format": "uuid"
           },
-          "displayName": {
+          "display_name": {
             "type": "string",
             "nullable": true
           }
@@ -3000,10 +3000,10 @@
         "type": "object",
         "required": [
           "id",
-          "eventType",
-          "projectId",
+          "event_type",
+          "project_id",
           "actor",
-          "occurredAt",
+          "occurred_at",
           "details"
         ],
         "properties": {
@@ -3011,19 +3011,19 @@
             "type": "integer",
             "format": "int64"
           },
-          "eventType": {
+          "event_type": {
             "$ref": "#/components/schemas/AuditEventType"
           },
-          "projectId": {
+          "project_id": {
             "type": "integer",
             "format": "int64"
           },
-          "taskId": {
+          "task_id": {
             "type": "integer",
             "format": "int64",
             "nullable": true
           },
-          "taskNumber": {
+          "task_number": {
             "type": "integer",
             "nullable": true,
             "description": "Convenience copy from `details` (so list renderers don't peek inside JSONB)."
@@ -3031,7 +3031,7 @@
           "actor": {
             "$ref": "#/components/schemas/ActorRef"
           },
-          "occurredAt": {
+          "occurred_at": {
             "type": "string",
             "format": "date-time"
           },
@@ -3039,7 +3039,7 @@
             "type": "object",
             "additionalProperties": true
           },
-          "projectDeleted": {
+          "project_deleted": {
             "type": "boolean",
             "default": false
           }

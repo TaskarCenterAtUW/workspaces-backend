@@ -1,4 +1,3 @@
-
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -54,7 +53,9 @@ def upgrade() -> None:
             sa.Column("tdeiProjectGroupId", sa.Uuid(), nullable=False),
             sa.Column("tdeiRecordId", sa.Uuid(), nullable=True),
             sa.Column("tdeiServiceId", sa.Uuid(), nullable=True),
-            sa.Column("tdeiMetadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+            sa.Column(
+                "tdeiMetadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+            ),
             sa.Column("createdAt", sa.DateTime(), nullable=False),
             sa.Column("createdBy", sa.Uuid(), nullable=False),
             sa.Column("createdByName", sa.String(), nullable=False),
@@ -96,7 +97,6 @@ def upgrade() -> None:
             sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
             sa.PrimaryKeyConstraint("workspace_id"),
         )
-
 
 
 def downgrade() -> None:

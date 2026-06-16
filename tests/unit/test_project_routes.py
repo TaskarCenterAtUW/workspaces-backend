@@ -1,6 +1,4 @@
-
 from __future__ import annotations
-
 
 API = "/api/v1/workspaces/{wid}/tasking/projects"
 
@@ -74,9 +72,7 @@ class TestProjectCrud:
         self, client, as_lead, seeded_workspace_id, fake_repos
     ):
         """GET on a non-existent project id returns 404."""
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/9999"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/9999")
         assert r.status_code == 404
 
     async def test_create_then_get_round_trip(
@@ -89,15 +85,11 @@ class TestProjectCrud:
         )
         pid = r.json()["id"]
 
-        r2 = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}"
-        )
+        r2 = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}")
         assert r2.status_code == 200
         assert r2.json()["id"] == pid
 
-    async def test_patch_name(
-        self, client, as_lead, seeded_workspace_id, fake_repos
-    ):
+    async def test_patch_name(self, client, as_lead, seeded_workspace_id, fake_repos):
         """PATCH updates only specified fields — name change is reflected on GET."""
         pid = (
             await client.post(
@@ -124,14 +116,10 @@ class TestProjectCrud:
             )
         ).json()["id"]
 
-        r = await client.delete(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}"
-        )
+        r = await client.delete(f"{API.format(wid=seeded_workspace_id)}/{pid}")
         assert r.status_code == 204
 
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}")
         assert r.status_code == 404
 
     async def test_duplicate_name_409(
@@ -166,9 +154,7 @@ class TestLifecycle:
             )
         ).json()["id"]
 
-        r = await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/activate"
-        )
+        r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/activate")
         assert r.status_code == 422
 
 
@@ -210,9 +196,7 @@ class TestAoiRoutes:
             )
         ).json()["id"]
 
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi")
         assert r.status_code == 404
 
     async def test_delete_aoi_round_trip(
@@ -233,12 +217,8 @@ class TestAoiRoutes:
             },
         )
 
-        r = await client.delete(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi"
-        )
+        r = await client.delete(f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi")
         assert r.status_code == 204
 
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi")
         assert r.status_code == 404

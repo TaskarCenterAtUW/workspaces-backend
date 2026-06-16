@@ -45,7 +45,6 @@ from api.src.tasking.projects.schemas import (
     _Polygon,
 )
 
-
 # ---------------------------------------------------------------------------
 # AOI helpers
 # ---------------------------------------------------------------------------
@@ -184,9 +183,7 @@ class TaskingProjectRepository:
 
     # ---- internal helpers --------------------------------------------
 
-    async def _get_active(
-        self, workspace_id: int, project_id: int
-    ) -> TaskingProject:
+    async def _get_active(self, workspace_id: int, project_id: int) -> TaskingProject:
         """Fetch a non-deleted project scoped to a workspace; raise 404 otherwise."""
         result = await self.session.execute(
             select(TaskingProject).where(
@@ -233,13 +230,12 @@ class TaskingProjectRepository:
         a user who is known to TDEI but has not yet performed any action
         that would write them into `users` (e.g. first-time sign-in).
         """
-        from api.core.security import fetch_project_group_users
         from sqlalchemy import text
 
+        from api.core.security import fetch_project_group_users
+
         try:
-            members = await fetch_project_group_users(
-                project_group_id, bearer_token
-            )
+            members = await fetch_project_group_users(project_group_id, bearer_token)
         except HTTPException:
             raise
         except Exception as e:
@@ -276,9 +272,7 @@ class TaskingProjectRepository:
 
         return [u for u in missing_uuids if u not in resolved]
 
-    async def _missing_user_auth_uids(
-        self, uuids: list[UUID]
-    ) -> list[str]:
+    async def _missing_user_auth_uids(self, uuids: list[UUID]) -> list[str]:
         """Return the subset of `uuids` without a matching `users` row.
 
         Preflight for the `tasking_project_roles.user_auth_uid` FK so
@@ -291,9 +285,7 @@ class TaskingProjectRepository:
         from sqlalchemy import text
 
         rows = await self.session.execute(
-            text(
-                "SELECT auth_uid FROM users WHERE auth_uid = ANY(:uids)"
-            ),
+            text("SELECT auth_uid FROM users WHERE auth_uid = ANY(:uids)"),
             {"uids": [str(u) for u in uuids]},
         )
         existing = {row[0] for row in rows.all()}
@@ -305,9 +297,7 @@ class TaskingProjectRepository:
         from sqlalchemy import text
 
         result = await self.session.execute(
-            text(
-                "SELECT COUNT(*) FROM tasking_tasks WHERE project_id = :pid"
-            ),
+            text("SELECT COUNT(*) FROM tasking_tasks WHERE project_id = :pid"),
             {"pid": project_id},
         )
         return int(result.scalar() or 0)
@@ -626,9 +616,7 @@ class TaskingProjectRepository:
 
     # ---- lifecycle transitions ---------------------------------------
 
-    async def activate(
-        self, workspace_id: int, project_id: int
-    ) -> ProjectResponse:
+    async def activate(self, workspace_id: int, project_id: int) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
             raise HTTPException(
@@ -679,9 +667,7 @@ class TaskingProjectRepository:
         await self.session.refresh(project)
         return self._to_response(project, task_count=tc)
 
-    async def close(
-        self, workspace_id: int, project_id: int
-    ) -> ProjectResponse:
+    async def close(self, workspace_id: int, project_id: int) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.OPEN:
             raise HTTPException(
@@ -726,9 +712,7 @@ class TaskingProjectRepository:
         tc = await self._task_count(project.id)  # type: ignore[arg-type]
         return self._to_response(project, task_count=tc)
 
-    async def reset(
-        self, workspace_id: int, project_id: int
-    ) -> ProjectResponse:
+    async def reset(self, workspace_id: int, project_id: int) -> ProjectResponse:
         """LEAD reset — see spec §projects."""
         project = await self._get_active(workspace_id, project_id)
         if project.status == ProjectStatus.DRAFT:
@@ -772,9 +756,7 @@ class TaskingProjectRepository:
 
     # ---- AOI ---------------------------------------------------------
 
-    async def get_aoi(
-        self, workspace_id: int, project_id: int
-    ) -> AoiFeature:
+    async def get_aoi(self, workspace_id: int, project_id: int) -> AoiFeature:
         project = await self._get_active(workspace_id, project_id)
         if project.aoi is None:
             raise NotFoundException("AOI is not set on this project")
@@ -823,9 +805,7 @@ class TaskingProjectRepository:
     # violations on `user_auth_uid` are caught with a preflight so the
     # caller gets a 422 listing the missing user id.
 
-    async def _is_project_lead(
-        self, project_id: int, user_uuid: UUID
-    ) -> bool:
+    async def _is_project_lead(self, project_id: int, user_uuid: UUID) -> bool:
         """True if the user holds a `lead` role on the given project."""
         from sqlalchemy import text
 
@@ -858,8 +838,7 @@ class TaskingProjectRepository:
         if await self._is_project_lead(project_id, current_user.user_uuid):
             return
         raise ForbiddenException(
-            "Only a workspace lead or project lead can manage roles "
-            "on this project."
+            "Only a workspace lead or project lead can manage roles " "on this project."
         )
 
     async def _lead_count(self, project_id: int) -> int:
@@ -1200,9 +1179,7 @@ class TaskingProjectRepository:
         )
         await self.session.commit()
 
-    async def _get_role(
-        self, project_id: int, user_id: UUID
-    ) -> ProjectRoleItem:
+    async def _get_role(self, project_id: int, user_id: UUID) -> ProjectRoleItem:
         item = await self._get_role_or_none(project_id, user_id)
         if item is None:  # pragma: no cover — only called after insert/update
             raise NotFoundException(

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,9 +6,9 @@ from enum import StrEnum
 from typing import Any, Optional
 
 from geoalchemy2 import Geometry
-from sqlalchemy import Column, Enum as SAEnum
+from sqlalchemy import Column
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
-
 
 # ---------------------------------------------------------------------------
 # Enums (mirrors of postgres enums in the migration)
