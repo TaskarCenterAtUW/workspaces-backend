@@ -12,12 +12,18 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def _postgis_available(bind) -> bool:
-    return bool(
+def _assert_postgis_installed(bind) -> None:
+    """Require the postgis extension to be installed in this database."""
+    installed = bool(
         bind.execute(
-            text("SELECT 1 FROM pg_available_extensions WHERE name = 'postgis'")
+            text("SELECT 1 FROM pg_extension WHERE extname = 'postgis'")
         ).scalar()
     )
+    if not installed:
+        raise RuntimeError(
+            "postgis extension is not installed in this database. "
+            "Run `CREATE EXTENSION IF NOT EXISTS postgis;` before migrations."
+        )
 
 
 def upgrade() -> None:
@@ -25,18 +31,12 @@ def upgrade() -> None:
     assert bind is not None
     insp = inspect(bind)
 
-    use_postgis = _postgis_available(bind)
-    if use_postgis:
-        op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    _assert_postgis_installed(bind)
 
-    geometry_column = (
-        sa.Column(
-            "geometry",
-            Geometry(geometry_type="MULTIPOLYGON", srid=4326),
-            nullable=True,
-        )
-        if use_postgis
-        else sa.Column("geometry", sa.Text(), nullable=True)
+    geometry_column = sa.Column(
+        "geometry",
+        Geometry(geometry_type="MULTIPOLYGON", srid=4326),
+        nullable=True,
     )
 
     # The TASK tree owns `workspaces` and `workspaces_*` only.
