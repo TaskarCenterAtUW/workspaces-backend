@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import pytest
@@ -61,9 +60,7 @@ async def _open_project_with_tasks(client, workspace_id):
     )
     assert r.status_code == 201, r.text
 
-    r = await client.post(
-        f"{API.format(wid=workspace_id)}/{pid}/activate"
-    )
+    r = await client.post(f"{API.format(wid=workspace_id)}/{pid}/activate")
     assert r.status_code == 200, r.text
     return pid
 
@@ -81,9 +78,7 @@ class TestProjectAuditListing:
         """Project create → AOI upload → tasks → activate all appear in audit."""
         pid = await _open_project_with_tasks(client, seeded_workspace_id)
 
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/audit"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/audit")
         assert r.status_code == 200, r.text
         body = r.json()
         assert "results" in body
@@ -96,9 +91,7 @@ class TestProjectAuditListing:
         ts = [row["occurred_at"] for row in body["results"]]
         assert ts == sorted(ts, reverse=True)
 
-    async def test_filter_by_event_type(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_filter_by_event_type(self, client, as_lead, seeded_workspace_id):
         """`event_type` query narrows results to one kind."""
         pid = await _open_project_with_tasks(client, seeded_workspace_id)
 
@@ -110,9 +103,7 @@ class TestProjectAuditListing:
         kinds = {row["event_type"] for row in r.json()["results"]}
         assert kinds == {"project_activated"}
 
-    async def test_filter_by_actor(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_filter_by_actor(self, client, as_lead, seeded_workspace_id):
         """`actor_user_id` filters to events emitted by that user only."""
         pid = await _open_project_with_tasks(client, seeded_workspace_id)
         r = await client.get(
@@ -138,13 +129,9 @@ class TestProjectAuditListing:
         assert body["pagination"]["page_size"] == 1
         assert body["pagination"]["total"] >= 1
 
-    async def test_unknown_project_404(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_unknown_project_404(self, client, as_lead, seeded_workspace_id):
         """A bogus project id returns 404 from the tenancy / existence check."""
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/999999/audit"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/999999/audit")
         assert r.status_code == 404
 
 
@@ -184,14 +171,9 @@ class TestTaskAuditListing:
         assert "task_unlocked" in kinds
         # Every row should reference the right task (by id or task_number).
         for row in body["results"]:
-            assert (
-                row["task_id"] is not None
-                or row.get("task_number") == 1
-            )
+            assert row["task_id"] is not None or row.get("task_number") == 1
 
-    async def test_unknown_task_404(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_unknown_task_404(self, client, as_lead, seeded_workspace_id):
         """A bogus task number on a real project returns 404."""
         pid = await _open_project_with_tasks(client, seeded_workspace_id)
         r = await client.get(
@@ -214,22 +196,16 @@ class TestAuditIncludeDeleted:
         pid = await _open_project_with_tasks(client, seeded_workspace_id)
 
         # Project must be closed before delete.
-        r = await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/close"
-        )
+        r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/close")
         # Some tasks may still be open; tolerate either path. The audit
         # endpoint behaviour we care about only needs deleted_at to be
         # set, which the delete call will do regardless of status.
-        r = await client.delete(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}"
-        )
+        r = await client.delete(f"{API.format(wid=seeded_workspace_id)}/{pid}")
         if r.status_code != 204:
             pytest.skip(f"Could not soft-delete project: {r.status_code} {r.text}")
 
         # Default = hidden.
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/audit"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/audit")
         assert r.status_code == 404
 
         # Explicit opt-in = visible.

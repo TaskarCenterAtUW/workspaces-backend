@@ -6,10 +6,11 @@ from typing import Any, Literal, Optional
 from uuid import UUID
 
 from geoalchemy2 import Geometry
-from pydantic import BaseModel, Field as PydField
-from sqlalchemy import Column, Enum as SAEnum
+from pydantic import BaseModel
+from pydantic import Field as PydField
+from sqlalchemy import Column
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
-
 
 # ---------------------------------------------------------------------------
 # Enums (mirrors of postgres enums in the migration)

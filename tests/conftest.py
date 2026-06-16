@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
@@ -6,7 +5,6 @@ from typing import Callable
 from uuid import UUID, uuid4
 
 import pytest
-
 
 # Constants — referenced by both unit and integration suites.
 SEED_WORKSPACE_ID = 1899
@@ -73,9 +71,8 @@ try:
 
     def pytest_html_results_table_row(report, cells):
         """Inject the docstring as the matching cell on each row."""
-        cells.insert(
-            2, f"<td>{getattr(report, 'description', '') or '—'}</td>"
-        )
+        cells.insert(2, f"<td>{getattr(report, 'description', '') or '—'}</td>")
+
 except ImportError:
     pass
 
@@ -83,8 +80,7 @@ except ImportError:
 def _redact(headers) -> str:
     redact = {"authorization", "cookie", "set-cookie", "x-api-key"}
     return ", ".join(
-        f"{k}={'***' if k.lower() in redact else v}"
-        for k, v in headers.items()
+        f"{k}={'***' if k.lower() in redact else v}" for k, v in headers.items()
     )
 
 
@@ -152,11 +148,7 @@ def _make_user(
     is_poc: bool = False,
 ):
     """Construct a UserInfo with the minimum fields the gates inspect."""
-    from api.core.security import (
-        TdeiProjectGroupRole,
-        UserInfo,
-        UserInfoPGMembership,
-    )
+    from api.core.security import TdeiProjectGroupRole, UserInfo, UserInfoPGMembership
     from api.src.users.schemas import WorkspaceUserRoleType
 
     u = UserInfo()

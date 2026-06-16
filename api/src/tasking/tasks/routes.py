@@ -3,7 +3,16 @@ from __future__ import annotations
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
@@ -81,9 +90,7 @@ async def generate_grid(
     """
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    return await task_repo.generate_grid(
-        workspace_id, project_id, cell_size_meters
-    )
+    return await task_repo.generate_grid(workspace_id, project_id, cell_size_meters)
 
 
 @router.post("/tasks/validate", response_model=ValidatePreviewResponse)
@@ -118,9 +125,7 @@ async def save_tasks(
     payload, replayed = await task_repo.save(
         workspace_id, project_id, current_user, body, idempotency_key
     )
-    response.status_code = (
-        status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
-    )
+    response.status_code = status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
     return payload
 
 
@@ -128,9 +133,7 @@ async def save_tasks(
 async def list_tasks(
     workspace_id: int,
     project_id: int,
-    status_filter: Annotated[
-        Optional[TaskStatus], Query(alias="status")
-    ] = None,
+    status_filter: Annotated[Optional[TaskStatus], Query(alias="status")] = None,
     locked_by_user_id: Optional[UUID] = Query(default=None),
     last_mapper_id: Optional[UUID] = Query(default=None),
     page: int = Query(1, ge=1),

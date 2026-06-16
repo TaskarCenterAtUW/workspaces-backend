@@ -7,11 +7,7 @@ from uuid import UUID
 from pydantic import Field as PydField
 
 from api.src.tasking.projects.dtos import Pagination, WireModel
-from api.src.tasking.tasks.schemas import (
-    FeedbackReason,
-    TaskStatus,
-)
-
+from api.src.tasking.tasks.schemas import FeedbackReason, TaskStatus
 
 # ---------------------------------------------------------------------------
 # Task boundary GeoJSON (input for /tasks/validate and /tasks/save)

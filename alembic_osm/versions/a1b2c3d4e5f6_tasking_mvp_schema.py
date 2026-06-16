@@ -1,5 +1,3 @@
-
-
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -244,9 +242,7 @@ def upgrade() -> None:
             ),
             sa.Column("project_id", sa.BigInteger(), nullable=False),
             sa.Column("task_number", sa.Integer(), nullable=False),
-            sa.Column(
-                "area_sqkm", sa.Numeric(precision=10, scale=4), nullable=False
-            ),
+            sa.Column("area_sqkm", sa.Numeric(precision=10, scale=4), nullable=False),
             sa.Column(
                 "status",
                 postgresql.ENUM(
@@ -287,13 +283,8 @@ def upgrade() -> None:
                 "ON tasking_tasks USING GIST (geometry)"
             )
         else:
-            op.execute(
-                "ALTER TABLE tasking_tasks "
-                "ADD COLUMN geometry BYTEA"
-            )
-        op.create_index(
-            "tasking_tasks_project_idx", "tasking_tasks", ["project_id"]
-        )
+            op.execute("ALTER TABLE tasking_tasks " "ADD COLUMN geometry BYTEA")
+        op.create_index("tasking_tasks_project_idx", "tasking_tasks", ["project_id"])
 
     # ---- tasking_locks ------------------------------------------------
 
@@ -439,13 +430,9 @@ def upgrade() -> None:
             sa.ForeignKeyConstraint(
                 ["project_id"], ["tasking_projects.id"], ondelete="CASCADE"
             ),
-            sa.ForeignKeyConstraint(
-                ["author_user_auth_uid"], ["users.auth_uid"]
-            ),
+            sa.ForeignKeyConstraint(["author_user_auth_uid"], ["users.auth_uid"]),
         )
-        op.create_index(
-            "tasking_feedback_task_idx", "tasking_feedback", ["task_id"]
-        )
+        op.create_index("tasking_feedback_task_idx", "tasking_feedback", ["task_id"])
         op.create_index(
             "tasking_feedback_project_idx", "tasking_feedback", ["project_id"]
         )

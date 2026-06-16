@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field as PydField, field_validator
+from pydantic import BaseModel, ConfigDict
+from pydantic import Field as PydField
+from pydantic import field_validator
 
 from api.src.tasking.projects.schemas import (
     AoiInput,
@@ -14,14 +16,13 @@ from api.src.tasking.projects.schemas import (
     _MultiPolygon,
 )
 
-
 # ---------------------------------------------------------------------------
 # Shared DTO base.
 # ---------------------------------------------------------------------------
 
 
 class WireModel(BaseModel):
-   
+
     model_config = ConfigDict(extra="forbid")
 
 

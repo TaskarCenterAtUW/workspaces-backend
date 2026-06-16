@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import pytest
@@ -161,9 +159,7 @@ class TestGridGeneration:
         )
         pid = r.json()["id"]
 
-        r = await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/grid"
-        )
+        r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/grid")
         assert r.status_code == 422, r.text
         assert "aoi" in r.json()["detail"].lower()
 
@@ -187,9 +183,7 @@ class TestGridGeneration:
             name_suffix="-grid-state",
         )
 
-        r = await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/grid"
-        )
+        r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/grid")
         assert r.status_code == 422, r.text
         assert "draft" in r.json()["detail"].lower()
 
@@ -240,8 +234,7 @@ class TestGridGeneration:
         assert len(fc["features"]) == 2, [f["geometry"] for f in fc["features"]]
         for feat in fc["features"]:
             assert feat["geometry"]["type"] == "Polygon", (
-                "straddling cell was not split — got "
-                f"{feat['geometry']['type']}"
+                "straddling cell was not split — got " f"{feat['geometry']['type']}"
             )
 
         # The two output polygons should align with the two lobes —
@@ -290,9 +283,7 @@ class TestValidateAndSave:
 
     project_id: int | None = None
 
-    async def test_01_create_draft_with_aoi(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_01_create_draft_with_aoi(self, client, as_lead, seeded_workspace_id):
         """Create a draft project and upload the project AOI."""
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -307,9 +298,7 @@ class TestValidateAndSave:
         )
         assert r.status_code == 200, r.text
 
-    async def test_02_validate_inside_aoi(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_02_validate_inside_aoi(self, client, as_lead, seeded_workspace_id):
         """Two in-AOI polygons validate cleanly with no warnings."""
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{self.project_id}/tasks/validate",
@@ -327,9 +316,7 @@ class TestValidateAndSave:
         """A polygon outside the project AOI is rejected with 422."""
         outside = {
             "type": "Polygon",
-            "coordinates": [
-                [[5, 5], [5.1, 5], [5.1, 5.1], [5, 5.1], [5, 5]]
-            ],
+            "coordinates": [[[5, 5], [5.1, 5], [5.1, 5.1], [5, 5.1], [5, 5]]],
         }
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{self.project_id}/tasks/validate",
@@ -370,9 +357,7 @@ class TestValidateAndSave:
         assert body["tasks"][0]["lock"] is None
         assert body["tasks"][0]["last_mapper"] is None
 
-    async def test_06_double_save_rejected(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_06_double_save_rejected(self, client, as_lead, seeded_workspace_id):
         """A second save into a project that already has tasks 409s."""
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{self.project_id}/tasks/save",
@@ -393,9 +378,7 @@ class TestValidateAndSave:
         assert len(body["tasks"]) == 2
         assert body["tasks"][0]["geometry"]["type"] == "Polygon"
 
-    async def test_08_get_single_task(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_08_get_single_task(self, client, as_lead, seeded_workspace_id):
         """GET /tasks/{n} returns one task with geometry + metadata."""
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{self.project_id}/tasks/1"
@@ -788,9 +771,7 @@ class TestRemapFlow:
 
         # Contributor maps → to_review.
         override_user(contributor)
-        await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock"
-        )
+        await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
             json={"osm_changeset_id": 7001, "done": True},
@@ -799,9 +780,7 @@ class TestRemapFlow:
 
         # Validator validates with feedback → to_remap.
         override_user(validator)
-        await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock"
-        )
+        await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
             json={
@@ -856,9 +835,7 @@ class TestSelfValidationGuard:
 
         # Validator maps the task themselves (validators can also lock to_map).
         override_user(validator)
-        await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock"
-        )
+        await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
             json={"osm_changeset_id": 9001, "done": True},
@@ -900,25 +877,21 @@ class TestTaskReset:
 
         # Contributor maps → to_review.
         override_user(contributor)
-        await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock"
-        )
+        await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
             json={"osm_changeset_id": 11001, "done": True},
         )
         # Validator picks it up.
         override_user(validator)
-        await client.post(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock"
-        )
+        await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
 
         # Switch back to a LEAD token to invoke /reset. The integration
         # `as_lead` fixture already inserted a lead users row, so the
         # helper here just builds a UserInfo to bind to the override.
         from api.core.security import validate_token
         from api.main import app
-        from tests.conftest import _make_user, SEED_PROJECT_GROUP_ID
+        from tests.conftest import SEED_PROJECT_GROUP_ID, _make_user
 
         lead = _make_user(
             role="lead",

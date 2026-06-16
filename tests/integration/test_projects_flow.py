@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import pytest
@@ -50,9 +49,7 @@ class TestProjectLifecycle:
 
     async def test_02_get_round_trip(self, client, as_lead, seeded_workspace_id):
         """GET round-trips the project just created (same id)."""
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{self.project_id}"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{self.project_id}")
         assert r.status_code == 200
         assert r.json()["id"] == self.project_id
 
@@ -113,9 +110,7 @@ class TestProjectLifecycle:
         ids = {row["id"] for row in r.json()["results"]}
         assert self.project_id not in ids
 
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{self.project_id}"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{self.project_id}")
         assert r.status_code == 404
 
 
@@ -226,9 +221,7 @@ class TestProjectCreateErrors:
             API.format(wid=seeded_workspace_id),
             json={
                 "name": "role-fk-error",
-                "role_assignments": [
-                    {"user_id": bogus, "role": "contributor"}
-                ],
+                "role_assignments": [{"user_id": bogus, "role": "contributor"}],
             },
         )
         assert r.status_code == 422, r.text
@@ -323,20 +316,13 @@ class TestAoiReplaceSemantics:
             json=SQUARE_MULTI,
         )
         assert r2.status_code == 200
-        assert (
-            r2.json()["geometry"]["coordinates"]
-            == SQUARE_MULTI["coordinates"]
-        )
+        assert r2.json()["geometry"]["coordinates"] == SQUARE_MULTI["coordinates"]
 
         # Boundary type should have been cleared (per spec).
-        proj = (
-            await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}")
-        ).json()
+        proj = (await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}")).json()
         assert proj["task_boundary_type"] is None
 
-    async def test_aoi_delete_round_trip(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_aoi_delete_round_trip(self, client, as_lead, seeded_workspace_id):
         """DELETE /aoi removes the AOI; subsequent GET returns 404."""
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -348,15 +334,11 @@ class TestAoiReplaceSemantics:
             json=SQUARE_POLY,
         )
 
-        r = await client.delete(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi"
-        )
+        r = await client.delete(f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi")
         assert r.status_code == 204
 
         # Subsequent GET 404s.
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/aoi")
         assert r.status_code == 404
 
 
@@ -380,9 +362,7 @@ class TestProjectRoles:
             json={"name": "roles-list-1"},
         )
         pid = r.json()["id"]
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/roles")
         assert r.status_code == 200, r.text
         rows = r.json()["results"]
         assert len(rows) == 1
@@ -413,9 +393,7 @@ class TestProjectRoles:
         assert body["user_id"] == str(contrib.user_uuid)
         assert body["role"] == "contributor"
 
-        r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles"
-        )
+        r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/roles")
         ids = {row["user_id"] for row in r.json()["results"]}
         assert str(contrib.user_uuid) in ids
 
@@ -527,8 +505,7 @@ class TestProjectRoles:
         )
 
         r = await client.delete(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
-            f"{contrib.user_uuid}"
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/" f"{contrib.user_uuid}"
         )
         assert r.status_code == 204
 
@@ -540,9 +517,7 @@ class TestProjectRoles:
         )
         assert r.status_code == 404
 
-    async def test_last_lead_demote_blocked(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_last_lead_demote_blocked(self, client, as_lead, seeded_workspace_id):
         """Cannot demote the only LEAD — projects must always have one."""
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -558,9 +533,7 @@ class TestProjectRoles:
         assert r.status_code == 422, r.text
         assert "last lead" in r.json()["detail"].lower()
 
-    async def test_last_lead_delete_blocked(
-        self, client, as_lead, seeded_workspace_id
-    ):
+    async def test_last_lead_delete_blocked(self, client, as_lead, seeded_workspace_id):
         """Cannot delete the only LEAD — would orphan the project."""
         r = await client.post(
             API.format(wid=seeded_workspace_id),
@@ -596,8 +569,7 @@ class TestProjectRoles:
 
         # Now demote the second lead — first lead is still there.
         r = await client.patch(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
-            f"{lead2.user_uuid}",
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/" f"{lead2.user_uuid}",
             json={"role": "contributor"},
         )
         assert r.status_code == 200, r.text
@@ -623,8 +595,7 @@ class TestProjectRoles:
         )
 
         r = await client.get(
-            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/"
-            f"{contrib.user_uuid}"
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/roles/" f"{contrib.user_uuid}"
         )
         assert r.status_code == 200, r.text
         body = r.json()

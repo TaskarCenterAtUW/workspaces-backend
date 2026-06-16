@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import pytest
@@ -13,7 +11,6 @@ from api.src.tasking.projects.schemas import (
     _MultiPolygon,
     _Polygon,
 )
-
 
 SQUARE = [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
 TWO_SQUARES = [

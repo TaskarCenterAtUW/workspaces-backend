@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,7 +6,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fake workspace repository — tenancy gate without a DB.
@@ -25,9 +23,7 @@ class FakeWorkspaceRepo:
         from api.core.exceptions import NotFoundException
 
         all_ids = {
-            wid
-            for ids in current_user.accessibleWorkspaceIds.values()
-            for wid in ids
+            wid for ids in current_user.accessibleWorkspaceIds.values() for wid in ids
         }
         if workspace_id not in all_ids:
             raise NotFoundException(f"Workspace {workspace_id} not found")

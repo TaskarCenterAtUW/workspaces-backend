@@ -130,9 +130,7 @@ async def fetch_project_group_users(
                 TdeiProjectGroupUser(
                     auth_uid=str(uid),
                     email=row.get("email"),
-                    display_name=(
-                        row.get("username")
-                    ),
+                    display_name=(row.get("username")),
                 )
             )
 

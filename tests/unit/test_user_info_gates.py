@@ -1,16 +1,9 @@
-
-
 from __future__ import annotations
 
 from uuid import UUID
 
-from api.core.security import (
-    TdeiProjectGroupRole,
-    UserInfo,
-    UserInfoPGMembership,
-)
+from api.core.security import TdeiProjectGroupRole, UserInfo, UserInfoPGMembership
 from api.src.users.schemas import WorkspaceUserRoleType
-
 
 PG = "00000000-0000-0000-0000-000000000001"
 
@@ -21,13 +14,17 @@ def _user(*, osm_roles=None, pg_roles=None, accessible=None):
     u.user_uuid = UUID("11111111-1111-1111-1111-111111111111")
     u.user_name = "test"
     u.osmWorkspaceRoles = osm_roles or {}
-    u.projectGroups = [
-        UserInfoPGMembership(
-            project_group_name="PG",
-            project_group_id=PG,
-            tdeiRoles=pg_roles or [TdeiProjectGroupRole.MEMBER],
-        )
-    ] if pg_roles is not None or accessible is not None else []
+    u.projectGroups = (
+        [
+            UserInfoPGMembership(
+                project_group_name="PG",
+                project_group_id=PG,
+                tdeiRoles=pg_roles or [TdeiProjectGroupRole.MEMBER],
+            )
+        ]
+        if pg_roles is not None or accessible is not None
+        else []
+    )
     u.accessibleWorkspaceIds = accessible or {}
     return u
 

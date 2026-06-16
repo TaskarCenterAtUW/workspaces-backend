@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -9,7 +8,6 @@ from collections.abc import AsyncIterator, Iterator
 import pytest
 
 from tests.conftest import SEED_PROJECT_GROUP_ID, SEED_WORKSPACE_ID
-
 
 # ---------------------------------------------------------------------------
 # Docker availability gate — skip cleanly when the daemon is missing
@@ -232,8 +230,8 @@ async def _seed_workspace_row(_migrated_db: tuple[str, str]) -> int:
         await conn.execute(
             text(
                 "INSERT INTO workspaces "
-                "(id, type, title, \"tdeiProjectGroupId\", \"createdAt\", "
-                " \"createdBy\", \"createdByName\", \"externalAppAccess\") "
+                '(id, type, title, "tdeiProjectGroupId", "createdAt", '
+                ' "createdBy", "createdByName", "externalAppAccess") '
                 "VALUES (:id, :type, :title, :pgid, NOW(), :uid, :uname, 0) "
                 "ON CONFLICT (id) DO NOTHING"
             ),
@@ -374,10 +372,11 @@ async def _per_test_db_sessions(_pg_urls):
 # `validate_token`. These shadow the unit-suite counterparts in
 # tests/conftest.py for every test under tests/integration/.
 
+
 @pytest.fixture
 async def as_lead(_pg_urls, seeded_workspace_id):
     """LEAD user persisted in users table + overridden in validate_token."""
-    from tests.conftest import _make_user, SEED_PROJECT_GROUP_ID
+    from tests.conftest import SEED_PROJECT_GROUP_ID, _make_user
 
     _, osm_url = _pg_urls
     user = _make_user(
@@ -394,7 +393,7 @@ async def as_lead(_pg_urls, seeded_workspace_id):
 @pytest.fixture
 async def as_contributor(_pg_urls, seeded_workspace_id):
     """CONTRIBUTOR user persisted in users table + overridden in validate_token."""
-    from tests.conftest import _make_user, SEED_PROJECT_GROUP_ID
+    from tests.conftest import SEED_PROJECT_GROUP_ID, _make_user
 
     _, osm_url = _pg_urls
     user = _make_user(
@@ -411,7 +410,7 @@ async def as_contributor(_pg_urls, seeded_workspace_id):
 @pytest.fixture
 async def as_validator(_pg_urls, seeded_workspace_id):
     """VALIDATOR user persisted in users table + overridden in validate_token."""
-    from tests.conftest import _make_user, SEED_PROJECT_GROUP_ID
+    from tests.conftest import SEED_PROJECT_GROUP_ID, _make_user
 
     _, osm_url = _pg_urls
     user = _make_user(
@@ -432,7 +431,7 @@ async def as_outsider(_pg_urls, seeded_workspace_id):
     Inserted into users so role tests don't break, but their workspace
     role list is empty so the tenancy gate still 404s.
     """
-    from tests.conftest import _make_user, SEED_PROJECT_GROUP_ID
+    from tests.conftest import SEED_PROJECT_GROUP_ID, _make_user
 
     _, osm_url = _pg_urls
     user = _make_user(
@@ -500,15 +499,11 @@ def tdei_project_group_users(monkeypatch):
     import api.core.security
     import api.src.tasking.projects.repository as proj_repo
 
-    monkeypatch.setattr(
-        api.core.security, "fetch_project_group_users", _fake_fetch
-    )
+    monkeypatch.setattr(api.core.security, "fetch_project_group_users", _fake_fetch)
     # The repository imports the symbol locally inside the helper, but be
     # belt-and-braces in case that ever changes:
     if hasattr(proj_repo, "fetch_project_group_users"):
-        monkeypatch.setattr(
-            proj_repo, "fetch_project_group_users", _fake_fetch
-        )
+        monkeypatch.setattr(proj_repo, "fetch_project_group_users", _fake_fetch)
     return members
 
 

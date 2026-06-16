@@ -8,14 +8,9 @@ from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.exceptions import NotFoundException
-from api.src.tasking.audit.dtos import (
-    ActorRef,
-    AuditEvent,
-    AuditEventListResponse,
-)
+from api.src.tasking.audit.dtos import ActorRef, AuditEvent, AuditEventListResponse
 from api.src.tasking.audit.schemas import AuditEventType
 from api.src.tasking.projects.dtos import Pagination
-
 
 _ALLOWED_ORDER_DIR = {"ASC", "DESC"}
 
@@ -48,8 +43,7 @@ class TaskingAuditRepository:
         unless the caller explicitly opted into deleted projects.
         """
         clause = (
-            "SELECT 1 FROM tasking_projects "
-            "WHERE id = :pid AND workspace_id = :wid"
+            "SELECT 1 FROM tasking_projects " "WHERE id = :pid AND workspace_id = :wid"
         )
         if not include_deleted:
             clause += " AND deleted_at IS NULL"
@@ -60,9 +54,7 @@ class TaskingAuditRepository:
         if result.scalar() is None:
             raise NotFoundException(f"Project {project_id} not found")
 
-    async def _task_id_from_number(
-        self, project_id: int, task_number: int
-    ) -> int:
+    async def _task_id_from_number(self, project_id: int, task_number: int) -> int:
         result = await self.session.execute(
             text(
                 "SELECT id FROM tasking_tasks "

@@ -14,7 +14,6 @@ from api.src.tasking.audit.repository import TaskingAuditRepository
 from api.src.tasking.audit.schemas import AuditEventType
 from api.src.workspaces.repository import WorkspaceRepository
 
-
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/tasking/projects",
     tags=["tasking-audit"],
