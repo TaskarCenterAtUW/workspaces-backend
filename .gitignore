@@ -169,3 +169,4 @@ docs/tasking-mvp/tasking-mvp.postman_collection.json
 docs/tasking-mvp/tasking-mvp.postman_environment.json
 docs/tasking-mvp/_enrich_postman.py
 docs/tasking-mvp/feature-coverage.md
+.idea/
