@@ -47,12 +47,18 @@ def _drop_enum_if_present(bind, name: str) -> None:
         bind.execute(text(f'DROP TYPE IF EXISTS "{name}"'))
 
 
-def _postgis_available(bind) -> bool:
-    return bool(
+def _assert_postgis_installed(bind) -> None:
+    """Require the postgis extension to be installed in this database."""
+    installed = bool(
         bind.execute(
-            text("SELECT 1 FROM pg_available_extensions WHERE name = 'postgis'")
+            text("SELECT 1 FROM pg_extension WHERE extname = 'postgis'")
         ).scalar()
     )
+    if not installed:
+        raise RuntimeError(
+            "postgis extension is not installed in this database. "
+            "Run `CREATE EXTENSION IF NOT EXISTS postgis;` before migrations."
+        )
 
 
 def upgrade() -> None:
@@ -60,9 +66,7 @@ def upgrade() -> None:
     assert bind is not None
     insp = inspect(bind)
 
-    use_postgis = _postgis_available(bind)
-    if use_postgis:
-        op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    _assert_postgis_installed(bind)
 
     # ---- teams / team_user -------------------------------------------
     #
@@ -173,12 +177,11 @@ def upgrade() -> None:
             sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         )
 
-        if use_postgis:
-            op.execute("ALTER TABLE tasking_projects DROP COLUMN aoi")
-            op.execute(
-                "ALTER TABLE tasking_projects "
-                "ADD COLUMN aoi GEOMETRY(MultiPolygon, 4326)"
-            )
+        op.execute("ALTER TABLE tasking_projects DROP COLUMN aoi")
+        op.execute(
+            "ALTER TABLE tasking_projects "
+            "ADD COLUMN aoi GEOMETRY(MultiPolygon, 4326)"
+        )
 
         # Unique project name per workspace among non-deleted rows.
         op.execute(
@@ -273,17 +276,14 @@ def upgrade() -> None:
                 "project_id", "task_number", name="tasking_tasks_pn_unique"
             ),
         )
-        if use_postgis:
-            op.execute(
-                "ALTER TABLE tasking_tasks "
-                "ADD COLUMN geometry GEOMETRY(Polygon, 4326) NOT NULL"
-            )
-            op.execute(
-                "CREATE INDEX tasking_tasks_geometry_idx "
-                "ON tasking_tasks USING GIST (geometry)"
-            )
-        else:
-            op.execute("ALTER TABLE tasking_tasks " "ADD COLUMN geometry BYTEA")
+        op.execute(
+            "ALTER TABLE tasking_tasks "
+            "ADD COLUMN geometry GEOMETRY(Polygon, 4326) NOT NULL"
+        )
+        op.execute(
+            "CREATE INDEX tasking_tasks_geometry_idx "
+            "ON tasking_tasks USING GIST (geometry)"
+        )
         op.create_index("tasking_tasks_project_idx", "tasking_tasks", ["project_id"])
 
     # ---- tasking_locks ------------------------------------------------
