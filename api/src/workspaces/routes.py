@@ -1,5 +1,4 @@
 import json
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -22,7 +21,6 @@ from api.src.workspaces.schemas import (
     QuestDefinitionTypeName,
     QuestSettingsPatch,
     QuestSettingsResponse,
-    Workspace,
     WorkspaceCreate,
     WorkspaceImagery,
     WorkspacePatch,
