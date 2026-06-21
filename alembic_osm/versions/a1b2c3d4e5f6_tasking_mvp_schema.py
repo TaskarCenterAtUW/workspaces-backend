@@ -47,8 +47,10 @@ def _drop_enum_if_present(bind, name: str) -> None:
         bind.execute(text(f'DROP TYPE IF EXISTS "{name}"'))
 
 
-def _assert_postgis_installed(bind) -> None:
-    """Require the postgis extension to be installed in this database."""
+def _ensure_postgis(bind) -> None:
+  
+    bind.execute(text("SELECT public.deploy_postgis()"))
+
     installed = bool(
         bind.execute(
             text("SELECT 1 FROM pg_extension WHERE extname = 'postgis'")
@@ -56,8 +58,10 @@ def _assert_postgis_installed(bind) -> None:
     )
     if not installed:
         raise RuntimeError(
-            "postgis extension is not installed in this database. "
-            "Run `CREATE EXTENSION IF NOT EXISTS postgis;` before migrations."
+            "postgis extension is not installed after calling "
+            "`public.deploy_postgis()`. Verify the function exists in "
+            "this database and that it issues "
+            "`CREATE EXTENSION IF NOT EXISTS postgis`."
         )
 
 
@@ -66,7 +70,7 @@ def upgrade() -> None:
     assert bind is not None
     insp = inspect(bind)
 
-    _assert_postgis_installed(bind)
+    _ensure_postgis(bind)
 
     # ---- teams / team_user -------------------------------------------
     #
