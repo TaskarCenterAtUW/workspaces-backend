@@ -10,7 +10,7 @@ from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import MultiPolygon as ShapelyMultiPolygon
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import shape as shapely_shape
-from sqlalchemy import func, text, or_, select, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -20,6 +20,7 @@ from api.core.exceptions import (
     NotFoundException,
 )
 from api.core.security import UserInfo
+from api.src.tasking.audit.schemas import AuditEventType
 from api.src.tasking.projects.dtos import (
     AoiFeature,
     Pagination,
@@ -35,7 +36,6 @@ from api.src.tasking.projects.dtos import (
     SelfProjectRoleItem,
     SelfProjectRolesResponse,
 )
-from api.src.tasking.audit.schemas import AuditEventType
 from api.src.tasking.projects.schemas import (
     AoiInput,
     ProjectRoleType,
@@ -602,7 +602,9 @@ class TaskingProjectRepository:
                     event_type=AuditEventType.PROJECT_EDITED,
                     project_id=project.id,  # type: ignore[arg-type]
                     actor_uuid=current_user.user_uuid,
-                    details={"updatedFields": [k for k in updates if k != "updated_at"]},
+                    details={
+                        "updatedFields": [k for k in updates if k != "updated_at"]
+                    },
                 )
                 await self.session.commit()
             except IntegrityError as e:
@@ -613,7 +615,9 @@ class TaskingProjectRepository:
         tc = await self._task_count(project.id)  # type: ignore[arg-type]
         return self._to_response(project, task_count=tc)
 
-    async def soft_delete(self, workspace_id: int, project_id: int, current_user: UserInfo) -> None:
+    async def soft_delete(
+        self, workspace_id: int, project_id: int, current_user: UserInfo
+    ) -> None:
         project = await self._get_active(workspace_id, project_id)
 
         # Refuse if any active task locks remain.
@@ -659,7 +663,9 @@ class TaskingProjectRepository:
 
     # ---- lifecycle transitions ---------------------------------------
 
-    async def activate(self, workspace_id: int, project_id: int, current_user: UserInfo) -> ProjectResponse:
+    async def activate(
+        self, workspace_id: int, project_id: int, current_user: UserInfo
+    ) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
             raise HTTPException(
@@ -715,7 +721,9 @@ class TaskingProjectRepository:
         await self.session.refresh(project)
         return self._to_response(project, task_count=tc)
 
-    async def close(self, workspace_id: int, project_id: int, current_user: UserInfo) -> ProjectResponse:
+    async def close(
+        self, workspace_id: int, project_id: int, current_user: UserInfo
+    ) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.OPEN:
             raise HTTPException(
@@ -765,7 +773,9 @@ class TaskingProjectRepository:
         tc = await self._task_count(project.id)  # type: ignore[arg-type]
         return self._to_response(project, task_count=tc)
 
-    async def reset(self, workspace_id: int, project_id: int, current_user: UserInfo) -> ProjectResponse:
+    async def reset(
+        self, workspace_id: int, project_id: int, current_user: UserInfo
+    ) -> ProjectResponse:
         """LEAD reset — see spec §projects."""
         project = await self._get_active(workspace_id, project_id)
         if project.status == ProjectStatus.DRAFT:
@@ -1275,7 +1285,9 @@ class TaskingProjectRepository:
             updated_at=updated,
         )
 
-    async def delete_aoi(self, workspace_id: int, project_id: int, current_user: UserInfo) -> None:
+    async def delete_aoi(
+        self, workspace_id: int, project_id: int, current_user: UserInfo
+    ) -> None:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
             raise HTTPException(
