@@ -23,6 +23,7 @@ from api.core.exceptions import (
     NotFoundException,
 )
 from api.core.security import UserInfo
+from api.src.tasking.audit.schemas import AuditEventType
 from api.src.tasking.projects.dtos import Pagination
 from api.src.tasking.projects.schemas import ProjectStatus, TaskingProject
 from api.src.tasking.tasks.dtos import (
@@ -281,7 +282,7 @@ class TaskingTaskRepository:
     async def _audit(
         self,
         *,
-        event_type: str,
+        event_type: AuditEventType,
         project_id: int,
         task_id: Optional[int],
         actor_uuid: UUID,
@@ -547,15 +548,13 @@ class TaskingTaskRepository:
             )
         )
 
-        # Audit one row per task.
-        for t in created:
-            await self._audit(
-                event_type="task_created",
-                project_id=project.id,  # type: ignore[arg-type]
-                task_id=t.id,
-                actor_uuid=current_user.user_uuid,
-                details={"taskNumber": t.task_number},
-            )
+        await self._audit(
+            event_type=AuditEventType.TASKS_CREATED,
+            project_id=project.id,  # type: ignore[arg-type]
+            task_id=None,
+            actor_uuid=current_user.user_uuid,
+            details={"taskCount": len(created), "source": body.source},
+        )
 
         task_responses = [await self._to_task_response(t) for t in created]
         response = SaveTasksResponse(
@@ -729,7 +728,7 @@ class TaskingTaskRepository:
             self.session.add(lock)
             await self.session.flush()
             await self._audit(
-                event_type="task_locked",
+                event_type=AuditEventType.TASK_LOCKED,
                 project_id=project_id,
                 task_id=task.id,
                 actor_uuid=current_user.user_uuid,
@@ -777,7 +776,7 @@ class TaskingTaskRepository:
             .values(released_at=now, release_reason=release_reason)
         )
         await self._audit(
-            event_type="task_unlocked",
+            event_type=AuditEventType.TASK_UNLOCKED,
             project_id=project_id,
             task_id=task.id,
             actor_uuid=current_user.user_uuid,
@@ -820,7 +819,7 @@ class TaskingTaskRepository:
             .values(expires_at=new_expiry)
         )
         await self._audit(
-            event_type="task_lock_extended",
+            event_type=AuditEventType.TASK_LOCK_EXTENDED,
             project_id=project_id,
             task_id=task.id,
             actor_uuid=current_user.user_uuid,
@@ -861,7 +860,7 @@ class TaskingTaskRepository:
                 )
             )
             await self._audit(
-                event_type="task_unlocked",
+                event_type=AuditEventType.TASK_UNLOCKED,
                 project_id=project_id,
                 task_id=task.id,
                 actor_uuid=current_user.user_uuid,
@@ -883,7 +882,7 @@ class TaskingTaskRepository:
                 )
             )
             await self._audit(
-                event_type="task_state_changed",
+                event_type=AuditEventType.TASK_STATE_CHANGED,
                 project_id=project_id,
                 task_id=task.id,
                 actor_uuid=current_user.user_uuid,
@@ -902,7 +901,7 @@ class TaskingTaskRepository:
             )
 
         await self._audit(
-            event_type="task_reset",
+            event_type=AuditEventType.TASK_RESET,
             project_id=project_id,
             task_id=task.id,
             actor_uuid=current_user.user_uuid,
@@ -963,7 +962,7 @@ class TaskingTaskRepository:
         await self.session.flush()
 
         await self._audit(
-            event_type="changeset_submitted",
+            event_type=AuditEventType.CHANGESET_SUBMITTED,
             project_id=project_id,
             task_id=task.id,
             actor_uuid=current_user.user_uuid,
@@ -983,7 +982,7 @@ class TaskingTaskRepository:
                 .values(expires_at=new_expiry)
             )
             await self._audit(
-                event_type="task_lock_renewed",
+                event_type=AuditEventType.TASK_LOCK_RENEWED,
                 project_id=project_id,
                 task_id=task.id,
                 actor_uuid=current_user.user_uuid,
@@ -1029,7 +1028,7 @@ class TaskingTaskRepository:
                     )
                 )
                 await self._audit(
-                    event_type="feedback_submitted",
+                    event_type=AuditEventType.FEEDBACK_SUBMITTED,
                     project_id=project_id,
                     task_id=task.id,
                     actor_uuid=current_user.user_uuid,
@@ -1052,7 +1051,7 @@ class TaskingTaskRepository:
             )
         )
         await self._audit(
-            event_type="task_unlocked",
+            event_type=AuditEventType.TASK_UNLOCKED,
             project_id=project_id,
             task_id=task.id,
             actor_uuid=current_user.user_uuid,
@@ -1074,7 +1073,7 @@ class TaskingTaskRepository:
         )
         if new_status != previous_status:
             await self._audit(
-                event_type="task_state_changed",
+                event_type=AuditEventType.TASK_STATE_CHANGED,
                 project_id=project_id,
                 task_id=task.id,
                 actor_uuid=current_user.user_uuid,

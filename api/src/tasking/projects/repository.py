@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -9,7 +10,7 @@ from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import MultiPolygon as ShapelyMultiPolygon
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import shape as shapely_shape
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, text, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -34,6 +35,7 @@ from api.src.tasking.projects.dtos import (
     SelfProjectRoleItem,
     SelfProjectRolesResponse,
 )
+from api.src.tasking.audit.schemas import AuditEventType
 from api.src.tasking.projects.schemas import (
     AoiInput,
     ProjectRoleType,
@@ -180,6 +182,28 @@ class TaskingProjectRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def _audit(
+        self,
+        *,
+        event_type: AuditEventType,
+        project_id: int,
+        actor_uuid: UUID,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        await self.session.execute(
+            text(
+                "INSERT INTO tasking_audit_events "
+                "(event_type, project_id, task_id, actor_user_auth_uid, details) "
+                "VALUES (:et, :pid, NULL, :uid, CAST(:dt AS jsonb))"
+            ),
+            {
+                "et": event_type,
+                "pid": project_id,
+                "uid": str(actor_uuid),
+                "dt": json.dumps(details or {}),
+            },
+        )
 
     # ---- internal helpers --------------------------------------------
 
@@ -511,6 +535,12 @@ class TaskingProjectRepository:
                 },
             )
 
+            await self._audit(
+                event_type=AuditEventType.PROJECT_CREATED,
+                project_id=project.id,  # type: ignore[arg-type]
+                actor_uuid=current_user.user_uuid,
+                details={"name": project.name},
+            )
             await self.session.commit()
             await self.session.refresh(project)
         except IntegrityError as e:
@@ -529,6 +559,7 @@ class TaskingProjectRepository:
         workspace_id: int,
         project_id: int,
         body: ProjectUpdateRequest,
+        current_user: UserInfo,
     ) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
 
@@ -567,6 +598,12 @@ class TaskingProjectRepository:
                     .where(TaskingProject.id == project.id)
                     .values(**updates)
                 )
+                await self._audit(
+                    event_type=AuditEventType.PROJECT_EDITED,
+                    project_id=project.id,  # type: ignore[arg-type]
+                    actor_uuid=current_user.user_uuid,
+                    details={"updatedFields": [k for k in updates if k != "updated_at"]},
+                )
                 await self.session.commit()
             except IntegrityError as e:
                 await self.session.rollback()
@@ -576,7 +613,7 @@ class TaskingProjectRepository:
         tc = await self._task_count(project.id)  # type: ignore[arg-type]
         return self._to_response(project, task_count=tc)
 
-    async def soft_delete(self, workspace_id: int, project_id: int) -> None:
+    async def soft_delete(self, workspace_id: int, project_id: int, current_user: UserInfo) -> None:
         project = await self._get_active(workspace_id, project_id)
 
         # Refuse if any active task locks remain.
@@ -605,6 +642,12 @@ class TaskingProjectRepository:
             text("DELETE FROM tasking_tasks WHERE project_id = :pid"),
             {"pid": project.id},
         )
+        # Insert the deletion event before flagging so this row is caught too.
+        await self._audit(
+            event_type=AuditEventType.PROJECT_DELETED,
+            project_id=project.id,  # type: ignore[arg-type]
+            actor_uuid=current_user.user_uuid,
+        )
         await self.session.execute(
             text(
                 "UPDATE tasking_audit_events SET project_deleted = TRUE "
@@ -616,7 +659,7 @@ class TaskingProjectRepository:
 
     # ---- lifecycle transitions ---------------------------------------
 
-    async def activate(self, workspace_id: int, project_id: int) -> ProjectResponse:
+    async def activate(self, workspace_id: int, project_id: int, current_user: UserInfo) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
             raise HTTPException(
@@ -663,11 +706,16 @@ class TaskingProjectRepository:
             .where(TaskingProject.id == project.id)
             .values(status=ProjectStatus.OPEN, updated_at=datetime.now())
         )
+        await self._audit(
+            event_type=AuditEventType.PROJECT_ACTIVATED,
+            project_id=project.id,  # type: ignore[arg-type]
+            actor_uuid=current_user.user_uuid,
+        )
         await self.session.commit()
         await self.session.refresh(project)
         return self._to_response(project, task_count=tc)
 
-    async def close(self, workspace_id: int, project_id: int) -> ProjectResponse:
+    async def close(self, workspace_id: int, project_id: int, current_user: UserInfo) -> ProjectResponse:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.OPEN:
             raise HTTPException(
@@ -707,12 +755,17 @@ class TaskingProjectRepository:
             .where(TaskingProject.id == project.id)
             .values(status=ProjectStatus.DONE, updated_at=datetime.now())
         )
+        await self._audit(
+            event_type=AuditEventType.PROJECT_CLOSED,
+            project_id=project.id,  # type: ignore[arg-type]
+            actor_uuid=current_user.user_uuid,
+        )
         await self.session.commit()
         await self.session.refresh(project)
         tc = await self._task_count(project.id)  # type: ignore[arg-type]
         return self._to_response(project, task_count=tc)
 
-    async def reset(self, workspace_id: int, project_id: int) -> ProjectResponse:
+    async def reset(self, workspace_id: int, project_id: int, current_user: UserInfo) -> ProjectResponse:
         """LEAD reset — see spec §projects."""
         project = await self._get_active(workspace_id, project_id)
         if project.status == ProjectStatus.DRAFT:
@@ -749,6 +802,11 @@ class TaskingProjectRepository:
                 .values(status=ProjectStatus.OPEN, updated_at=datetime.now())
             )
 
+        await self._audit(
+            event_type=AuditEventType.PROJECT_RESET,
+            project_id=project.id,  # type: ignore[arg-type]
+            actor_uuid=current_user.user_uuid,
+        )
         await self.session.commit()
         await self.session.refresh(project)
         tc = await self._task_count(project.id)  # type: ignore[arg-type]
@@ -766,7 +824,7 @@ class TaskingProjectRepository:
         return _shapely_to_aoi_feature(geom)
 
     async def upload_aoi(
-        self, workspace_id: int, project_id: int, aoi: AoiInput
+        self, workspace_id: int, project_id: int, aoi: AoiInput, current_user: UserInfo
     ) -> AoiFeature:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
@@ -792,6 +850,11 @@ class TaskingProjectRepository:
                 task_boundary_type=None,
                 updated_at=datetime.now(),
             )
+        )
+        await self._audit(
+            event_type=AuditEventType.AOI_UPLOADED,
+            project_id=project.id,  # type: ignore[arg-type]
+            actor_uuid=current_user.user_uuid,
         )
         await self.session.commit()
         return _shapely_to_aoi_feature(geom)
@@ -1212,7 +1275,7 @@ class TaskingProjectRepository:
             updated_at=updated,
         )
 
-    async def delete_aoi(self, workspace_id: int, project_id: int) -> None:
+    async def delete_aoi(self, workspace_id: int, project_id: int, current_user: UserInfo) -> None:
         project = await self._get_active(workspace_id, project_id)
         if project.status != ProjectStatus.DRAFT:
             raise HTTPException(
@@ -1236,6 +1299,11 @@ class TaskingProjectRepository:
                 task_boundary_type=None,
                 updated_at=datetime.now(),
             )
+        )
+        await self._audit(
+            event_type=AuditEventType.AOI_DELETED,
+            project_id=project.id,  # type: ignore[arg-type]
+            actor_uuid=current_user.user_uuid,
         )
         await self.session.commit()
 

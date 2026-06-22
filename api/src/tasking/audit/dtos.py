@@ -21,8 +21,6 @@ class AuditEvent(WireModel):
     id: int
     event_type: AuditEventType
     project_id: int
-    task_id: Optional[int] = None
-    task_number: Optional[int] = None
     actor: ActorRef
     occurred_at: datetime
     details: dict[str, Any]

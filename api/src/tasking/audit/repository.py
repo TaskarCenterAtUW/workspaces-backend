@@ -108,13 +108,10 @@ class TaskingAuditRepository:
             project_deleted,
         ) = row
         details = details or {}
-        task_number = details.get("task_number") if isinstance(details, dict) else None
         return AuditEvent(
             id=event_id,
             event_type=AuditEventType(event_type),
             project_id=project_id,
-            task_id=task_id,
-            task_number=task_number,
             actor=ActorRef(
                 user_id=UUID(str(actor_uid)),
                 display_name=names.get(str(actor_uid)),
