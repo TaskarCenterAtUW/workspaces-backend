@@ -151,7 +151,7 @@ async def update_project(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    return await project_repo.patch(workspace_id, project_id, body)
+    return await project_repo.patch(workspace_id, project_id, body, current_user)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -164,7 +164,7 @@ async def delete_project(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    await project_repo.soft_delete(workspace_id, project_id)
+    await project_repo.soft_delete(workspace_id, project_id, current_user)
 
 
 @router.post("/{project_id}/activate", response_model=ProjectResponse)
@@ -177,7 +177,7 @@ async def activate_project(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    return await project_repo.activate(workspace_id, project_id)
+    return await project_repo.activate(workspace_id, project_id, current_user)
 
 
 @router.post("/{project_id}/close", response_model=ProjectResponse)
@@ -190,7 +190,7 @@ async def close_project(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    return await project_repo.close(workspace_id, project_id)
+    return await project_repo.close(workspace_id, project_id, current_user)
 
 
 @router.post("/{project_id}/reset", response_model=ProjectResponse)
@@ -203,7 +203,7 @@ async def reset_project(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    return await project_repo.reset(workspace_id, project_id)
+    return await project_repo.reset(workspace_id, project_id, current_user)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ async def upload_project_aoi(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    return await project_repo.upload_aoi(workspace_id, project_id, body)
+    return await project_repo.upload_aoi(workspace_id, project_id, body, current_user)
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ async def delete_project_aoi(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     assert_workspace_lead(workspace_id, current_user)
-    await project_repo.delete_aoi(workspace_id, project_id)
+    await project_repo.delete_aoi(workspace_id, project_id, current_user)
 
 
 # ---------------------------------------------------------------------------

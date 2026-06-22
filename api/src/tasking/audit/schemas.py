@@ -25,7 +25,7 @@ class AuditEventType(StrEnum):
     PROJECT_RESET = "project_reset"
     AOI_UPLOADED = "aoi_uploaded"
     AOI_DELETED = "aoi_deleted"
-    TASK_CREATED = "task_created"
+    TASKS_CREATED = "tasks_created"
     TASK_STATE_CHANGED = "task_state_changed"
     TASK_LOCKED = "task_locked"
     TASK_LOCK_EXTENDED = "task_lock_extended"

@@ -175,7 +175,7 @@ class FakeProjectRepo:
             raise NotFoundException(f"Project {project_id} not found")
         return self._response(p)
 
-    async def patch(self, workspace_id, project_id, body):
+    async def patch(self, workspace_id, project_id, body, current_user):
         p_resp = await self.get(workspace_id, project_id)
         p = self._projects[project_id]
         if body.name is not None:
@@ -189,11 +189,11 @@ class FakeProjectRepo:
         p["updated_at"] = datetime.now()
         return self._response(p)
 
-    async def soft_delete(self, workspace_id, project_id):
+    async def soft_delete(self, workspace_id, project_id, current_user):
         await self.get(workspace_id, project_id)
         self._projects[project_id]["deleted_at"] = datetime.now()
 
-    async def activate(self, workspace_id, project_id):
+    async def activate(self, workspace_id, project_id, current_user):
         from fastapi import HTTPException, status
 
         # Mirrors the real repo's "needs tasks" rule.
@@ -202,7 +202,7 @@ class FakeProjectRepo:
             detail="Project must have at least one task",
         )
 
-    async def close(self, workspace_id, project_id):
+    async def close(self, workspace_id, project_id, current_user):
         from fastapi import HTTPException, status
 
         raise HTTPException(
@@ -210,7 +210,7 @@ class FakeProjectRepo:
             detail="Only open projects can be closed",
         )
 
-    async def reset(self, workspace_id, project_id):
+    async def reset(self, workspace_id, project_id, current_user):
         await self.get(workspace_id, project_id)
         return self._response(self._projects[project_id])
 
@@ -233,7 +233,7 @@ class FakeProjectRepo:
             properties={},
         )
 
-    async def upload_aoi(self, workspace_id, project_id, aoi):
+    async def upload_aoi(self, workspace_id, project_id, aoi, current_user):
         from api.src.tasking.projects.dtos import AoiFeature
         from api.src.tasking.projects.schemas import _MultiPolygon
 
@@ -248,7 +248,7 @@ class FakeProjectRepo:
             properties={},
         )
 
-    async def delete_aoi(self, workspace_id, project_id):
+    async def delete_aoi(self, workspace_id, project_id, current_user):
         from api.core.exceptions import NotFoundException
 
         await self.get(workspace_id, project_id)
