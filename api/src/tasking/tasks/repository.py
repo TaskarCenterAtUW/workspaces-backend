@@ -645,6 +645,30 @@ class TaskingTaskRepository:
         await self._get_project(workspace_id, project_id)
         task = await self._get_task(project_id, task_number)
         return await self._to_task_response(task)
+    
+    async def get_task_geojson(
+        self, workspace_id: int, project_id: int, task_number: int
+    ) -> TaskBoundariesFeatureCollection:
+        await self._get_project(workspace_id, project_id)
+        task = await self._get_task(project_id, task_number)
+        geom_shape = to_shape(task.geometry) if task.geometry is not None else None
+        if geom_shape is None or not isinstance(geom_shape, ShapelyPolygon):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Task geometry missing or non-Polygon",
+            )
+        task_geometry = _shapely_polygon_to_geojson(geom_shape)
+        task_feature = TaskBoundaryFeature(
+            type="Feature",
+            geometry=task_geometry,
+            properties={"taskNumber": task.task_number},
+        )
+        task_feature_collection = TaskBoundariesFeatureCollection(
+            type="FeatureCollection",
+            features=[task_feature],
+        )
+        return task_feature_collection
+         
 
     # ---- lock / unlock / extend / reset ----------------------------------
 
