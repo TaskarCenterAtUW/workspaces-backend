@@ -166,7 +166,7 @@ async def get_task(
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     return await task_repo.get_task(workspace_id, project_id, task_number)
 
-@router.get("/tasks/{task_number}.geojson", response_model=TaskBoundariesFeatureCollection)
+@router.get("/tasks/{task_number}/boundary.geojson", response_model=TaskBoundariesFeatureCollection)
 async def get_task_geojson(
     workspace_id: int,
     project_id: int,
