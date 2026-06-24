@@ -35,6 +35,9 @@ jobs:
     - name: Check code formatting with black
       run: uv run black --check .
 
+    - name: Type-check with pyright
+      run: uvx pyright --pythonpath .venv/bin/python api tests
+
   test:
     needs: lint
     runs-on: ubuntu-latest
@@ -58,25 +61,7 @@ jobs:
     - name: Install the project
       run: uv sync --all-extras
         
+    # The suite needs no database: migrations are skipped under pytest and the
+    # DB session is mocked at the data-fetcher boundary (see CLAUDE.md).
     - name: Run tests
       run: uv run pytest tests
-      env:
-        TASK_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
-        OSM_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
-        JWT_SECRET: "test_secret_key"
-        JWT_ALGORITHM: "HS256"
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
