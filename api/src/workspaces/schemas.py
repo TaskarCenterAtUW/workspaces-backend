@@ -78,10 +78,11 @@ class QuestDefinitionTypeName(StrEnum):
     JSON = "JSON"
     URL = "URL"
 
-# @test: Test that this class matches the Alembic-defined database schema 
+
+# @test: Test that this class matches the Alembic-defined database schema
 # @test: Test that the foreign key references are correct and that the relationships are correctly defined
 # @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
-# @test: Test that any serialization/deserialization doesn't lose any precision or data 
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -105,10 +106,11 @@ class WorkspaceLongQuest(SQLModel, table=True):
     modifiedBy: UUID
     modifiedByName: str
 
-# @test: Test that this class matches the Alembic-defined database schema 
+
+# @test: Test that this class matches the Alembic-defined database schema
 # @test: Test that the foreign key references are correct and that the relationships are correctly defined
 # @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
-# @test: Test that any serialization/deserialization doesn't lose any precision or data 
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceImagery(SQLModel, table=True):
     """Stores imagery list for a workspace"""
 
@@ -253,10 +255,11 @@ class WorkspaceResponse(SQLModel):
             longFormQuestDef=long_form_quest_def,
         )
 
-# @test: Test that this class matches the Alembic-defined database schema 
+
+# @test: Test that this class matches the Alembic-defined database schema
 # @test: Test that the foreign key references are correct and that the relationships are correctly defined
 # @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
-# @test: Test that any serialization/deserialization doesn't lose any precision or data 
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class Workspace(SQLModel, table=True):
     """Workspaces"""
 

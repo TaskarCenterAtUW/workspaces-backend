@@ -19,8 +19,9 @@ _imagery_schema_lock = asyncio.Lock()
 
 # Test outline:
 # @test: Test that this class validates JSON payloads properly against the JSON schema fetched
-# @test: Test that malformed JSON or JSON that doesn't validate 
+# @test: Test that malformed JSON or JSON that doesn't validate
 # @test: Test that any failed network requests are handled gracefully and return a proper error (not just "Exception") or worse a false positive validation
+
 
 def init_json_schema_client() -> None:
     global _http_client
@@ -123,6 +124,7 @@ async def validate_quest_definition_schema(definition: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{e.message} at {list(e.path)}",
         )
+
 
 async def validate_imagery_definition_schema(definition: list[Any]) -> None:
     """

@@ -17,7 +17,7 @@ from api.src.users.schemas import WorkspaceUserRoleType
 # Test outline:
 # @test: Test that the permissions structure here matches what is described in CLAUDE.md
 # @test: Test that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
-# @test: Test that any failed network requests are handled gracefully 
+# @test: Test that any failed network requests are handled gracefully
 # @test: Test that the caching mechanism works correctly and evicts entries when roles change
 
 # Set up logger for this module
@@ -62,6 +62,7 @@ def evict_user_from_cache(auth_uid: UUID) -> None:
 
 security = HTTPBearer()
 
+
 # @test: Test that this matches what is described in CLAUDE.md and that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
 class TdeiProjectGroupRole(StrEnum):
     MEMBER = "member"
@@ -85,6 +86,7 @@ class UserInfoPGMembership:
         self.project_group_name = project_group_name
         self.project_group_id = project_group_id
         self.tdeiRoles = tdeiRoles
+
 
 # @test: Test that the values populated in this class match the expected values from the JWT and TDEI API responses, and that the methods return the correct roles based on the user's project group memberships and workspace roles
 # @test: Test that the osmWorkspaceRoles, accessibleWorkspaceIds, and projectGroups attributes are correctly populated based on the user's roles in the OSM DB and TDEI API responses
@@ -167,7 +169,9 @@ def get_task_db_session(
 ) -> AsyncSession:
     return session
 
-# @test: 
+
+# @test:
+
 
 async def validate_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),

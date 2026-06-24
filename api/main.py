@@ -124,7 +124,7 @@ def get_workspace_repository(
 # @test: Any headers defined in HOP_BY_HOP_HEADERS are not forwarded to the client
 # @test: /api/capabilities.json is proxied to the OSM service without requiring authentication
 # @test: Any request to the OSM service that returns a 4xx or 5xx status code is logged to Sentry with the correct message and the correct status code is returned to the client
-# @test: Any request that matches the RegEx in TENANT_BYPASSES is allowed to proceed without an X-Workspace header, 
+# @test: Any request that matches the RegEx in TENANT_BYPASSES is allowed to proceed without an X-Workspace header,
 #       and any request that does not match the Regex in TENANT_BYPASSES and does not have an X-Workspace header returns a 400 Bad Request error
 # @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
 # @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error

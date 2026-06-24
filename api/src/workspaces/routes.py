@@ -56,8 +56,9 @@ def get_user_repository(
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 # @test: Test that this method properly checks permissions to see if the user has access to the workspace and if they don't, it doesn't appear in the list
 # @test: Test that this method properly handles the case where the workspace does not exist and doesn't include it
-# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse 
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
 # @test: Test that this method's results match the values of the fetch-by-workspace-id method below; all workspaces in this list are retrievable via that method
+
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
 @router.get("/mine", response_model=list[WorkspaceResponse])
@@ -72,12 +73,14 @@ async def get_my_workspaces(
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise
 
+
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this method properly calls the repository method to fetch the workspace and that the repository method properly fetches the workspace from the database
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 # @test: Test that this method properly checks permissions to see if the user has access to the workspace and returns a 403 if they do not
 # @test: Test that this method properly handles the case where the workspace does not exist and returns a 404
-# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse 
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
+
 
 # Returns JSON payload or 204 if not found
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -110,10 +113,12 @@ async def get_workspace(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 # @test: Test taht this workspace returns proper values for a workspace that exists and that the bbox matches the expected values
 # @test: Test that this method properly handles the case where the workspace does not exist and returns a 404
+
 
 @router.get("/{workspace_id}/bbox", response_model=None)
 async def get_workspace_bbox(
@@ -131,6 +136,7 @@ async def get_workspace_bbox(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
 # @test: Test that this method properly calls the repository method to create the workspace and that the repository method properly creates the workspace in the database
@@ -138,6 +144,7 @@ async def get_workspace_bbox(
 # @test: Test that this method properly handles inputs that match the schema in WorkspaceCreate and that the repository method properly creates the workspace in the database with those values
 # @test: Test that this method properly handles inputs that do not match the schema in WorkspaceCreate and that the repository method properly raises an error and does not update the workspace in the database with those values
 # @test: Test that this method won't allow users to modify an existing workspace in any way, or create a workspace with the same workspace_id as an existing one
+
 
 # Returns 201 on success?
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -171,6 +178,7 @@ async def create_workspace(
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
 
+
 # @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
@@ -178,6 +186,7 @@ async def create_workspace(
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 # @test: Test that this method properly handles inputs that match the schema in WorkspacePatch and that the repository method properly updates the workspace in the database with those values
 # @test: Test that this method properly handles inputs that do not match the schema in WorkspacePatch and that the repository method properly raises an error and does not update the workspace in the database with those values
+
 
 @router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_workspace(
@@ -213,6 +222,7 @@ async def update_workspace(
 # @test: Test that this method properly handles the case where the workspace has members and that the repository method properly removes all member roles from the database
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 
+
 # Returns 204 on success
 @router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workspace(
@@ -245,7 +255,8 @@ async def delete_workspace(
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this method properly calls the repository method to fetch the long quest definition
 
-# FIXME: Why are there two methods to fetch the long quest? One for legacy purposes? Can we migrate callers? 
+# FIXME: Why are there two methods to fetch the long quest? One for legacy purposes? Can we migrate callers?
+
 
 # Return the resolved quest definition content as JSON, or 204 if not set:
 @router.get("/{workspace_id}/quests/long")
@@ -270,11 +281,13 @@ async def get_long_quest_def(
         )
         raise
 
+
 # @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this method properly calls the repository method to fetch the long quest definition, and if it's not defined, the default value as defined
 #        in this method
+
 
 # Returns JSON payload or 204 if not set
 @router.get(
@@ -313,6 +326,7 @@ async def get_long_quest_settings(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 # @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
 # @test: Test that this endpoint properly validates the long quest definition against the JSON schema and returns a 400 if the definition is invalid
 # @test: Test that this endpoint properly saves the long quest definition to the database and returns a 204 on success
@@ -320,6 +334,7 @@ async def get_long_quest_settings(
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles input values that are properly formed, malformed and edge cases, including empty lists, null values, and large payloads
 # @test: Test that this method properly calls the repository method to save the long quest definition and that the repository method properly saves the definition to the database
+
 
 # Returns 204 on success
 @router.patch(
@@ -361,6 +376,7 @@ async def update_long_quest_settings(
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this method properly calls the repository method to fetch the imagery definition
 
+
 # Returns JSON payload or 204 if not set
 @router.get("/{workspace_id}/imagery/settings")
 async def get_imagery_settings(
@@ -393,6 +409,7 @@ async def get_imagery_settings(
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles input values that are properly formed, malformed and edge cases, including empty lists, null values, and large payloads
 # @test: Test that this method properly calls the repository method to save the imagery definition and that the repository method properly saves the definition to the database
+
 
 # Returns 204 on success
 @router.patch(

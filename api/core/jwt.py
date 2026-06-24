@@ -7,8 +7,9 @@ _jwks_client: jwt.PyJWKClient | None = None
 
 # Test outline:
 # @test: Test that this class validates JSON payloads properly against the JSON schema fetched
-# @test: Test that malformed JSON or JSON that doesn't validate 
+# @test: Test that malformed JSON or JSON that doesn't validate
 # @test: Test that any failed network requests are handled gracefully and return a proper error (not just "Exception") or worse a false positive validation
+
 
 def _get_jwks_client() -> jwt.PyJWKClient:
     global _jwks_client

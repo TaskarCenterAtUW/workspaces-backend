@@ -24,10 +24,12 @@ def get_workspace_repo(
 ) -> WorkspaceRepository:
     return WorkspaceRepository(session)
 
+
 # @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not associated with this workspace at contributor or above
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user is not associated with the workspace (returns a 403 error)
+
 
 @router.get("", response_model=list[WorkspaceUserRoleItem])
 async def get_privileged_workspace_members(
@@ -48,11 +50,12 @@ async def get_privileged_workspace_members(
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user does not exist and returns a 404
-# @test: Test that this endpoint properly handles the case where the user is not associated with the workspace 
+# @test: Test that this endpoint properly handles the case where the user is not associated with the workspace
 # @test: Test that this endpoint properly evicts any cached data for the user after the user is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
 # @test: Test that this endpoint properly allows users to be workspace leads or validators, and to unset the user of either role and become a contributor again
 # @test: Test that this endpoint doesn't allow changing workspaces the user doesn't have workspace lead permissions for, or roles for users not already associated with the workspace
 # @test: Test that this endpoint doesn't allow setting the workspace role to a POC
+
 
 @router.put("/{user_id}/role", status_code=status.HTTP_204_NO_CONTENT)
 async def assign_member_role(
@@ -78,12 +81,14 @@ async def assign_member_role(
     await user_repo.assign_member_role(workspace_id, user_id, body.role)
     evict_user_from_cache(user_id)
 
+
 # @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user does not exist and returns a 404
-# @test: Test that this endpoint properly handles the case where the user is not associated with the workspace 
+# @test: Test that this endpoint properly handles the case where the user is not associated with the workspace
 # @test: Test that this endpoint properly evicts any cached data for the user after the user is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_member_role(
