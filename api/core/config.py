@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 # Test outline:
 # @test: Test that environment variables of the same name as the members of this class are correctly loaded into the members of this class.
 # @test: Test that any environment variables that are not set in the environment are correctly loaded into the members of this class with their default values.
