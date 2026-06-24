@@ -645,7 +645,7 @@ class TaskingTaskRepository:
         await self._get_project(workspace_id, project_id)
         task = await self._get_task(project_id, task_number)
         return await self._to_task_response(task)
-    
+
     async def get_task_geojson(
         self, workspace_id: int, project_id: int, task_number: int
     ) -> TaskBoundariesFeatureCollection:
@@ -668,7 +668,6 @@ class TaskingTaskRepository:
             features=[task_feature],
         )
         return task_feature_collection
-         
 
     # ---- lock / unlock / extend / reset ----------------------------------
 
