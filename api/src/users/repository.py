@@ -1,3 +1,9 @@
+# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
+# than ``Mapped[int]``, so Pyright reads ``Column == value`` as a ``bool`` and
+# misjudges ``where()``/``exec()``/``select()`` calls and ``result.rowcount``.
+# These are framework false positives; the queries are valid at runtime.
+# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false
+
 from uuid import UUID
 
 from sqlalchemy import delete, select

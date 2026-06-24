@@ -1,3 +1,10 @@
+# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
+# than ``Mapped[int]``, so Pyright reads ``Column == value`` as a ``bool`` and
+# misjudges ``where()``/``select()`` calls, ``result.rowcount``, and table-model
+# constructors. These are framework false positives; the queries are valid at
+# runtime. Genuine type bugs surface via other rules, which stay enabled.
+# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false
+
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -142,8 +149,11 @@ class WorkspaceRepository:
             return quest.definition or None
 
         if quest.url:
+            client = get_http_client()
+            if client is None:
+                return None
             try:
-                response = await get_http_client().get(quest.url, timeout=10)
+                response = await client.get(quest.url, timeout=10)
                 return response.text
             except Exception:
                 return None

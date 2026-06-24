@@ -16,7 +16,10 @@ class WorkspaceUserRoleType(StrEnum):
     VALIDATOR = "validator"
     CONTRIBUTOR = "contributor"
 
-
+# @test: Test that this class matches the Alembic-defined database schema 
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data 
 class WorkspaceUserRole(SQLModel, table=True):
     """Associates users with workspaces and their roles"""
 
@@ -62,7 +65,10 @@ class WorkspaceUserRoleItem(SQLModel):
     display_name: str
     role: WorkspaceUserRoleType
 
-
+# @test: Test that this class matches the Alembic-defined database schema 
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data 
 class User(SQLModel, table=True):
     """Users in the OSM DB"""
 
