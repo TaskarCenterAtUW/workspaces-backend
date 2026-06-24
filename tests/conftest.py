@@ -67,3 +67,15 @@ async def client(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
+
+
+@pytest_asyncio.fixture
+async def error_client(app):
+    """Like ``client`` but turns unhandled exceptions into 500 responses.
+
+    By default httpx's ASGI transport re-raises app exceptions; this fixture
+    lets tests assert on the 500 the server would actually return in prod.
+    """
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        yield c

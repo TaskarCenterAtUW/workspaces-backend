@@ -124,16 +124,23 @@ class FakeSession:
         except Exception:
             return False
 
+    @staticmethod
+    def _raise_if_exc(item):
+        # A queued exception simulates a DB-layer failure (drives 500 paths).
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
     async def execute(self, statement, *args, **kwargs):
         if self._is_session_setup(statement):
             return FakeResult(rows=[])
-        return self._next()
+        return self._raise_if_exc(self._next())
 
     async def exec(self, statement, *args, **kwargs):
-        return self._next()
+        return self._raise_if_exc(self._next())
 
     async def scalar(self, statement, *args, **kwargs):
-        result = self._next()
+        result = self._raise_if_exc(self._next())
         return result.value if isinstance(result, FakeResult) else result
 
     def add(self, obj):
@@ -183,3 +190,8 @@ def mappings(*dict_rows):
 def scalar(value):
     """A result for ``session.scalar(...)`` (e.g. an EXISTS check)."""
     return FakeResult(value=value)
+
+
+def raises(exc):
+    """Queue an exception so the next DB call raises it (drives 500 paths)."""
+    return exc
