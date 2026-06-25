@@ -30,6 +30,74 @@ Viewer/Member/Everyone Else
 * With express TDEI sign-up, the need for this access level diminishes greatly
 * Granted by Workspaces setting.
 
+## What Each Role Can Do
+
+Project Lead
+* Edit Metadata
+* Edit Longform Quests
+* Toggle App-Enabled Flag
+* Delete Workspace
+* Define User Teams
+* Define Groups or Roles
+* Export to TDEI
+* Validate Changeset
+* Move Workspace from Project Group to Project Group
+* Edit POSM Element
+
+Validator
+* Export to TDEI 
+* Validate Changeset
+* Edit POSM Element
+
+Contributor
+* Edit POSM Element
+
+Authenticated User With PG/Workspace Association
+* Edit POSM Element
+
+### What this backend actually enforces (vs. the matrix above)
+
+The matrix above is the intended product model. It is only **partially**
+enforced in `api/` — this service is a proxy in front of the OSM website,
+cgimap, and TDEI, so several capabilities are enforced downstream (or not yet
+at all). Validated against the code:
+
+**Enforced here, Lead-gated (`isWorkspaceLead` → 403).** POC inherits these
+(POC on the owning project group satisfies `isWorkspaceLead`):
+
+| Capability | Endpoint |
+|---|---|
+| Edit Metadata | PATCH `/workspaces/{id}` |
+| Edit Longform Quests | PATCH `/workspaces/{id}/quests/long/settings` |
+| Toggle App-Enabled Flag | PATCH `/workspaces/{id}` (`externalAppAccess`) |
+| Delete Workspace | DELETE `/workspaces/{id}` |
+| Define User Teams | `/workspaces/{id}/teams...` (create/update/delete/members) |
+| Define Groups or Roles | PUT/DELETE `/workspaces/{id}/users/{user_id}...` |
+
+**Not enforced / not present here:**
+
+* **Export to TDEI** — no endpoint exists in this backend.
+* **Move Workspace PG→PG** — not possible; `WorkspacePatch` has no
+  `tdeiProjectGroupId` field, so no route can change a workspace's project group.
+* **Validate Changeset** and **Edit POSM Element** — these go through the OSM
+  proxy catch-all (`api/main.py`), which gates *every* proxied operation on
+  `isWorkspaceContributor` alone. There is no Validator- or Lead-level check on
+  proxied traffic.
+
+**The Validator role grants nothing extra at this layer.**
+`isWorkspaceValidator` exists in `api/core/security.py` but no endpoint
+authorizes on it — it only appears in the `role` field of `WorkspaceResponse`.
+A Validator and a Contributor have identical permissions in this backend.
+
+**"Contributor" and "Authenticated User With PG/Workspace Association" are the
+same gate.** `isWorkspaceContributor` simply checks whether the workspace is in
+one of the user's project groups (`accessibleWorkspaceIds`), i.e. PG/workspace
+association — so both rows collapse to the same check.
+
+If the Validator/Lead distinctions for changeset validation and TDEI export are
+required, they must be enforced downstream (`workspaces-openstreetmap-website/`,
+`workspaces-cgimap/`) — that has not been audited here.
+
 ## Testing
 
 Two layers, both fast and dependency-free (no Postgres, PostGIS, Docker, or
