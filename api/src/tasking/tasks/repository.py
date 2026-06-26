@@ -1152,7 +1152,7 @@ class TaskingTaskRepository:
                 "osmChangesetId": changesetId,
             },
         )
-
+        await self.session.commit()
         return cs.id  # Return the ID of the newly inserted changeset row
 
 
