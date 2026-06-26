@@ -58,10 +58,6 @@ class WorkspaceTeamItem(WorkspaceTeamBase):
 class WorkspaceTeamCreate(WorkspaceTeamBase):
     """New workspace team DTO"""
 
-    pass
-
 
 class WorkspaceTeamUpdate(WorkspaceTeamBase):
     """Modify workspace team DTO"""
-
-    pass
