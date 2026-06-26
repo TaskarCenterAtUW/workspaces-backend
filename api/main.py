@@ -31,9 +31,11 @@ from api.utils.migrations import run_migrations
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,
     environment=os.getenv("ENV", "unknown"),
+    release=os.getenv("CODE_VERSION", "unknown"),
     debug=settings.DEBUG,
 )
 
+# Kept alongside `release` for any dashboards that query the `version` tag.
 sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
 
 # Set up logging configuration
