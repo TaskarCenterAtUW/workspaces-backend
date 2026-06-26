@@ -110,9 +110,23 @@ class FeedbackInput(WireModel):
 
 
 class SubmitRequest(WireModel):
-    osm_changeset_id: int = PydField(ge=1)
+    # osm_changeset_id: int = PydField(ge=1)
     done: bool
     feedback: Optional[FeedbackInput] = None
+
+
+class SubmitTaskChangeset(WireModel):
+    osm_changeset_id: int = PydField(ge=1)
+
+
+class SubmitTaskChangesetResponse(WireModel):
+    osm_changeset_id: int = PydField(ge=1)
+    task_number: int
+    project_id: int
+    workspace_id: int
+    inserted_id: Optional[int] = (
+        None  # ID of the newly inserted changeset row, if applicable
+    )
 
 
 class ExistingLockSummary(WireModel):

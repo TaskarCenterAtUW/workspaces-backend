@@ -972,29 +972,29 @@ class TaskingTaskRepository:
 
         now = datetime.now()
 
-        # Record the changeset row.
-        cs = TaskingChangeset(
-            task_id=task.id,  # type: ignore[arg-type]
-            project_id=project_id,
-            lock_id=lock.id,  # type: ignore[arg-type]
-            user_auth_uid=str(current_user.user_uuid),
-            osm_changeset_id=body.osm_changeset_id,
-            submitted_at=now,
-        )
-        self.session.add(cs)
-        await self.session.flush()
+        # # Record the changeset row.
+        # cs = TaskingChangeset(
+        #     task_id=task.id,  # type: ignore[arg-type]
+        #     project_id=project_id,
+        #     lock_id=lock.id,  # type: ignore[arg-type]
+        #     user_auth_uid=str(current_user.user_uuid),
+        #     osm_changeset_id=body.osm_changeset_id,
+        #     submitted_at=now,
+        # )
+        # self.session.add(cs)
+        # await self.session.flush()
 
-        await self._audit(
-            event_type=AuditEventType.CHANGESET_SUBMITTED,
-            project_id=project_id,
-            task_id=task.id,
-            actor_uuid=current_user.user_uuid,
-            details={
-                "taskNumber": task.task_number,
-                "osmChangesetId": body.osm_changeset_id,
-                "done": body.done,
-            },
-        )
+        # await self._audit(
+        #     event_type=AuditEventType.CHANGESET_SUBMITTED,
+        #     project_id=project_id,
+        #     task_id=task.id,
+        #     actor_uuid=current_user.user_uuid,
+        #     details={
+        #         "taskNumber": task.task_number,
+        #         "osmChangesetId": body.osm_changeset_id,
+        #         "done": body.done,
+        #     },
+        # )
 
         if not body.done:
             # Slide lock expiry from submitted_at + lock_timeout_hours.
@@ -1110,6 +1110,50 @@ class TaskingTaskRepository:
         await self.session.commit()
         refreshed = await self._get_task(project_id, task_number)
         return await self._to_task_response(refreshed)
+
+    async def submit_changeset(
+        self,
+        workspace_id: int,
+        project_id: int,
+        task_number: int,
+        current_user: UserInfo,
+        changesetId: int,
+    ) -> int:
+        project = await self._get_project(workspace_id, project_id)
+        task = await self._get_task(project_id, task_number)
+        lock = await self._get_active_lock(task.id)  # type: ignore[arg-type]
+        if lock is None or lock.user_auth_uid != str(current_user.user_uuid):
+            raise ForbiddenException("Caller does not hold the active lock")
+        now = datetime.now()
+
+        # Record the changeset row.
+        cs = TaskingChangeset(
+            task_id=task.id,  # type: ignore[arg-type]
+            project_id=project_id,
+            lock_id=lock.id,  # type: ignore[arg-type]
+            user_auth_uid=str(current_user.user_uuid),
+            osm_changeset_id=changesetId,
+            submitted_at=now,
+        )
+        self.session.add(cs)
+        await self.session.flush()
+        # Get the id of the newly inserted changeset row
+        changeset_row_id = cs.id  # type: ignore[assignment]
+        print(f"Inserted changeset row with ID: {changeset_row_id}")
+
+        # Audit record for changeset submission
+        await self._audit(
+            event_type=AuditEventType.CHANGESET_SUBMITTED,
+            project_id=project_id,
+            task_id=task.id,
+            actor_uuid=current_user.user_uuid,
+            details={
+                "taskNumber": task.task_number,
+                "osmChangesetId": changesetId,
+            },
+        )
+
+        return cs.id  # Return the ID of the newly inserted changeset row
 
 
 __all__ = ["TaskingTaskRepository"]
