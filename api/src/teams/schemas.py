@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 # @test: Test that this class matches the Alembic-defined database schema
 # @test: Test that the foreign key references are correct and that the relationships are correctly defined
-# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any values from Python are properly serialized to the database and that any values from the database are properly deserialized to Python
 # @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceTeamUser(SQLModel, table=True):
     """Team to User link table"""
@@ -27,7 +27,7 @@ class WorkspaceTeamBase(SQLModel):
 
 # @test: Test that this class matches the Alembic-defined database schema
 # @test: Test that the foreign key references are correct and that the relationships are correctly defined
-# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any values from Python are properly serialized to the database and that any values from the database are properly deserialized to Python
 # @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceTeam(WorkspaceTeamBase, table=True):
     """Workspace teams"""
