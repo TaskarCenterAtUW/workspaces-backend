@@ -21,6 +21,8 @@ from api.src.tasking.tasks.dtos import (
     SaveTasksRequest,
     SaveTasksResponse,
     SubmitRequest,
+    SubmitTaskChangeset,
+    SubmitTaskChangesetResponse,
     TaskBoundariesFeatureCollection,
     TaskListResponse,
     TaskResponse,
@@ -272,4 +274,33 @@ async def submit_task(
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     return await task_repo.submit(
         workspace_id, project_id, task_number, current_user, body
+    )
+
+
+@router.post(
+    "/tasks/{task_number}/submit-changeset", response_model=SubmitTaskChangesetResponse
+)
+async def submit_changeset(
+    workspace_id: int,
+    project_id: int,
+    task_number: int,
+    changeset_model: SubmitTaskChangeset,
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    task_repo: TaskingTaskRepository = Depends(get_task_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    cs_id = await task_repo.submit_changeset(
+        workspace_id,
+        project_id,
+        task_number,
+        current_user,
+        changeset_model.osm_changeset_id,
+    )
+    return SubmitTaskChangesetResponse(
+        osm_changeset_id=changeset_model.osm_changeset_id,
+        task_number=task_number,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        inserted_id=cs_id,
     )

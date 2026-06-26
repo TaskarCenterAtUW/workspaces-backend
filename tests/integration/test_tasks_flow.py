@@ -653,7 +653,7 @@ class TestSubmitReviewFlow:
 
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{self.project_id}/tasks/1/submit",
-            json={"osm_changeset_id": 1001, "done": True},
+            json={"done": True},
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -688,7 +688,7 @@ class TestSubmitReviewFlow:
         override_user(self.validator)
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{self.project_id}/tasks/1/submit",
-            json={"osm_changeset_id": 1002, "done": True},
+            json={"done": True},
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -732,7 +732,7 @@ class TestSubmitDoneFalseSlides:
 
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
-            json={"osm_changeset_id": 5001, "done": False},
+            json={"done": False},
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -774,7 +774,7 @@ class TestRemapFlow:
         await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
-            json={"osm_changeset_id": 7001, "done": True},
+            json={"done": True},
         )
         assert r.json()["status"] == "to_review"
 
@@ -784,7 +784,6 @@ class TestRemapFlow:
         r = await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
             json={
-                "osm_changeset_id": 7002,
                 "done": True,
                 "feedback": {
                     "reason_category": "incomplete_mapping",
@@ -838,7 +837,7 @@ class TestSelfValidationGuard:
         await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
-            json={"osm_changeset_id": 9001, "done": True},
+            json={"done": True},
         )
 
         # Now they try to validate their own work → 403.
@@ -880,7 +879,7 @@ class TestTaskReset:
         await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/lock")
         await client.post(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/1/submit",
-            json={"osm_changeset_id": 11001, "done": True},
+            json={"done": True},
         )
         # Validator picks it up.
         override_user(validator)
