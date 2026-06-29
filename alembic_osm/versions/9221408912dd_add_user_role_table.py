@@ -11,6 +11,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect, text
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "9221408912dd"
@@ -23,6 +24,25 @@ def upgrade() -> None:
     bind = op.get_bind()
     assert bind is not None
     insp = inspect(bind)
+
+    # `users` is normally owned and migrated by the OSM Rails app. When
+    # running against a fresh database without Rails (CI/testcontainers,
+    # or a dev box without the osm-rails service), create a minimal stub
+    # so the FK from `tasking_project_roles`/`user_workspace_roles` can
+    # be added below. Guarded by has_table so the production-owned
+    # schema wins when it is already present.
+    if not insp.has_table("users"):
+        op.create_table(
+            "users",
+            # `id` matches the Rails `users.id` numeric PK so the FK
+            # from `team_user.user_id` in the next migration can attach.
+            sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+            sa.Column("auth_uid", sa.String(), nullable=False),
+            sa.Column("email", sa.String(), nullable=True),
+            sa.Column("display_name", sa.String(), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("auth_uid", name="auth_uid_unique"),
+        )
 
     # Add unique constraint on users.auth_uid (if not already present)
     constraint_exists = bind.execute(
@@ -49,7 +69,7 @@ def upgrade() -> None:
             sa.Column("workspace_id", sa.BigInteger(), nullable=False),
             sa.Column(
                 "role",
-                sa.Enum(
+                postgresql.ENUM(
                     "lead",
                     "validator",
                     "contributor",
