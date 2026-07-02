@@ -1,19 +1,45 @@
 name: Docker Image CI
 
 on:
-  push:
-    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'develop'
+        type: choice
+        options:
+          - develop
+          - staging
+          - production
+          - testing
 
 jobs:
+  set-github-environment:
+        runs-on: ubuntu-latest
+        outputs:
+            environment: ${{ steps.set-env.outputs.target_env }}
+        steps:
+            - name: Set Environment
+              id: set-env
+              run: |
+                case "${{ inputs.environment }}" in
+                    testing)     echo "target_env=test" >> $GITHUB_OUTPUT ;;
+                    develop) echo "target_env=dev" >> $GITHUB_OUTPUT ;;
+                    staging)     echo "target_env=stage" >> $GITHUB_OUTPUT ;;
+                    production)  echo "target_env=prod" >> $GITHUB_OUTPUT ;;
+                esac
   build:
     runs-on: ubuntu-latest
-    environment: onlyone 
     name: "Build"
+    needs: set-github-environment
     concurrency:
       group: build
       cancel-in-progress: true
     steps:
         - uses: actions/checkout@v4
+          with:
+            ref:  ${{ github.event.inputs.environment }}
     
         - uses: docker/login-action@v3
           with:
@@ -33,5 +59,6 @@ jobs:
             context: .
             push: true
             platforms: linux/amd64
-            tags: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:dev
+            tags: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }},
+                  ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{github.sha}}
         
