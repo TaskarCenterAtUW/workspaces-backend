@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     # JSON array of allowed CORS origins. For example:
     #
     #   ["https://workspaces.example.com", "https://leaderboard.example.com"]
+    # Comma separated list of origins. For example:
+    #   "https://workspaces.example.com, https://leaderboard.example.com"
     #
-    CORS_ORIGINS: list[str] = []
+    CORS_ORIGINS: str = ""
 
     TASK_DATABASE_URL: str = (
         "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
