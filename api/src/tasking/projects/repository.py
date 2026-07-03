@@ -270,6 +270,37 @@ class TaskingProjectRepository:
 
         by_uid = {m.auth_uid: m for m in members}
 
+        """
+        INSERT INTO users (
+                 email,
+                 display_name,
+                 auth_uid,
+                 auth_provider,
+                 status,
+                 pass_crypt,
+                 data_public,
+                 email_valid,
+                 terms_seen,
+                 creation_time,
+                 terms_agreed,
+                 tou_agreed)
+          VALUES (
+                 $1,
+                 $2,
+                 $3,
+                 'TDEI',
+                 'active',
+                 'none',
+                 true,
+                 true,
+                 true,
+                 (now() at time zone 'utc'),
+                 (now() at time zone 'utc'),
+                 (now() at time zone 'utc'))
+          RETURNING id
+    )
+        """
+
         resolved: set[str] = set()
         for uid in missing_uuids:
             member = by_uid.get(uid)
@@ -277,11 +308,11 @@ class TaskingProjectRepository:
                 continue
             await self.session.execute(
                 text(
-                    "INSERT INTO users (auth_uid, email, display_name) "
-                    "VALUES (:uid, :email, :name) "
+                    "INSERT INTO users (auth_uid, email, display_name, auth_provider, status, pass_crypt, data_public, email_valid, terms_seen, creation_time, terms_agreed, tou_agreed) "
+                    "VALUES (:uid, :email, :name, 'TDEI', 'active', 'none', true, true, true, (now() at time zone 'utc'), (now() at time zone 'utc'), (now() at time zone 'utc')) "
                     "ON CONFLICT (auth_uid) DO NOTHING"
                 ),
-                {
+                params={
                     "uid": uid,
                     "email": member.email,
                     "name": member.display_name,
