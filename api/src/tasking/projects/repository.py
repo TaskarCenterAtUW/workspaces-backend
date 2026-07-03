@@ -990,21 +990,18 @@ class TaskingProjectRepository:
         workspace_id: int,
         project_id: int,
         body: ProjectRoleAddRequest,
+        user_token: str,
+        project_group_id: str,
     ) -> ProjectRoleItem:
         """Insert a new role row. 422 on missing user; 409 on duplicate."""
         await self._get_active(workspace_id, project_id)
 
         missing = await self._missing_user_auth_uids([body.user_id])
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={
-                    "message": (
-                        "`user_id` refers to a user that has not signed in "
-                        "to Workspaces yet — no `users` row exists."
-                    ),
-                    "missing_user_ids": missing,
-                },
+        if missing:  # User never logged in, so we try to provision them from TDEI
+            self._provision_users_from_tdei(
+                missing,
+                project_group_id=project_group_id,
+                bearer_token=user_token,
             )
 
         from sqlalchemy import text
