@@ -998,7 +998,7 @@ class TaskingProjectRepository:
 
         missing = await self._missing_user_auth_uids([body.user_id])
         if missing:  # User never logged in, so we try to provision them from TDEI
-            self._provision_users_from_tdei(
+            provisioned_users = await self._provision_users_from_tdei(
                 missing,
                 project_group_id=project_group_id,
                 bearer_token=user_token,
