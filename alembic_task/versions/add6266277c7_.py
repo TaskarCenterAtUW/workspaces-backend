@@ -13,7 +13,7 @@ from alembic import op
 revision = "add6266277c7"
 branch_labels = None
 depends_on = None
-down_revision = None
+down_revision = "c5121cbba124"
 
 
 def upgrade():
