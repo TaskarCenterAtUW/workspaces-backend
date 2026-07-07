@@ -117,7 +117,9 @@ def pytest_configure(config):
     if not _DOCKER_OK:
         return  # let the fixture surface the skip with a clean reason
     try:
-        from testcontainers.postgres import PostgresContainer
+        from testcontainers.postgres import (  # pyright: ignore[reportMissingImports]
+            PostgresContainer,
+        )
     except ImportError:
         return  # ditto — fixture-time skip with install instructions
 
@@ -149,7 +151,7 @@ def _pg_urls() -> Iterator[tuple[str, str]]:
     if not _DOCKER_OK:
         pytest.skip(f"Docker not available — {_DOCKER_REASON}")
     try:
-        import testcontainers.postgres  # noqa: F401
+        import testcontainers.postgres  # noqa: F401  # pyright: ignore[reportMissingImports]
     except ImportError:
         pytest.skip(
             "testcontainers not installed; install with "
@@ -319,8 +321,7 @@ def _clear_token() -> None:
 
 @pytest.fixture(autouse=True)
 async def _per_test_db_sessions(_pg_urls):
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
     from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -335,11 +336,11 @@ async def _per_test_db_sessions(_pg_urls):
     task_engine = create_async_engine(task_url, future=True, poolclass=NullPool)
     osm_engine = create_async_engine(osm_url, future=True, poolclass=NullPool)
 
-    task_factory = sessionmaker(
-        class_=AsyncSession, expire_on_commit=False, bind=task_engine
+    task_factory = async_sessionmaker(
+        bind=task_engine, class_=AsyncSession, expire_on_commit=False
     )
-    osm_factory = sessionmaker(
-        class_=AsyncSession, expire_on_commit=False, bind=osm_engine
+    osm_factory = async_sessionmaker(
+        bind=osm_engine, class_=AsyncSession, expire_on_commit=False
     )
 
     async def _get_task():

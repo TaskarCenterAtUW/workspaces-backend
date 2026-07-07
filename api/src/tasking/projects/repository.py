@@ -1,3 +1,11 @@
+# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
+# than ``Mapped[int]``, so Pyright reads ``Column == value`` as ``bool`` and
+# misjudges ``where()``/``select()``/``selectinload`` calls; the nullable
+# ``deleted_at`` column additionally trips ``reportOptionalMemberAccess`` on
+# ``.is_(None)``. These are framework false positives; the queries are valid at
+# runtime. Other rules stay enabled so real bugs still surface.
+# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
+
 from __future__ import annotations
 
 import json

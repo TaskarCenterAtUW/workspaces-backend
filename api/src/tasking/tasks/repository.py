@@ -1,3 +1,11 @@
+# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
+# than ``Mapped[int]``, so Pyright reads ``Column == value`` as ``bool`` and
+# misjudges ``where()``/``select()``/``selectinload`` calls; nullable columns
+# (``deleted_at``, ``released_at``) additionally trip ``reportOptionalMemberAccess``
+# on ``.is_(None)``. These are framework false positives; the queries are valid at
+# runtime. Other rules stay enabled so real bugs still surface.
+# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
+
 from __future__ import annotations
 
 import hashlib
@@ -1153,7 +1161,8 @@ class TaskingTaskRepository:
             },
         )
         await self.session.commit()
-        return cs.id  # Return the ID of the newly inserted changeset row
+        # PK is populated after flush(); SQLModel still types it ``int | None``.
+        return cs.id  # type: ignore[return-value]
 
 
 __all__ = ["TaskingTaskRepository"]

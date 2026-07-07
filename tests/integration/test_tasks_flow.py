@@ -503,7 +503,7 @@ class TestLockLifecycle:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["lock"] is not None
-        assert body["lock"]["user_id"] == str(self.contributor.user_uuid)
+        assert body["lock"]["user_id"] == str(self.contributor.user_uuid)  # type: ignore[union-attr]
 
     async def test_03_contributor_cannot_lock_second_task(
         self, client, override_user, seeded_workspace_id
@@ -659,7 +659,7 @@ class TestSubmitReviewFlow:
         body = r.json()
         assert body["status"] == "to_review"
         assert body["lock"] is None
-        assert body["last_mapper"]["user_id"] == str(self.contributor.user_uuid)
+        assert body["last_mapper"]["user_id"] == str(self.contributor.user_uuid)  # type: ignore[union-attr]
 
     async def test_03_contributor_cannot_lock_for_review(
         self, client, override_user, seeded_workspace_id

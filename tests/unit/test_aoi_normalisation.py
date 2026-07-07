@@ -12,8 +12,8 @@ from api.src.tasking.projects.schemas import (
     _Polygon,
 )
 
-SQUARE = [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
-TWO_SQUARES = [
+SQUARE: list[list[list[float]]] = [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
+TWO_SQUARES: list[list[list[list[float]]]] = [
     [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
     [[[2, 2], [3, 2], [3, 3], [2, 3], [2, 2]]],
 ]
