@@ -32,19 +32,8 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install the project
-      run: uv sync --all-extras
-
-    - name: Check imports with isort
-      run: uv run isort --check-only --diff .
-
-    - name: Check code formatting with black
-      run: uv run black --check .
-
-    - name: Type-check with pyright
-      run: uvx pyright --pythonpath .venv/bin/python api tests
-
-    # The suite needs no database: migrations are skipped under pytest and the
-    # DB session is mocked at the data-fetcher boundary (see CLAUDE.md).
-    - name: Run tests
-      run: uv run pytest tests
+    # Runs the same checks locals get from scripts/ci.sh: uv sync, isort,
+    # black, pyright, and pytest. The script runs every check and exits
+    # non-zero if any fail, so a single red step still lists all failures.
+    - name: Run CI checks
+      run: ./scripts/ci.sh

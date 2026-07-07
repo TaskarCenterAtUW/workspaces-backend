@@ -24,6 +24,10 @@ from api.core.security import (
     validate_token,
 )
 from api.src.osm.routes import router as osm_router
+from api.src.tasking.audit.routes import router as tasking_audit_router
+from api.src.tasking.projects.routes import me_router as tasking_me_router
+from api.src.tasking.projects.routes import router as tasking_projects_router
+from api.src.tasking.tasks.routes import router as tasking_tasks_router
 from api.src.teams.routes import router as teams_router
 from api.src.users.routes import router as users_router
 from api.src.workspaces.repository import WorkspaceRepository

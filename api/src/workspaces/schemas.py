@@ -6,7 +6,7 @@ from uuid import UUID
 from geoalchemy2 import Geometry
 from pydantic import model_validator
 from sqlalchemy import JSON as SAJson
-from sqlalchemy import Column, SmallInteger, TypeDecorator, Unicode
+from sqlalchemy import Boolean, Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -300,6 +300,11 @@ class Workspace(SQLModel, table=True):
     )
 
     kartaViewToken: Optional[str] = None
+
+    autoFlagReview: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
 
     longFormQuestDef: Optional[WorkspaceLongQuest] = Relationship(
         sa_relationship_kwargs={
