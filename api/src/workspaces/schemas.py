@@ -146,6 +146,7 @@ class WorkspacePatch(SQLModel):
     title: Optional[str] = None
     description: Optional[str] = None
     externalAppAccess: Optional[ExternalAppsDefinitionType] = None
+    autoFlagReview: Optional[bool] = None
 
 
 class QuestSettingsPatch(SQLModel):
@@ -217,6 +218,7 @@ class WorkspaceResponse(SQLModel):
     createdByName: str
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
+    autoFlagReview: bool = False
     role: str
     # Included in single-workspace GET for mobile app consumption. TODO: remove
     # this when the app fetches these from dedicated endpoints:
@@ -250,6 +252,7 @@ class WorkspaceResponse(SQLModel):
             createdByName=workspace.createdByName,
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
+            autoFlagReview=workspace.autoFlagReview,
             role=user.effective_role(workspace.id),
             imageryListDef=imagery_list_def,
             longFormQuestDef=long_form_quest_def,
@@ -312,3 +315,4 @@ class Workspace(SQLModel, table=True):
             "cascade": "all, delete-orphan",
         }
     )
+

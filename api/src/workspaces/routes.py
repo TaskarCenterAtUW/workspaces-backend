@@ -11,9 +11,11 @@ from api.core.json_schema import (
 )
 from api.core.logging import get_logger
 from api.core.security import UserInfo, evict_user_from_cache, validate_token
+from api.src.osm.repository import OSMRepository
+from api.src.osm.routes import get_osm_repo
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
-from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
+from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
     QuestDefinitionTypeName,
@@ -35,13 +37,6 @@ def get_workspace_repository(
     session: AsyncSession = Depends(get_task_session),
 ) -> WorkspaceRepository:
     repository = WorkspaceRepository(session)
-    return repository
-
-
-def get_osm_repository(
-    session: AsyncSession = Depends(get_osm_session),
-) -> OSMRepository:
-    repository = OSMRepository(session)
     return repository
 
 
@@ -124,7 +119,7 @@ async def get_workspace(
 async def get_workspace_bbox(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
-    repository_osm: OSMRepository = Depends(get_osm_repository),
+    repository_osm: OSMRepository = Depends(get_osm_repo),
     current_user: UserInfo = Depends(validate_token),
 ):
     try:
