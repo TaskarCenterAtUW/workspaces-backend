@@ -12,6 +12,8 @@ Everything above that boundary -- routes, repositories, schemas, Pydantic
 serialization -- runs unmodified.
 """
 
+from collections.abc import Iterator
+from typing import Callable
 from uuid import UUID, uuid4
 
 import pytest
@@ -135,3 +137,80 @@ async def error_client(app):
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
+
+
+# ---------------------------------------------------------------------------
+# Sync auth fixtures for the FakeSession/repository-level unit suite.
+# The testcontainers integration layer overrides these async in
+# ``tests/integration/conftest.py`` to seed real rows; unit tests use the
+# lightweight versions below.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def seeded_workspace_id() -> int:
+    """Workspace id used by route URLs.
+
+    Unit tests pretend this exists via a FakeWorkspaceRepository.
+    Integration overrides this fixture (and seeds a real workspaces
+    row with the same id) in ``tests/integration/conftest.py``.
+    """
+    return SEED_WORKSPACE_ID
+
+
+@pytest.fixture
+def override_user() -> Iterator[Callable]:
+    """Yields a setter that swaps `validate_token` for the duration of a test."""
+    from api.core.security import validate_token
+    from api.main import app
+
+    def _set(user) -> None:
+        app.dependency_overrides[validate_token] = lambda: user
+
+    yield _set
+    app.dependency_overrides.pop(validate_token, None)
+
+
+@pytest.fixture
+def as_lead(override_user, seeded_workspace_id):
+    user = _make_user(
+        role="lead",
+        workspace_id=seeded_workspace_id,
+        pg_id=SEED_PROJECT_GROUP_ID,
+    )
+    override_user(user)
+    return user
+
+
+@pytest.fixture
+def as_contributor(override_user, seeded_workspace_id):
+    user = _make_user(
+        role="contributor",
+        workspace_id=seeded_workspace_id,
+        pg_id=SEED_PROJECT_GROUP_ID,
+    )
+    override_user(user)
+    return user
+
+
+@pytest.fixture
+def as_validator(override_user, seeded_workspace_id):
+    user = _make_user(
+        role="validator",
+        workspace_id=seeded_workspace_id,
+        pg_id=SEED_PROJECT_GROUP_ID,
+    )
+    override_user(user)
+    return user
+
+
+@pytest.fixture
+def as_outsider(override_user, seeded_workspace_id):
+    """User with no project-group association — tenancy gate should 404."""
+    user = _make_user(
+        role=None,
+        workspace_id=seeded_workspace_id,
+        pg_id=SEED_PROJECT_GROUP_ID,
+    )
+    override_user(user)
+    return user
