@@ -31,9 +31,11 @@ from api.utils.migrations import run_migrations
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,
     environment=os.getenv("ENV", "unknown"),
+    release=os.getenv("CODE_VERSION", "unknown"),
     debug=settings.DEBUG,
 )
 
+# Kept alongside `release` for any dashboards that query the `version` tag.
 sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
 
 # Set up logging configuration
@@ -44,6 +46,15 @@ logger = get_logger(__name__)
 
 # Shared HTTP client for OSM proxy. Reuses connection pool across requests:
 _osm_client: httpx.AsyncClient | None = None
+
+
+def _require_osm_client() -> httpx.AsyncClient:
+    if _osm_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OSM proxy client is not initialized",
+        )
+    return _osm_client
 
 
 @asynccontextmanager
@@ -111,6 +122,18 @@ def get_workspace_repository(
     return WorkspaceRepository(session)
 
 
+# @test: Any headers defined in STRIP_REQUEST_HEADERS are not forwarded to the OSM service
+# @test: Any headers defined in HOP_BY_HOP_HEADERS are not forwarded to the client
+# @test: /api/capabilities.json is proxied to the OSM service without requiring authentication
+# @test: Any request to the OSM service that returns a 4xx or 5xx status code is logged to Sentry with the correct message and the correct status code is returned to the client
+# @test: Any request that matches the RegEx in TENANT_BYPASSES is allowed to proceed without an X-Workspace header,
+#       and any request that does not match the Regex in TENANT_BYPASSES and does not have an X-Workspace header returns a 400 Bad Request error
+# @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
+# @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error
+# @test: Any request with a missing X-Workspace header that does not match the TENANT_BYPASSES returns a 400 Bad Request error
+# @test: All the values for Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Host, and X-Forwarded-Proto headers are correctly set when proxied to the OSM service
+# @test: The response from the OSM service is correctly streamed back to the client with the correct status code and headers, and the response body is not modified in any way
+
 # This API route catches anything not otherwise defined above--MUST be last in this file
 #
 # h/t: https://stackoverflow.com/questions/70610266/proxy-an-external-website-using-python-fast-api-not-supporting-query-params
@@ -154,13 +177,14 @@ TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
 async def capabilities(request: Request):
     """Proxy OSM capabilities manifest without requiring authentication."""
 
+    client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
     req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
         if k.lower() not in STRIP_REQUEST_HEADERS
     ] + [
-        (b"Host", _osm_client.base_url.host.encode()),
+        (b"Host", client.base_url.host.encode()),
         (b"X-Real-IP", client_host.encode()),
         (b"X-Forwarded-For", client_host.encode()),
         (b"X-Forwarded-Host", (request.url.hostname or "").encode()),
@@ -168,10 +192,10 @@ async def capabilities(request: Request):
     ]
 
     url = httpx.URL(path="/api/capabilities.json")
-    rp_req = _osm_client.build_request("GET", url, headers=req_headers)
+    rp_req = client.build_request("GET", url, headers=req_headers)
 
     try:
-        rp_resp = await _osm_client.send(rp_req, stream=True)
+        rp_resp = await client.send(rp_req, stream=True)
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -236,7 +260,7 @@ async def catch_all(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
     )
 
-    client = _osm_client
+    client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
     req_headers = [
         (k.encode(), v.encode())

@@ -6,26 +6,32 @@ on:
   pull_request:
     branches: [ main ]
 
+# Cancel any in-progress run for the same branch/PR when a newer commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint:
+  ci:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.12"]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@v6
       with:
         version: "0.5.8"
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
+        enable-cache: true
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v6
       with:
-        python-version: "3.12"
-        
+        python-version: ${{ matrix.python-version }}
+
     - name: Install the project
       run: uv sync --all-extras
 
@@ -35,48 +41,10 @@ jobs:
     - name: Check code formatting with black
       run: uv run black --check .
 
-  test:
-    needs: lint
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
+    - name: Type-check with pyright
+      run: uvx pyright --pythonpath .venv/bin/python api tests
 
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
-      with:
-        version: "0.5.8"
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-        
-    - name: Install the project
-      run: uv sync --all-extras
-        
+    # The suite needs no database: migrations are skipped under pytest and the
+    # DB session is mocked at the data-fetcher boundary (see CLAUDE.md).
     - name: Run tests
       run: uv run pytest tests
-      env:
-        TASK_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
-        OSM_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
-        JWT_SECRET: "test_secret_key"
-        JWT_ALGORITHM: "HS256"
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5

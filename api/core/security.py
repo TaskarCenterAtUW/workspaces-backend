@@ -14,6 +14,12 @@ from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
 from api.src.users.schemas import WorkspaceUserRoleType
 
+# Test outline:
+# @test: Test that the permissions structure here matches what is described in CLAUDE.md
+# @test: Test that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
+# @test: Test that any failed network requests are handled gracefully
+# @test: Test that the caching mechanism works correctly and evicts entries when roles change
+
 # Set up logger for this module
 logger = get_logger(__name__)
 
@@ -22,7 +28,7 @@ logger = get_logger(__name__)
 # cached record.
 _user_info_cache: cachetools.TTLCache[UUID, "UserInfo"] = cachetools.TTLCache(
     maxsize=1000, ttl=60 * 60
-)
+)  # type: ignore[assignment]  # cachetools ctor can't infer key/value types
 
 # Shared HTTP client for TDEI backend calls. Initialized by main.py lifespan.
 _tdei_client: httpx.AsyncClient | None = None
@@ -57,6 +63,7 @@ def evict_user_from_cache(auth_uid: UUID) -> None:
 security = HTTPBearer()
 
 
+# @test: Test that this matches what is described in CLAUDE.md and that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
 class TdeiProjectGroupRole(StrEnum):
     MEMBER = "member"
     POINT_OF_CONTACT = "poc"
@@ -81,6 +88,9 @@ class UserInfoPGMembership:
         self.tdeiRoles = tdeiRoles
 
 
+# @test: Test that the values populated in this class match the expected values from the JWT and TDEI API responses, and that the methods return the correct roles based on the user's project group memberships and workspace roles
+# @test: Test that the osmWorkspaceRoles, accessibleWorkspaceIds, and projectGroups attributes are correctly populated based on the user's roles in the OSM DB and TDEI API responses
+# @test: Test that the comments in this doc that describe what is supposed to be in the attributes are accurate and match the actual data being stored in those attributes and what is returned. The comments should be considered authoratative
 class UserInfo:
     credentials: str
     user_uuid: UUID
@@ -158,6 +168,9 @@ def get_task_db_session(
     session: AsyncSession = Depends(get_task_session),
 ) -> AsyncSession:
     return session
+
+
+# @test:
 
 
 async def validate_token(
@@ -245,8 +258,15 @@ async def _validate_token_uncached(
     # get user's project groups and roles from TDEI
     pgs = []
 
+    client = _tdei_client
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TDEI client is not initialized",
+        )
+
     try:
-        response = await _tdei_client.get(
+        response = await client.get(
             f"project-group-roles/{user_uuid}",
             headers=headers,
             params={"page_no": 1, "page_size": 1000},

@@ -1,3 +1,9 @@
+# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
+# than ``Mapped[int]``, so Pyright reads ``Column == value`` as a ``bool`` and
+# misjudges ``where()``/``exec()``/``select()``/``selectinload`` calls. These are
+# framework false positives; the queries are valid at runtime.
+# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false
+
 from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import selectinload
 from sqlmodel.ext.asyncio.session import AsyncSession

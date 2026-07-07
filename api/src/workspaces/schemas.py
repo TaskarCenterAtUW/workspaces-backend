@@ -79,6 +79,10 @@ class QuestDefinitionTypeName(StrEnum):
     URL = "URL"
 
 
+# @test: Test that this class matches the Alembic-defined database schema
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -103,6 +107,10 @@ class WorkspaceLongQuest(SQLModel, table=True):
     modifiedByName: str
 
 
+# @test: Test that this class matches the Alembic-defined database schema
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceImagery(SQLModel, table=True):
     """Stores imagery list for a workspace"""
 
@@ -215,6 +223,9 @@ class WorkspaceResponse(SQLModel):
     longFormQuestDef: Optional[Any] = None
     imageryListDef: Optional[Any] = None
 
+    # @test: Test that this class properly serializes the workspace data for API responses, including the effective role for the user making the request
+    # @test: Test that the values are populated in this class match the expected values from the database and that the relationships are correctly serialized
+
     @classmethod
     def from_workspace(
         cls,
@@ -224,6 +235,7 @@ class WorkspaceResponse(SQLModel):
         imagery_list_def: Any = None,
         long_form_quest_def: Any = None,
     ) -> Self:
+        assert workspace.id is not None  # persisted workspace always has an id
         return cls(
             id=workspace.id,
             type=workspace.type,
@@ -244,6 +256,10 @@ class WorkspaceResponse(SQLModel):
         )
 
 
+# @test: Test that this class matches the Alembic-defined database schema
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class Workspace(SQLModel, table=True):
     """Workspaces"""
 
