@@ -12,6 +12,8 @@ Everything above that boundary -- routes, repositories, schemas, Pydantic
 serialization -- runs unmodified.
 """
 
+from uuid import UUID, uuid4
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -21,6 +23,60 @@ from api.core.security import validate_token
 from api.main import app as fastapi_app
 from tests.support import factories
 from tests.support.fakes import FakeSession
+
+# Shared with the testcontainers-backed integration suite
+# (``tests/integration/conftest.py``), which imports these to seed a real
+# workspaces row and to synthesize ``UserInfo`` principals. Kept here so both
+# the FakeSession-based and testcontainers-based test layers reference one
+# canonical workspace/project-group identity.
+SEED_WORKSPACE_ID = 1899
+SEED_PROJECT_GROUP_ID = UUID("00000000-0000-0000-0000-000000001899")
+
+
+def _make_user(
+    *,
+    role: str | None,
+    workspace_id: int,
+    pg_id: UUID,
+    is_poc: bool = False,
+):
+    """Construct a UserInfo with the minimum fields the gates inspect."""
+    from api.core.security import TdeiProjectGroupRole, UserInfo, UserInfoPGMembership
+    from api.src.users.schemas import WorkspaceUserRoleType
+
+    u = UserInfo()
+    u.credentials = "fake-token"
+    u.user_uuid = uuid4()
+    u.user_name = f"test-{role or 'outsider'}-{u.user_uuid.hex[:6]}"
+
+    if role == "lead":
+        u.osmWorkspaceRoles = {workspace_id: [WorkspaceUserRoleType.LEAD]}
+    elif role == "validator":
+        u.osmWorkspaceRoles = {workspace_id: [WorkspaceUserRoleType.VALIDATOR]}
+    elif role == "contributor":
+        u.osmWorkspaceRoles = {workspace_id: [WorkspaceUserRoleType.CONTRIBUTOR]}
+    else:
+        u.osmWorkspaceRoles = {}
+
+    pg_roles = [TdeiProjectGroupRole.MEMBER]
+    if is_poc:
+        pg_roles.append(TdeiProjectGroupRole.POINT_OF_CONTACT)
+
+    # Outsiders belong to no project group at all -> 404 on tenancy gate.
+    if role is None and not is_poc:
+        u.projectGroups = []
+        u.accessibleWorkspaceIds = {}
+    else:
+        u.projectGroups = [
+            UserInfoPGMembership(
+                project_group_name="Test PG",
+                project_group_id=str(pg_id),
+                tdeiRoles=pg_roles,
+            )
+        ]
+        u.accessibleWorkspaceIds = {str(pg_id): [workspace_id]}
+
+    return u
 
 
 @pytest.fixture
