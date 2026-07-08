@@ -88,7 +88,7 @@ def _aoi_to_shapely(aoi: AoiInput) -> ShapelyMultiPolygon:
     if not geom.is_valid:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"AOI is not a valid polygon: {geom.is_valid_reason if hasattr(geom, 'is_valid_reason') else 'self-intersection or invalid ring'}",
+            detail=f"AOI is not a valid polygon: {geom.is_valid_reason if hasattr(geom, 'is_valid_reason') else 'self-intersection or invalid ring'}",  # pyright: ignore[reportAttributeAccessIssue]
         )
 
     return geom
@@ -213,7 +213,11 @@ class TaskingProjectRepository:
             select(TaskingProject).where(
                 (TaskingProject.id == project_id)
                 & (TaskingProject.workspace_id == workspace_id)
-                & (TaskingProject.deleted_at.is_(None))
+                & (
+                    TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
             )
         )
         project = result.scalar_one_or_none()
@@ -379,7 +383,9 @@ class TaskingProjectRepository:
         col = col.desc() if order_dir.upper() == "DESC" else col.asc()
 
         where = (TaskingProject.workspace_id == workspace_id) & (
-            TaskingProject.deleted_at.is_(None)
+            TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                None
+            )
         )
         if status_filter is not None:
             where = where & (TaskingProject.status == status_filter)
@@ -626,7 +632,10 @@ class TaskingProjectRepository:
             try:
                 await self.session.execute(
                     update(TaskingProject)
-                    .where(TaskingProject.id == project.id)
+                    .where(
+                        TaskingProject.id
+                        == project.id  # pyright: ignore[reportArgumentType]
+                    )
                     .values(**updates)
                 )
                 await self._audit(
@@ -670,7 +679,9 @@ class TaskingProjectRepository:
         # Soft-delete the project, hard-delete its tasks, flag audit rows.
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(deleted_at=datetime.now())
         )
         await self.session.execute(
@@ -740,7 +751,9 @@ class TaskingProjectRepository:
 
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(status=ProjectStatus.OPEN, updated_at=datetime.now())
         )
         await self._audit(
@@ -791,7 +804,9 @@ class TaskingProjectRepository:
 
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(status=ProjectStatus.DONE, updated_at=datetime.now())
         )
         await self._audit(
@@ -839,7 +854,10 @@ class TaskingProjectRepository:
         if project.status == ProjectStatus.DONE:
             await self.session.execute(
                 update(TaskingProject)
-                .where(TaskingProject.id == project.id)
+                .where(
+                    TaskingProject.id
+                    == project.id  # pyright: ignore[reportArgumentType]
+                )
                 .values(status=ProjectStatus.OPEN, updated_at=datetime.now())
             )
 
@@ -862,7 +880,7 @@ class TaskingProjectRepository:
         geom = to_shape(project.aoi)
         if isinstance(geom, ShapelyPolygon):  # defensive
             geom = ShapelyMultiPolygon([geom])
-        return _shapely_to_aoi_feature(geom)
+        return _shapely_to_aoi_feature(geom)  # pyright: ignore[reportArgumentType]
 
     async def upload_aoi(
         self, workspace_id: int, project_id: int, aoi: AoiInput, current_user: UserInfo
@@ -885,7 +903,9 @@ class TaskingProjectRepository:
         )
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(
                 aoi=from_shape(geom, srid=4326),
                 task_boundary_type=None,
@@ -998,11 +1018,25 @@ class TaskingProjectRepository:
 
         missing = await self._missing_user_auth_uids([body.user_id])
         if missing:  # User never logged in, so we try to provision them from TDEI
-            provisioned_users = await self._provision_users_from_tdei(
+            still_missing = await self._provision_users_from_tdei(
                 missing,
                 project_group_id=project_group_id,
                 bearer_token=user_token,
             )
+            # If TDEI doesn't list the user either, surface the same structured
+            # 422 the create path returns rather than falling through to a raw
+            # foreign-key violation with a generic string detail.
+            if still_missing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": (
+                            "The `user_id` is not a member of this "
+                            "workspace's project group in TDEI."
+                        ),
+                        "missing_user_ids": still_missing,
+                    },
+                )
 
         from sqlalchemy import text
 
@@ -1333,7 +1367,9 @@ class TaskingProjectRepository:
         )
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(
                 aoi=None,
                 task_boundary_type=None,

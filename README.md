@@ -14,3 +14,23 @@ uv sync
 uv run uvicorn api.main:app
 ```
 
+## Running the tests
+
+Tests are fast and require no database, Docker, or network (see
+`tests/README.md` for the design, and `CLAUDE.md` for conventions).
+
+```
+uv run pytest                 # full suite with coverage (configured in pyproject.toml)
+uv run pytest --no-cov -q     # quick run, no coverage
+uv run pytest tests/unit      # unit tests only
+uv run pytest tests/integration  # integration tests only
+uv run pytest -k workspaces   # filter by keyword
+```
+
+Type-check and format (matches the pre-commit hooks):
+
+```
+uvx pyright --pythonpath .venv/bin/python api tests
+uv run black api tests && uv run isort api tests
+```
+

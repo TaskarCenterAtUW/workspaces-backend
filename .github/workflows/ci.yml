@@ -6,77 +6,37 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Cancel any in-progress run for the same branch/PR when a newer commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint:
+  ci:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.12"]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@v6
       with:
         version: "0.5.8"
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-        
-    - name: Install the project
-      run: uv sync --all-extras
+        enable-cache: true
 
-    - name: Check imports with isort
-      run: uv run isort --check-only --diff .
-
-    - name: Check code formatting with black
-      run: uv run black --check .
-
-  test:
-    needs: lint
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
-      with:
-        version: "0.5.8"
-    
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
-        python-version: "3.12"
-        
-    - name: Install the project
-      run: uv sync --all-extras
-        
-    - name: Run tests
-      run: uv run pytest tests
-      env:
-        TASK_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
-        OSM_DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/test_db"
-        JWT_SECRET: "test_secret_key"
-        JWT_ALGORITHM: "HS256"
+        python-version: ${{ matrix.python-version }}
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    # Runs the same checks locals get from scripts/ci.sh: uv sync, isort,
+    # black, pyright, and pytest. `--integration` additionally runs the
+    # PostGIS/testcontainers suite (`pytest -m integration`); the ubuntu-latest
+    # runner ships a running Docker daemon, which testcontainers needs to boot
+    # the database. The script runs every check and exits non-zero if any fail,
+    # so a single red step still lists all failures.
+    - name: Run CI checks
+      run: ./scripts/ci.sh --integration

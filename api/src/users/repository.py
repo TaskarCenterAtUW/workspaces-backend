@@ -27,7 +27,9 @@ class UserRepository:
         # group members implicitly have the base "contributor" role.
         #
         query = (
-            select(User, WorkspaceUserRole.role)
+            select(  # pyright: ignore[reportCallIssue]
+                User, WorkspaceUserRole.role  # pyright: ignore[reportArgumentType]
+            )
             .join(WorkspaceUserRole, User.auth_uid == WorkspaceUserRole.user_auth_uid)
             .where(WorkspaceUserRole.workspace_id == workspace_id)
         )
@@ -44,8 +46,11 @@ class UserRepository:
         ]
 
     async def get_current_user(self, current_user: UserInfo) -> User:
-        result = await self.session.exec(
-            select(User).where(User.auth_uid == str(current_user.user_uuid))
+        result = await self.session.exec(  # pyright: ignore[reportCallIssue]
+            select(User).where(
+                User.auth_uid
+                == str(current_user.user_uuid)  # pyright: ignore[reportArgumentType]
+            )
         )
 
         # Current user should exist--throw if it doesn't:
@@ -59,7 +64,11 @@ class UserRepository:
     ) -> None:
         # Ensure the user has a local user record (signed in at least once):
         user_exists = await self.session.scalar(
-            select(User.id).where(User.auth_uid == str(user_id))
+            select(  # pyright: ignore[reportCallIssue]
+                User.id  # pyright: ignore[reportArgumentType]
+            ).where(  # pyright: ignore[reportCallIssue]
+                User.auth_uid == str(user_id)
+            )
         )
         if not user_exists:
             raise NotFoundException(
@@ -86,13 +95,15 @@ class UserRepository:
         user_id: UUID,
     ) -> None:
         query = delete(WorkspaceUserRole).where(
-            (WorkspaceUserRole.workspace_id == workspace_id)
+            (
+                WorkspaceUserRole.workspace_id == workspace_id
+            )  # pyright: ignore[reportArgumentType]
             & (WorkspaceUserRole.user_auth_uid == str(user_id))
         )
 
         result = await self.session.execute(query)
 
-        if result.rowcount != 1:
+        if result.rowcount != 1:  # pyright: ignore[reportAttributeAccessIssue]
             raise NotFoundException(
                 f"No role assigned for workspace {workspace_id}, user {user_id}"
             )
@@ -102,7 +113,8 @@ class UserRepository:
     async def remove_all_member_roles(self, workspace_id: int) -> None:
         await self.session.execute(
             delete(WorkspaceUserRole).where(
-                WorkspaceUserRole.workspace_id == workspace_id
+                WorkspaceUserRole.workspace_id
+                == workspace_id  # pyright: ignore[reportArgumentType]
             )
         )
         await self.session.commit()

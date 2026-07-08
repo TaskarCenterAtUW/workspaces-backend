@@ -6,7 +6,7 @@ from uuid import UUID
 from geoalchemy2 import Geometry
 from pydantic import model_validator
 from sqlalchemy import JSON as SAJson
-from sqlalchemy import Column, SmallInteger, TypeDecorator, Unicode
+from sqlalchemy import Boolean, Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -79,6 +79,10 @@ class QuestDefinitionTypeName(StrEnum):
     URL = "URL"
 
 
+# @test: Test that this class matches the Alembic-defined database schema
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceLongQuest(SQLModel, table=True):
     """Stores mobile app quest definitions for a workspace"""
 
@@ -103,6 +107,10 @@ class WorkspaceLongQuest(SQLModel, table=True):
     modifiedByName: str
 
 
+# @test: Test that this class matches the Alembic-defined database schema
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class WorkspaceImagery(SQLModel, table=True):
     """Stores imagery list for a workspace"""
 
@@ -138,6 +146,7 @@ class WorkspacePatch(SQLModel):
     title: Optional[str] = None
     description: Optional[str] = None
     externalAppAccess: Optional[ExternalAppsDefinitionType] = None
+    autoFlagReview: Optional[bool] = None
 
 
 class QuestSettingsPatch(SQLModel):
@@ -209,11 +218,15 @@ class WorkspaceResponse(SQLModel):
     createdByName: str
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
+    autoFlagReview: bool = False
     role: str
     # Included in single-workspace GET for mobile app consumption. TODO: remove
     # this when the app fetches these from dedicated endpoints:
     longFormQuestDef: Optional[Any] = None
     imageryListDef: Optional[Any] = None
+
+    # @test: Test that this class properly serializes the workspace data for API responses, including the effective role for the user making the request
+    # @test: Test that the values are populated in this class match the expected values from the database and that the relationships are correctly serialized
 
     @classmethod
     def from_workspace(
@@ -224,6 +237,7 @@ class WorkspaceResponse(SQLModel):
         imagery_list_def: Any = None,
         long_form_quest_def: Any = None,
     ) -> Self:
+        assert workspace.id is not None  # persisted workspace always has an id
         return cls(
             id=workspace.id,
             type=workspace.type,
@@ -238,12 +252,17 @@ class WorkspaceResponse(SQLModel):
             createdByName=workspace.createdByName,
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
+            autoFlagReview=workspace.autoFlagReview,
             role=user.effective_role(workspace.id),
             imageryListDef=imagery_list_def,
             longFormQuestDef=long_form_quest_def,
         )
 
 
+# @test: Test that this class matches the Alembic-defined database schema
+# @test: Test that the foreign key references are correct and that the relationships are correctly defined
+# @test: Test that any values from Python and properly serialized to the database and that any values from the database are properly deserialized to Python
+# @test: Test that any serialization/deserialization doesn't lose any precision or data
 class Workspace(SQLModel, table=True):
     """Workspaces"""
 
@@ -281,6 +300,11 @@ class Workspace(SQLModel, table=True):
     )
 
     kartaViewToken: Optional[str] = None
+
+    autoFlagReview: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
 
     longFormQuestDef: Optional[WorkspaceLongQuest] = Relationship(
         sa_relationship_kwargs={

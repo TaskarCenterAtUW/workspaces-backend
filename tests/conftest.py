@@ -1,143 +1,38 @@
-from __future__ import annotations
+"""Shared pytest fixtures.
 
-from collections.abc import AsyncIterator, Iterator
+Integration tests drive the *real* FastAPI app through an ASGI HTTP client,
+overriding only three dependencies:
+
+* ``get_task_session`` / ``get_osm_session`` -> :class:`FakeSession` (the
+  "data fetcher" boundary; queue simulated rows per test).
+* ``validate_token`` -> a real ``UserInfo`` built by the factories (skips
+  JWT decoding and the TDEI network call, but the permission logic is real).
+
+Everything above that boundary -- routes, repositories, schemas, Pydantic
+serialization -- runs unmodified.
+"""
+
+from collections.abc import Iterator
 from typing import Callable
 from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
-# Constants — referenced by both unit and integration suites.
+from api.core.database import get_osm_session, get_task_session
+from api.core.security import validate_token
+from api.main import app as fastapi_app
+from tests.support import factories
+from tests.support.fakes import FakeSession
+
+# Shared with the testcontainers-backed integration suite
+# (``tests/integration/conftest.py``), which imports these to seed a real
+# workspaces row and to synthesize ``UserInfo`` principals. Kept here so both
+# the FakeSession-based and testcontainers-based test layers reference one
+# canonical workspace/project-group identity.
 SEED_WORKSPACE_ID = 1899
 SEED_PROJECT_GROUP_ID = UUID("00000000-0000-0000-0000-000000001899")
-
-
-@pytest.fixture
-def seeded_workspace_id() -> int:
-    """Workspace id used by route URLs.
-
-    Unit tests pretend this exists via a FakeWorkspaceRepository.
-    Integration overrides this fixture (and seeds a real workspaces
-    row with the same id) in ``tests/integration/conftest.py``.
-    """
-    return SEED_WORKSPACE_ID
-
-
-# ---------------------------------------------------------------------------
-# HTTP client — ASGI transport (no socket); shared by unit and
-# integration suites. The `request` / `response` event hooks log every
-# call through stdlib `logging` so pytest-html captures the full HTTP
-# trace per test in the report.
-# ---------------------------------------------------------------------------
-
-
-import logging  # noqa: E402  (kept near the fixture for locality)
-
-_http_log = logging.getLogger("tests.http")
-
-
-# ---------------------------------------------------------------------------
-# pytest-html: surface each test's docstring as a "Description" column
-# so the report is self-explanatory.
-# ---------------------------------------------------------------------------
-
-
-def _test_description(item) -> str:
-    """Pull the first non-empty docstring line off a pytest item."""
-    fn = getattr(item, "function", None) or getattr(item, "obj", None)
-    doc = (getattr(fn, "__doc__", None) or "").strip()
-    if not doc:
-        return ""
-    return doc.splitlines()[0].strip()
-
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    """Annotate the test report with the docstring for pytest-html to render."""
-    outcome = yield
-    report = outcome.get_result()
-    report.description = _test_description(item)
-
-
-# The two hooks below are owned by the `pytest-html` plugin. When the
-# plugin isn't installed (e.g. `uv sync` doesn't include it as a base
-# dependency), pluggy refuses to register them and aborts collection.
-# Declare them conditionally so the suite runs either way.
-try:
-    import pytest_html  # noqa: F401
-
-    def pytest_html_results_table_header(cells):
-        """Inject a 'Description' column header next to the test name."""
-        cells.insert(2, "<th>Description</th>")
-
-    def pytest_html_results_table_row(report, cells):
-        """Inject the docstring as the matching cell on each row."""
-        cells.insert(2, f"<td>{getattr(report, 'description', '') or '—'}</td>")
-
-except ImportError:
-    pass
-
-
-def _redact(headers) -> str:
-    redact = {"authorization", "cookie", "set-cookie", "x-api-key"}
-    return ", ".join(
-        f"{k}={'***' if k.lower() in redact else v}" for k, v in headers.items()
-    )
-
-
-@pytest.fixture
-async def client() -> AsyncIterator:
-    from httpx import ASGITransport, AsyncClient
-
-    from api.main import app
-
-    async def _on_request(request):
-        body_preview = ""
-        try:
-            if request.content:
-                raw = request.content.decode(errors="replace")
-                body_preview = f"  body={raw[:500]}{'…' if len(raw) > 500 else ''}"
-        except Exception:
-            pass
-        _http_log.info(
-            "→ %s %s%s%s",
-            request.method,
-            request.url.path,
-            f"?{request.url.query.decode()}" if request.url.query else "",
-            body_preview,
-        )
-
-    async def _on_response(response):
-        try:
-            await response.aread()
-        except Exception:
-            pass
-        body_preview = ""
-        if response.content:
-            try:
-                raw = response.content.decode(errors="replace")
-                body_preview = f"  body={raw[:500]}{'…' if len(raw) > 500 else ''}"
-            except Exception:
-                pass
-        _http_log.info(
-            "← %s %s %s  (%dB)%s",
-            response.status_code,
-            response.request.method,
-            response.request.url.path,
-            len(response.content),
-            body_preview,
-        )
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        event_hooks={"request": [_on_request], "response": [_on_response]},
-    ) as c:
-        yield c
-
-
-# ---------------------------------------------------------------------------
-# Fake users — bypass TDEI/Keycloak by overriding `validate_token`.
-# ---------------------------------------------------------------------------
 
 
 def _make_user(
@@ -184,6 +79,83 @@ def _make_user(
         u.accessibleWorkspaceIds = {str(pg_id): [workspace_id]}
 
     return u
+
+
+@pytest.fixture
+def task_session() -> FakeSession:
+    """Fake session backing the tasking-manager / workspaces DB."""
+    return FakeSession()
+
+
+@pytest.fixture
+def osm_session() -> FakeSession:
+    """Fake session backing the OSM DB."""
+    return FakeSession()
+
+
+@pytest.fixture
+def app(task_session, osm_session):
+    """The real app with its DB sessions overridden by fakes."""
+    fastapi_app.dependency_overrides[get_task_session] = lambda: task_session
+    fastapi_app.dependency_overrides[get_osm_session] = lambda: osm_session
+    yield fastapi_app
+    fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def login(app):
+    """Authenticate the request as a given user.
+
+    Call with a ``UserInfo`` (see ``factories.make_user_info``) to set the
+    authenticated principal; called with no args it logs in a default user.
+    Returns the ``UserInfo`` in effect.
+    """
+
+    def _login(user_info=None):
+        user_info = user_info or factories.make_user_info()
+        app.dependency_overrides[validate_token] = lambda: user_info
+        return user_info
+
+    return _login
+
+
+@pytest_asyncio.fixture
+async def client(app):
+    """Async HTTP client bound to the app over an in-process ASGI transport."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        yield c
+
+
+@pytest_asyncio.fixture
+async def error_client(app):
+    """Like ``client`` but turns unhandled exceptions into 500 responses.
+
+    By default httpx's ASGI transport re-raises app exceptions; this fixture
+    lets tests assert on the 500 the server would actually return in prod.
+    """
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        yield c
+
+
+# ---------------------------------------------------------------------------
+# Sync auth fixtures for the FakeSession/repository-level unit suite.
+# The testcontainers integration layer overrides these async in
+# ``tests/integration/conftest.py`` to seed real rows; unit tests use the
+# lightweight versions below.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def seeded_workspace_id() -> int:
+    """Workspace id used by route URLs.
+
+    Unit tests pretend this exists via a FakeWorkspaceRepository.
+    Integration overrides this fixture (and seeds a real workspaces
+    row with the same id) in ``tests/integration/conftest.py``.
+    """
+    return SEED_WORKSPACE_ID
 
 
 @pytest.fixture

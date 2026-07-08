@@ -108,13 +108,16 @@ class WorkspaceRepository:
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
             )
-            .where(WorkspaceLongQuest.workspace_id == workspace_id)
+            .where(
+                WorkspaceLongQuest.workspace_id
+                == workspace_id  # pyright: ignore[reportArgumentType]
+            )
         )
         result = await self.session.execute(query)
 
-        if result.rowcount == 0:
+        if result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
             self.session.add(
-                WorkspaceLongQuest(
+                WorkspaceLongQuest(  # pyright: ignore[reportCallIssue]
                     workspace_id=workspace_id,
                     type=QuestDefinitionType[longform_quest_data.type].value,
                     definition=longform_quest_data.definition,
@@ -142,8 +145,11 @@ class WorkspaceRepository:
             return quest.definition or None
 
         if quest.url:
+            client = get_http_client()
+            if client is None:
+                return None
             try:
-                response = await get_http_client().get(quest.url, timeout=10)
+                response = await client.get(quest.url, timeout=10)
                 return response.text
             except Exception:
                 return None
@@ -163,14 +169,17 @@ class WorkspaceRepository:
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
             )
-            .where(WorkspaceImagery.workspace_id == workspace_id)
+            .where(
+                WorkspaceImagery.workspace_id
+                == workspace_id  # pyright: ignore[reportArgumentType]
+            )
         )
 
         result = await self.session.execute(query)
 
         if result.rowcount == 0:  # type: ignore[attr-defined]
             self.session.add(
-                WorkspaceImagery(
+                WorkspaceImagery(  # pyright: ignore[reportCallIssue]
                     workspace_id=workspace_id,
                     definition=imagery_def_data.definition,
                     modifiedBy=current_user.user_uuid,
@@ -192,35 +201,3 @@ class WorkspaceRepository:
             raise NotFoundException(f"Workspace delete failed for id {workspace_id}")
 
         await self.session.commit()
-
-
-class OSMRepository:
-
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def getWorkspaceBBox(
-        self,
-        workspace_id: int,
-    ):
-        # Postgres does not support parameter binding for `SET search_path`, so
-        # workspace_id is interpolated directly. The explicit int() cast guards
-        # against SQL injection if this method is ever called from outside of a
-        # FastAPI path handler (where the type annotation acts as a safeguard).
-        #
-        await self.session.execute(
-            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
-        )
-
-        sql_query = text(
-            "select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, \
-                         MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes"
-        )
-
-        result = await self.session.execute(sql_query)
-        retVal = result.mappings().first()
-
-        if retVal is None:
-            raise NotFoundException(f"Workspace with id {workspace_id} not found")
-
-        return retVal
