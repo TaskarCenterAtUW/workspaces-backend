@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -rln *)",
+      "Bash(grep -nA12 '\\\\[project.optional-dependencies\\\\]\\\\|optional-dependencies\\\\|\\\\[dependency-groups\\\\]' pyproject.toml)",
+      "Bash(grep -vE \"^$\")",
+      "Bash(git ls-tree *)",
+      "Bash(grep -E '\\\\.py$')",
+      "Bash(grep -v '\\\\.sample$')",
+      "Bash(git config *)",
+      "Bash(command -v gh)",
+      "Bash(gh api *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('protected:', d.get\\('protected'\\)\\); p=d.get\\('protection',{}\\); print\\('required_pull_request_reviews:', 'yes' if p.get\\('required_pull_request_reviews'\\) else 'no'\\); print\\('enforce_admins:', \\(p.get\\('enforce_admins'\\) or {}\\).get\\('enabled'\\)\\)\")"
+    ]
+  }
+}

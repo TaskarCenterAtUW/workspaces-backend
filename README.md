@@ -8,8 +8,7 @@ authorization and authentication based on a TDEI/Keycloak JWT token (see main.py
 
 ## Branch Index
 
-* ```develop``` do your work here
-* ```development``` keep this up to date with the "development" environment / dev tag
+* ```develop``` merge your work here; keep this up to date with the "development" environment / dev tag
 * ```staging``` keep this up to date with the "staging" environment / stage tag
 * ```production``` keep this up to date with the "production" environment / prod tag
   
