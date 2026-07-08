@@ -44,7 +44,7 @@ class OSMRepository:
             {"changeset_id": changeset_id},
         )
 
-        return result.mappings().all()
+        return list(result.mappings().all())
 
     async def resolveChangeset(
         self,
