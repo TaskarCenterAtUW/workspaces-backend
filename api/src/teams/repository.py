@@ -1,9 +1,3 @@
-# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
-# than ``Mapped[int]``, so Pyright reads ``Column == value`` as a ``bool`` and
-# misjudges ``where()``/``exec()``/``select()``/``selectinload`` calls. These are
-# framework false positives; the queries are valid at runtime.
-# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false
-
 from sqlalchemy import delete, exists, select
 from sqlalchemy.orm import selectinload
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -24,21 +18,32 @@ class WorkspaceTeamRepository:
         self.session = session
 
     async def get_all(self, workspace_id: int) -> list[WorkspaceTeamItem]:
-        result = await self.session.exec(
+        result = await self.session.exec(  # pyright: ignore[reportCallIssue]
             select(WorkspaceTeam)
-            .options(selectinload(WorkspaceTeam.users))
-            .where(WorkspaceTeam.workspace_id == workspace_id)
+            .options(
+                selectinload(WorkspaceTeam.users)  # pyright: ignore[reportArgumentType]
+            )
+            .where(
+                WorkspaceTeam.workspace_id
+                == workspace_id  # pyright: ignore[reportArgumentType]
+            )
         )
 
         return [WorkspaceTeamItem.from_team(x) for x in result.scalars().all()]
 
     async def get(self, id: int, load_members: bool = False) -> WorkspaceTeam:
-        query = select(WorkspaceTeam).where(WorkspaceTeam.id == id)
+        query = select(WorkspaceTeam).where(
+            WorkspaceTeam.id == id  # pyright: ignore[reportArgumentType]
+        )
 
         if load_members:
-            query = query.options(selectinload(WorkspaceTeam.users))
+            query = query.options(
+                selectinload(WorkspaceTeam.users)  # pyright: ignore[reportArgumentType]
+            )
 
-        result = await self.session.exec(query)
+        result = await self.session.exec(  # pyright: ignore[reportCallIssue]
+            query  # pyright: ignore[reportArgumentType]
+        )
         team = result.scalar_one_or_none()
 
         if not team:
@@ -56,8 +61,11 @@ class WorkspaceTeamRepository:
         team_exists = await self.session.scalar(
             select(
                 exists()
-                .where(WorkspaceTeam.id == id)
-                .where(WorkspaceTeam.workspace_id == workspace_id)
+                .where(WorkspaceTeam.id == id)  # pyright: ignore[reportArgumentType]
+                .where(
+                    WorkspaceTeam.workspace_id
+                    == workspace_id  # pyright: ignore[reportArgumentType]
+                )
             )
         )
 
@@ -86,13 +94,19 @@ class WorkspaceTeamRepository:
         await self.session.commit()
 
     async def get_members(self, id: int) -> list[User]:
-        result = await self.session.exec(select(User).where(User.teams.any(id=id)))
+        result = await self.session.exec(  # pyright: ignore[reportCallIssue]
+            select(User).where(  # pyright: ignore[reportArgumentType]
+                User.teams.any(id=id)  # pyright: ignore[reportAttributeAccessIssue]
+            )
+        )
 
         return result.scalars().all()
 
     async def add_member(self, id: int, user_id: int):
-        user_result = await self.session.exec(
-            select(User).options(selectinload(User.teams)).where(User.id == user_id)
+        user_result = await self.session.exec(  # pyright: ignore[reportCallIssue]
+            select(User)
+            .options(selectinload(User.teams))  # pyright: ignore[reportArgumentType]
+            .where(User.id == user_id)  # pyright: ignore[reportArgumentType]
         )
         user = user_result.scalar_one_or_none()
 
@@ -109,8 +123,10 @@ class WorkspaceTeamRepository:
         await self.session.commit()
 
     async def remove_member(self, id: int, user_id: int):
-        user_result = await self.session.exec(
-            select(User).options(selectinload(User.teams)).where(User.id == user_id)
+        user_result = await self.session.exec(  # pyright: ignore[reportCallIssue]
+            select(User)
+            .options(selectinload(User.teams))  # pyright: ignore[reportArgumentType]
+            .where(User.id == user_id)  # pyright: ignore[reportArgumentType]
         )
         user = user_result.scalar_one_or_none()
 

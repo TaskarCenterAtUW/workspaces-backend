@@ -151,10 +151,14 @@ that is a code change in the read routes, not a test change.
 SQLModel declares columns as plain annotations (e.g. `id: int | None`) rather
 than `Mapped[int]`, so Pyright reads `Column == value` as `bool` and flags
 `where()`/`exec()`/`select()`/`selectinload` calls and `result.rowcount`. These
-are framework false positives. The three repository modules carry a documented
-file-level `# pyright: reportArgumentType=false, reportCallIssue=false,
-reportAttributeAccessIssue=false` directive; other rules stay enabled so real
-bugs still surface. Keep `api/` and `tests/` at zero Pyright errors.
+are framework false positives. Suppress them with **targeted, inline**
+`# pyright: ignore[<rule>]` comments at the specific offending call sites (e.g.
+`# pyright: ignore[reportArgumentType]` on a `.where(Column == value)` line) —
+not blanket file-level `# pyright:` directives, which would hide genuine errors
+of those rules elsewhere in the file. Note Black may wrap a long query line and
+move a trailing comment off the flagged line; place the ignore on the line
+Pyright actually reports (often the inner `== value` line) so it survives
+formatting. Keep `api/` and `tests/` at zero Pyright errors.
 
 ### Alembic enum migrations
 

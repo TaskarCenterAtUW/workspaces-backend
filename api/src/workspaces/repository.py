@@ -1,10 +1,3 @@
-# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
-# than ``Mapped[int]``, so Pyright reads ``Column == value`` as a ``bool`` and
-# misjudges ``where()``/``select()`` calls, ``result.rowcount``, and table-model
-# constructors. These are framework false positives; the queries are valid at
-# runtime. Genuine type bugs surface via other rules, which stay enabled.
-# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false
-
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -115,13 +108,16 @@ class WorkspaceRepository:
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
             )
-            .where(WorkspaceLongQuest.workspace_id == workspace_id)
+            .where(
+                WorkspaceLongQuest.workspace_id
+                == workspace_id  # pyright: ignore[reportArgumentType]
+            )
         )
         result = await self.session.execute(query)
 
-        if result.rowcount == 0:
+        if result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
             self.session.add(
-                WorkspaceLongQuest(
+                WorkspaceLongQuest(  # pyright: ignore[reportCallIssue]
                     workspace_id=workspace_id,
                     type=QuestDefinitionType[longform_quest_data.type].value,
                     definition=longform_quest_data.definition,
@@ -173,14 +169,17 @@ class WorkspaceRepository:
                 modifiedBy=current_user.user_uuid,
                 modifiedByName=current_user.user_name,
             )
-            .where(WorkspaceImagery.workspace_id == workspace_id)
+            .where(
+                WorkspaceImagery.workspace_id
+                == workspace_id  # pyright: ignore[reportArgumentType]
+            )
         )
 
         result = await self.session.execute(query)
 
         if result.rowcount == 0:  # type: ignore[attr-defined]
             self.session.add(
-                WorkspaceImagery(
+                WorkspaceImagery(  # pyright: ignore[reportCallIssue]
                     workspace_id=workspace_id,
                     definition=imagery_def_data.definition,
                     modifiedBy=current_user.user_uuid,

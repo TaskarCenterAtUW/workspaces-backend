@@ -1,11 +1,3 @@
-# SQLModel declares columns as plain annotations (e.g. ``id: int | None``) rather
-# than ``Mapped[int]``, so Pyright reads ``Column == value`` as ``bool`` and
-# misjudges ``where()``/``select()``/``selectinload`` calls; the nullable
-# ``deleted_at`` column additionally trips ``reportOptionalMemberAccess`` on
-# ``.is_(None)``. These are framework false positives; the queries are valid at
-# runtime. Other rules stay enabled so real bugs still surface.
-# pyright: reportArgumentType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
-
 from __future__ import annotations
 
 import json
@@ -96,7 +88,7 @@ def _aoi_to_shapely(aoi: AoiInput) -> ShapelyMultiPolygon:
     if not geom.is_valid:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"AOI is not a valid polygon: {geom.is_valid_reason if hasattr(geom, 'is_valid_reason') else 'self-intersection or invalid ring'}",
+            detail=f"AOI is not a valid polygon: {geom.is_valid_reason if hasattr(geom, 'is_valid_reason') else 'self-intersection or invalid ring'}",  # pyright: ignore[reportAttributeAccessIssue]
         )
 
     return geom
@@ -221,7 +213,11 @@ class TaskingProjectRepository:
             select(TaskingProject).where(
                 (TaskingProject.id == project_id)
                 & (TaskingProject.workspace_id == workspace_id)
-                & (TaskingProject.deleted_at.is_(None))
+                & (
+                    TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
             )
         )
         project = result.scalar_one_or_none()
@@ -387,7 +383,9 @@ class TaskingProjectRepository:
         col = col.desc() if order_dir.upper() == "DESC" else col.asc()
 
         where = (TaskingProject.workspace_id == workspace_id) & (
-            TaskingProject.deleted_at.is_(None)
+            TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                None
+            )
         )
         if status_filter is not None:
             where = where & (TaskingProject.status == status_filter)
@@ -634,7 +632,10 @@ class TaskingProjectRepository:
             try:
                 await self.session.execute(
                     update(TaskingProject)
-                    .where(TaskingProject.id == project.id)
+                    .where(
+                        TaskingProject.id
+                        == project.id  # pyright: ignore[reportArgumentType]
+                    )
                     .values(**updates)
                 )
                 await self._audit(
@@ -678,7 +679,9 @@ class TaskingProjectRepository:
         # Soft-delete the project, hard-delete its tasks, flag audit rows.
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(deleted_at=datetime.now())
         )
         await self.session.execute(
@@ -748,7 +751,9 @@ class TaskingProjectRepository:
 
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(status=ProjectStatus.OPEN, updated_at=datetime.now())
         )
         await self._audit(
@@ -799,7 +804,9 @@ class TaskingProjectRepository:
 
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(status=ProjectStatus.DONE, updated_at=datetime.now())
         )
         await self._audit(
@@ -847,7 +854,10 @@ class TaskingProjectRepository:
         if project.status == ProjectStatus.DONE:
             await self.session.execute(
                 update(TaskingProject)
-                .where(TaskingProject.id == project.id)
+                .where(
+                    TaskingProject.id
+                    == project.id  # pyright: ignore[reportArgumentType]
+                )
                 .values(status=ProjectStatus.OPEN, updated_at=datetime.now())
             )
 
@@ -870,7 +880,7 @@ class TaskingProjectRepository:
         geom = to_shape(project.aoi)
         if isinstance(geom, ShapelyPolygon):  # defensive
             geom = ShapelyMultiPolygon([geom])
-        return _shapely_to_aoi_feature(geom)
+        return _shapely_to_aoi_feature(geom)  # pyright: ignore[reportArgumentType]
 
     async def upload_aoi(
         self, workspace_id: int, project_id: int, aoi: AoiInput, current_user: UserInfo
@@ -893,7 +903,9 @@ class TaskingProjectRepository:
         )
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(
                 aoi=from_shape(geom, srid=4326),
                 task_boundary_type=None,
@@ -1355,7 +1367,9 @@ class TaskingProjectRepository:
         )
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(
                 aoi=None,
                 task_boundary_type=None,
