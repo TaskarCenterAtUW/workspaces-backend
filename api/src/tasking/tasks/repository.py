@@ -171,7 +171,11 @@ def _generate_grid_over_aoi(
                     # `intersection` can return a Polygon, MultiPolygon,
                     # or GeometryCollection; retain polygon pieces only.
                     geoms = (
-                        list(clipped.geoms) if hasattr(clipped, "geoms") else [clipped]
+                        list(
+                            clipped.geoms  # pyright: ignore[reportAttributeAccessIssue]
+                        )
+                        if hasattr(clipped, "geoms")
+                        else [clipped]
                     )
                     for piece in geoms:
                         if isinstance(piece, ShapelyPolygon) and piece.area > 0:
@@ -207,7 +211,11 @@ class TaskingTaskRepository:
             select(TaskingProject).where(
                 (TaskingProject.id == project_id)
                 & (TaskingProject.workspace_id == workspace_id)
-                & (TaskingProject.deleted_at.is_(None))
+                & (
+                    TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
             )
         )
         project = rs.scalar_one_or_none()
@@ -218,7 +226,9 @@ class TaskingTaskRepository:
     async def _get_task(self, project_id: int, task_number: int) -> TaskingTask:
         rs = await self.session.execute(
             select(TaskingTask).where(
-                (TaskingTask.project_id == project_id)
+                (
+                    TaskingTask.project_id == project_id
+                )  # pyright: ignore[reportArgumentType]
                 & (TaskingTask.task_number == task_number)
             )
         )
@@ -232,7 +242,12 @@ class TaskingTaskRepository:
     async def _get_active_lock(self, task_id: int) -> Optional[TaskingLock]:
         rs = await self.session.execute(
             select(TaskingLock).where(
-                (TaskingLock.task_id == task_id) & (TaskingLock.released_at.is_(None))
+                (TaskingLock.task_id == task_id)
+                & (
+                    TaskingLock.released_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
             )
         )
         return rs.scalar_one_or_none()
@@ -244,7 +259,11 @@ class TaskingTaskRepository:
             select(TaskingLock).where(
                 (TaskingLock.project_id == project_id)
                 & (TaskingLock.user_auth_uid == user_auth_uid)
-                & (TaskingLock.released_at.is_(None))
+                & (
+                    TaskingLock.released_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
             )
         )
         return rs.scalar_one_or_none()
@@ -382,7 +401,9 @@ class TaskingTaskRepository:
         if isinstance(aoi_geom, ShapelyPolygon):
             aoi_geom = ShapelyMultiPolygon([aoi_geom])
 
-        cells = _generate_grid_over_aoi(aoi_geom, float(cell_size_m))
+        cells = _generate_grid_over_aoi(
+            aoi_geom, float(cell_size_m)  # pyright: ignore[reportArgumentType]
+        )
         if not cells:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -529,7 +550,9 @@ class TaskingTaskRepository:
             task = TaskingTask(
                 project_id=project.id,  # type: ignore[arg-type]
                 task_number=idx + 1,
-                area_sqkm=round(_polygon_area_km2(poly), 4),
+                area_sqkm=round(
+                    _polygon_area_km2(poly), 4
+                ),  # pyright: ignore[reportArgumentType]
                 status=TaskStatus.TO_MAP,
                 geometry=from_shape(poly, srid=4326),
             )
@@ -541,7 +564,9 @@ class TaskingTaskRepository:
         # Set boundary type + bump project updated_at.
         await self.session.execute(
             update(TaskingProject)
-            .where(TaskingProject.id == project.id)
+            .where(
+                TaskingProject.id == project.id  # pyright: ignore[reportArgumentType]
+            )
             .values(
                 task_boundary_type=body.source,
                 updated_at=datetime.now(),
@@ -608,7 +633,9 @@ class TaskingTaskRepository:
             where = where & (TaskingTask.last_mapper_id == str(last_mapper_id))
 
         total_q = await self.session.execute(
-            select(func.count()).select_from(TaskingTask).where(where)
+            select(func.count())
+            .select_from(TaskingTask)
+            .where(where)  # pyright: ignore[reportArgumentType]
         )
         total = int(total_q.scalar() or 0)
 
@@ -618,8 +645,10 @@ class TaskingTaskRepository:
 
         rows = await self.session.execute(
             select(TaskingTask)
-            .where(where)
-            .order_by(TaskingTask.task_number.asc())
+            .where(where)  # pyright: ignore[reportArgumentType]
+            .order_by(
+                TaskingTask.task_number.asc()  # pyright: ignore[reportAttributeAccessIssue]
+            )
             .limit(page_size)
             .offset(offset)
         )
@@ -719,7 +748,10 @@ class TaskingTaskRepository:
         )
         if other is not None:
             other_task_rs = await self.session.execute(
-                select(TaskingTask).where(TaskingTask.id == other.task_id)
+                select(TaskingTask).where(
+                    TaskingTask.id
+                    == other.task_id  # pyright: ignore[reportArgumentType]
+                )
             )
             other_task = other_task_rs.scalar_one()
             summary = ExistingLockSummary(
@@ -795,7 +827,7 @@ class TaskingTaskRepository:
         now = datetime.now()
         await self.session.execute(
             update(TaskingLock)
-            .where(TaskingLock.id == lock.id)
+            .where(TaskingLock.id == lock.id)  # pyright: ignore[reportArgumentType]
             .values(released_at=now, release_reason=release_reason)
         )
         await self._audit(
@@ -838,7 +870,7 @@ class TaskingTaskRepository:
         new_expiry = prev + timedelta(hours=project.lock_timeout_hours)
         await self.session.execute(
             update(TaskingLock)
-            .where(TaskingLock.id == lock.id)
+            .where(TaskingLock.id == lock.id)  # pyright: ignore[reportArgumentType]
             .values(expires_at=new_expiry)
         )
         await self._audit(
@@ -876,7 +908,7 @@ class TaskingTaskRepository:
         if lock is not None:
             await self.session.execute(
                 update(TaskingLock)
-                .where(TaskingLock.id == lock.id)
+                .where(TaskingLock.id == lock.id)  # pyright: ignore[reportArgumentType]
                 .values(
                     released_at=now,
                     release_reason=LockReleaseReason.RESET,
@@ -897,7 +929,7 @@ class TaskingTaskRepository:
         if previous_status != TaskStatus.TO_MAP:
             await self.session.execute(
                 update(TaskingTask)
-                .where(TaskingTask.id == task.id)
+                .where(TaskingTask.id == task.id)  # pyright: ignore[reportArgumentType]
                 .values(
                     status=TaskStatus.TO_MAP,
                     last_mapper_id=None,
@@ -919,7 +951,7 @@ class TaskingTaskRepository:
             # Clear last_mapper_id even if state was already to_map.
             await self.session.execute(
                 update(TaskingTask)
-                .where(TaskingTask.id == task.id)
+                .where(TaskingTask.id == task.id)  # pyright: ignore[reportArgumentType]
                 .values(last_mapper_id=None, updated_at=now)
             )
 
@@ -1001,7 +1033,7 @@ class TaskingTaskRepository:
             new_expiry = now + timedelta(hours=project.lock_timeout_hours)
             await self.session.execute(
                 update(TaskingLock)
-                .where(TaskingLock.id == lock.id)
+                .where(TaskingLock.id == lock.id)  # pyright: ignore[reportArgumentType]
                 .values(expires_at=new_expiry)
             )
             await self._audit(
@@ -1067,7 +1099,7 @@ class TaskingTaskRepository:
         # Release the lock (auto_unlock).
         await self.session.execute(
             update(TaskingLock)
-            .where(TaskingLock.id == lock.id)
+            .where(TaskingLock.id == lock.id)  # pyright: ignore[reportArgumentType]
             .values(
                 released_at=now,
                 release_reason=LockReleaseReason.AUTO_UNLOCK,
@@ -1087,7 +1119,7 @@ class TaskingTaskRepository:
         # Apply state transition.
         await self.session.execute(
             update(TaskingTask)
-            .where(TaskingTask.id == task.id)
+            .where(TaskingTask.id == task.id)  # pyright: ignore[reportArgumentType]
             .values(
                 status=new_status,
                 last_mapper_id=new_last_mapper,
@@ -1153,7 +1185,8 @@ class TaskingTaskRepository:
             },
         )
         await self.session.commit()
-        return cs.id  # Return the ID of the newly inserted changeset row
+        # PK is populated after flush(); SQLModel still types it ``int | None``.
+        return cs.id  # type: ignore[return-value]
 
 
 __all__ = ["TaskingTaskRepository"]

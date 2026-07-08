@@ -276,7 +276,17 @@ async def add_project_role(
 ):
     await assert_workspace_visible(workspace_id, current_user, workspace_repo)
     await project_repo.assert_can_manage_roles(workspace_id, project_id, current_user)
-    return await project_repo.add_role(workspace_id, project_id, body)
+    # Get the project Group ID and Bearer token
+    brearer_token = current_user.credentials
+    workspace = await workspace_repo.getById(current_user, workspace_id)
+    project_group_id = str(workspace.tdeiProjectGroupId)
+    return await project_repo.add_role(
+        workspace_id,
+        project_id,
+        body,
+        user_token=brearer_token,
+        project_group_id=project_group_id,
+    )
 
 
 @router.get(

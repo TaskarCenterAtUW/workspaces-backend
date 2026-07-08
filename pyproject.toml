@@ -37,10 +37,30 @@ dependencies = [
     "shapely>=2.1.2",
 ]
 
+[project.optional-dependencies]
+# Integration tests boot a real PostGIS database via testcontainers (needs a
+# running Docker daemon). Install with `uv sync --extra integration` or
+# `--all-extras`, then run them with `pytest -m integration`.
+integration = [
+    "testcontainers[postgres]>=4.0.0",
+]
+
 [tool.pytest.ini_options]
 addopts = "-v --cov=api --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: tests that require a live PostGIS database (Docker + testcontainers)",
+]
+filterwarnings = [
+    # SQLModel deprecates `session.execute()` in favour of `session.exec()`,
+    # but many repository queries are raw `text()` SQL where `execute()` is the
+    # correct call. Silence this one nudge rather than rewrite ~85 call sites;
+    # every other warning still surfaces. (?s) lets `.*` span the multi-line
+    # warning body.
+    "ignore:(?s).*You probably want to use .session.exec:DeprecationWarning",
+]
 
 [tool.black]
 line-length = 88
@@ -55,3 +75,7 @@ force_grid_wrap = 0
 use_parentheses = true
 ensure_newline_before_comments = true
 line_length = 88
+# Declare our packages explicitly. Without this, the top-level alembic/ dir
+# makes isort misclassify the installed `alembic` package as first-party.
+known_first_party = ["api", "tests"]
+known_third_party = ["alembic"]

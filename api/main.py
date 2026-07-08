@@ -2,6 +2,7 @@ import os
 import re
 import sys
 from contextlib import asynccontextmanager
+from xml.etree import ElementTree as ET
 
 import httpx
 import sentry_sdk
@@ -22,6 +23,7 @@ from api.core.security import (
     init_tdei_client,
     validate_token,
 )
+from api.src.osm.routes import router as osm_router
 from api.src.tasking.audit.routes import router as tasking_audit_router
 from api.src.tasking.projects.routes import me_router as tasking_me_router
 from api.src.tasking.projects.routes import router as tasking_projects_router
@@ -35,9 +37,11 @@ from api.utils.migrations import run_migrations
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,
     environment=os.getenv("ENV", "unknown"),
+    release=os.getenv("CODE_VERSION", "unknown"),
     debug=settings.DEBUG,
 )
 
+# Kept alongside `release` for any dashboards that query the `version` tag.
 sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
 
 # Set up logging configuration
@@ -48,6 +52,15 @@ logger = get_logger(__name__)
 
 # Shared HTTP client for OSM proxy. Reuses connection pool across requests:
 _osm_client: httpx.AsyncClient | None = None
+
+
+def _require_osm_client() -> httpx.AsyncClient:
+    if _osm_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OSM proxy client is not initialized",
+        )
+    return _osm_client
 
 
 @asynccontextmanager
@@ -92,6 +105,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(osm_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
@@ -119,15 +133,31 @@ def get_workspace_repository(
     return WorkspaceRepository(session)
 
 
+# @test: Any headers defined in STRIP_REQUEST_HEADERS are not forwarded to the OSM service
+# @test: Any headers defined in HOP_BY_HOP_HEADERS are not forwarded to the client
+# @test: /api/capabilities.json is proxied to the OSM service without requiring authentication
+# @test: Any request to the OSM service that returns a 4xx or 5xx status code is logged to Sentry with the correct message and the correct status code is returned to the client
+# @test: Any request that matches the RegEx in TENANT_BYPASSES is allowed to proceed without an X-Workspace header,
+#       and any request that does not match the Regex in TENANT_BYPASSES and does not have an X-Workspace header returns a 400 Bad Request error
+# @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
+# @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error
+# @test: Any request with a missing X-Workspace header that does not match the TENANT_BYPASSES returns a 400 Bad Request error
+# @test: All the values for Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Host, and X-Forwarded-Proto headers are correctly set when proxied to the OSM service
+# @test: The response from the OSM service is correctly streamed back to the client with the correct status code and headers, and the response body is not modified in any way
+
 # This API route catches anything not otherwise defined above--MUST be last in this file
 #
 # h/t: https://stackoverflow.com/questions/70610266/proxy-an-external-website-using-python-fast-api-not-supporting-query-params
 #
 
-# According to HTTP/1.1, a proxy must not forward these "hop-by-hop" headers:
+# According to HTTP/1.1, a proxy must not forward these "hop-by-hop" headers.
+# We also exclude Content-Length because httpx recomputes the length from the
+# actual content bytes, and this value may differ from the original after the
+# proxy rewrites body content (i.e. after changset tag injection).
 HOP_BY_HOP_HEADERS = frozenset(
     [
         "connection",
+        "content-length",
         "keep-alive",
         "proxy-authenticate",
         "proxy-authorization",
@@ -157,18 +187,22 @@ TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
     (re.compile(r"^/api/0\.6/user/[^/]+$"), {"PUT"}),
 ]
 
+# Changeset create path — buffered for potential tag injection
+_CHANGESET_CREATE_RE = re.compile(r"^/api/0\.6/changeset/create$")
+
 
 @app.get("/api/capabilities.json")
 async def capabilities(request: Request):
     """Proxy OSM capabilities manifest without requiring authentication."""
 
+    client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
     req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
         if k.lower() not in STRIP_REQUEST_HEADERS
     ] + [
-        (b"Host", _osm_client.base_url.host.encode()),
+        (b"Host", client.base_url.host.encode()),
         (b"X-Real-IP", client_host.encode()),
         (b"X-Forwarded-For", client_host.encode()),
         (b"X-Forwarded-Host", (request.url.hostname or "").encode()),
@@ -176,10 +210,10 @@ async def capabilities(request: Request):
     ]
 
     url = httpx.URL(path="/api/capabilities.json")
-    rp_req = _osm_client.build_request("GET", url, headers=req_headers)
+    rp_req = client.build_request("GET", url, headers=req_headers)
 
     try:
-        rp_resp = await _osm_client.send(rp_req, stream=True)
+        rp_resp = await client.send(rp_req, stream=True)
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -230,6 +264,7 @@ async def catch_all(
             ),
         )
 
+    workspace_id: int | None = None
     if request.headers.get("X-Workspace") is not None:
         try:
             workspace_id = int(request.headers.get("X-Workspace") or "-1")
@@ -258,7 +293,7 @@ async def catch_all(
         path=request.url.path.strip(), query=request.url.query.encode("utf-8")
     )
 
-    client = _osm_client
+    client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
     req_headers = [
         (k.encode(), v.encode())
@@ -272,8 +307,33 @@ async def catch_all(
         (b"X-Forwarded-Proto", request.url.scheme.encode()),
     ]
 
+    # For changeset creation, inject review_requested tag for contributors:
+    request_content: object = request.stream()
+    if (
+        workspace_id is not None
+        and request.method == "PUT"
+        and _CHANGESET_CREATE_RE.fullmatch(request.url.path)
+    ):
+        workspace = await repository.getById(current_user, workspace_id)
+
+        if (
+            workspace.autoFlagReview
+            and current_user.effective_role(workspace_id) == "contributor"
+        ):
+            logger.info("Injecting review request tag")
+            body = await request.body()
+            root = ET.fromstring(body)
+            changeset_el = root.find("changeset")
+            if changeset_el is not None:
+                ET.SubElement(changeset_el, "tag", k="review_requested", v="yes")
+            request_content = ET.tostring(root, encoding="unicode").encode("utf-8")
+        else:
+            # Body was not consumed; fall back to buffered bytes to avoid
+            # double-read issues after the workspace fetch above.
+            request_content = await request.body()
+
     rp_req = client.build_request(
-        request.method, url, headers=req_headers, content=request.stream()
+        request.method, url, headers=req_headers, content=request_content
     )
     try:
         rp_resp = await client.send(rp_req, stream=True)

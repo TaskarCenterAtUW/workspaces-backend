@@ -1,5 +1,4 @@
 import json
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -12,15 +11,16 @@ from api.core.json_schema import (
 )
 from api.core.logging import get_logger
 from api.core.security import UserInfo, evict_user_from_cache, validate_token
+from api.src.osm.repository import OSMRepository
+from api.src.osm.routes import get_osm_repo
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
-from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
+from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
     QuestDefinitionTypeName,
     QuestSettingsPatch,
     QuestSettingsResponse,
-    Workspace,
     WorkspaceCreate,
     WorkspaceImagery,
     WorkspacePatch,
@@ -40,17 +40,19 @@ def get_workspace_repository(
     return repository
 
 
-def get_osm_repository(
-    session: AsyncSession = Depends(get_osm_session),
-) -> OSMRepository:
-    repository = OSMRepository(session)
-    return repository
-
-
 def get_user_repository(
     session: AsyncSession = Depends(get_osm_session),
 ) -> UserRepository:
     return UserRepository(session)
+
+
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this method properly calls the repository method to fetch the workspace and that the repository method properly fetches the workspace from the database
+# @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
+# @test: Test that this method properly checks permissions to see if the user has access to the workspace and if they don't, it doesn't appear in the list
+# @test: Test that this method properly handles the case where the workspace does not exist and doesn't include it
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
+# @test: Test that this method's results match the values of the fetch-by-workspace-id method below; all workspaces in this list are retrievable via that method
 
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
@@ -65,6 +67,14 @@ async def get_my_workspaces(
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise
+
+
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this method properly calls the repository method to fetch the workspace and that the repository method properly fetches the workspace from the database
+# @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
+# @test: Test that this method properly checks permissions to see if the user has access to the workspace and returns a 403 if they do not
+# @test: Test that this method properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
 
 
 # Returns JSON payload or 204 if not found
@@ -99,11 +109,17 @@ async def get_workspace(
         raise
 
 
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
+# @test: Test taht this workspace returns proper values for a workspace that exists and that the bbox matches the expected values
+# @test: Test that this method properly handles the case where the workspace does not exist and returns a 404
+
+
 @router.get("/{workspace_id}/bbox", response_model=None)
 async def get_workspace_bbox(
     workspace_id: int,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
-    repository_osm: OSMRepository = Depends(get_osm_repository),
+    repository_osm: OSMRepository = Depends(get_osm_repo),
     current_user: UserInfo = Depends(validate_token),
 ):
     try:
@@ -116,6 +132,15 @@ async def get_workspace_bbox(
         raise
 
 
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+# @test: Test that this method properly calls the repository method to create the workspace and that the repository method properly creates the workspace in the database
+# @test: Test that this method properly sets the creator as the lead of the workspace and that the repository method properly assigns the lead role in the database
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceCreate and that the repository method properly creates the workspace in the database with those values
+# @test: Test that this method properly handles inputs that do not match the schema in WorkspaceCreate and that the repository method properly raises an error and does not update the workspace in the database with those values
+# @test: Test that this method won't allow users to modify an existing workspace in any way, or create a workspace with the same workspace_id as an existing one
+
+
 # Returns 201 on success?
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
@@ -126,6 +151,7 @@ async def create_workspace(
 ) -> dict[str, int]:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
+        assert workspace.id is not None  # freshly persisted workspace has an id
 
         # Assign the creator as lead so that non-POC members can manage their
         # own workspace:
@@ -146,6 +172,15 @@ async def create_workspace(
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
+
+
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this method properly calls the repository method to update the workspace and that the repository method properly updates the workspace in the database
+# @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
+# @test: Test that this method properly handles inputs that match the schema in WorkspacePatch and that the repository method properly updates the workspace in the database with those values
+# @test: Test that this method properly handles inputs that do not match the schema in WorkspacePatch and that the repository method properly raises an error and does not update the workspace in the database with those values
 
 
 @router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -172,6 +207,15 @@ async def update_workspace(
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
         raise
+
+
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this method properly calls the repository method to delete the workspace and that the repository method properly deletes the workspace from the database
+# @test: Test that this method properly handles the case where the workspace has members and that the repository method properly removes all member roles from the database
+# @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 
 
 # Returns 204 on success
@@ -201,6 +245,13 @@ async def delete_workspace(
 
 # QUESTS
 
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this method properly calls the repository method to fetch the long quest definition
+
+# FIXME: Why are there two methods to fetch the long quest? One for legacy purposes? Can we migrate callers?
+
 
 # Return the resolved quest definition content as JSON, or 204 if not set:
 @router.get("/{workspace_id}/quests/long")
@@ -224,6 +275,13 @@ async def get_long_quest_def(
             f"Failed to fetch quest def for workspace {workspace_id}: {str(e)}"
         )
         raise
+
+
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this method properly calls the repository method to fetch the long quest definition, and if it's not defined, the default value as defined
+#        in this method
 
 
 # Returns JSON payload or 204 if not set
@@ -264,6 +322,15 @@ async def get_long_quest_settings(
         raise
 
 
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly validates the long quest definition against the JSON schema and returns a 400 if the definition is invalid
+# @test: Test that this endpoint properly saves the long quest definition to the database and returns a 204 on success
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this endpoint properly handles input values that are properly formed, malformed and edge cases, including empty lists, null values, and large payloads
+# @test: Test that this method properly calls the repository method to save the long quest definition and that the repository method properly saves the definition to the database
+
+
 # Returns 204 on success
 @router.patch(
     "/{workspace_id}/quests/long/settings", status_code=status.HTTP_204_NO_CONTENT
@@ -281,6 +348,11 @@ async def update_long_quest_settings(
         )
 
     if long_quest_data.type == QuestDefinitionTypeName.JSON:
+        if long_quest_data.definition is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="'definition' is required for JSON quest type.",
+            )
         await validate_quest_definition_schema(long_quest_data.definition)
 
     try:
@@ -293,6 +365,11 @@ async def update_long_quest_settings(
 
 
 # IMAGERY
+
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this method properly calls the repository method to fetch the imagery definition
 
 
 # Returns JSON payload or 204 if not set
@@ -318,6 +395,15 @@ async def get_imagery_settings(
     except Exception as e:
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
+
+
+# @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
+# @test: Test that this endpoint properly validates the imagery definition against the JSON schema and returns a 400 if the definition is invalid
+# @test: Test that this endpoint properly saves the imagery definition to the database and returns a 204 on success
+# @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
+# @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
+# @test: Test that this endpoint properly handles input values that are properly formed, malformed and edge cases, including empty lists, null values, and large payloads
+# @test: Test that this method properly calls the repository method to save the imagery definition and that the repository method properly saves the definition to the database
 
 
 # Returns 204 on success

@@ -93,4 +93,4 @@ class TestProjectRoleAssignment:
         from uuid import uuid4
 
         with pytest.raises(ValidationError):
-            ProjectRoleAssignment(user_id=uuid4(), role="admin")
+            ProjectRoleAssignment(user_id=uuid4(), role="admin")  # type: ignore[arg-type]

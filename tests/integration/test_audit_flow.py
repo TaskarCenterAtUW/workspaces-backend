@@ -41,10 +41,23 @@ def _fc(*polys):
 # ---------------------------------------------------------------------------
 
 
-async def _open_project_with_tasks(client, workspace_id):
+async def _open_project_with_tasks(client, workspace_id, contributor):
+    """Create → AOI → save tasks → activate; returns the project id.
+
+    Caller must already be acting as a LEAD (every step here is LEAD-only).
+    ``contributor`` is a UserInfo already persisted in the OSM ``users`` table
+    (via ``extra_user_factory``); allocating it satisfies the activation
+    pre-check that a project have ≥1 contributor or validator.
+    """
     r = await client.post(
         API.format(wid=workspace_id),
-        json={"name": f"audit-{id(client)}", "review_required": False},
+        json={
+            "name": f"audit-{id(client)}",
+            "review_required": False,
+            "role_assignments": [
+                {"user_id": str(contributor.user_uuid), "role": "contributor"},
+            ],
+        },
     )
     assert r.status_code == 201, r.text
     pid = r.json()["id"]
@@ -56,7 +69,7 @@ async def _open_project_with_tasks(client, workspace_id):
 
     r = await client.post(
         f"{API.format(wid=workspace_id)}/{pid}/tasks/save",
-        json={"feature_collection": _fc(TASK_A, TASK_B)},
+        json={"source": "import", "feature_collection": _fc(TASK_A, TASK_B)},
     )
     assert r.status_code == 201, r.text
 
@@ -73,10 +86,11 @@ async def _open_project_with_tasks(client, workspace_id):
 class TestProjectAuditListing:
 
     async def test_lists_lifecycle_events_newest_first(
-        self, client, as_lead, seeded_workspace_id
+        self, client, as_lead, seeded_workspace_id, extra_user_factory
     ):
         """Project create → AOI upload → tasks → activate all appear in audit."""
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
 
         r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/audit")
         assert r.status_code == 200, r.text
@@ -91,9 +105,12 @@ class TestProjectAuditListing:
         ts = [row["occurred_at"] for row in body["results"]]
         assert ts == sorted(ts, reverse=True)
 
-    async def test_filter_by_event_type(self, client, as_lead, seeded_workspace_id):
+    async def test_filter_by_event_type(
+        self, client, as_lead, seeded_workspace_id, extra_user_factory
+    ):
         """`event_type` query narrows results to one kind."""
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
 
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/audit",
@@ -103,9 +120,12 @@ class TestProjectAuditListing:
         kinds = {row["event_type"] for row in r.json()["results"]}
         assert kinds == {"project_activated"}
 
-    async def test_filter_by_actor(self, client, as_lead, seeded_workspace_id):
+    async def test_filter_by_actor(
+        self, client, as_lead, seeded_workspace_id, extra_user_factory
+    ):
         """`actor_user_id` filters to events emitted by that user only."""
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/audit",
             params={"actor_user_id": str(as_lead.user_uuid)},
@@ -115,10 +135,11 @@ class TestProjectAuditListing:
             assert row["actor"]["user_id"] == str(as_lead.user_uuid)
 
     async def test_pagination_clamps_and_total(
-        self, client, as_lead, seeded_workspace_id
+        self, client, as_lead, seeded_workspace_id, extra_user_factory
     ):
         """Page size of 1 still returns one row; total reflects the whole set."""
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/audit",
             params={"page_size": 1, "page": 1},
@@ -143,12 +164,20 @@ class TestProjectAuditListing:
 class TestTaskAuditListing:
 
     async def test_lists_task_events(
-        self, client, as_lead, as_contributor, seeded_workspace_id
+        self,
+        client,
+        as_lead,
+        seeded_workspace_id,
+        extra_user_factory,
+        override_user,
     ):
         """Lock/unlock on a task surface in /tasks/{n}/audit."""
-        # `as_lead` opens the project (lead-only), then switch to contributor
-        # to perform lock + unlock so we generate task events.
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        # `as_lead` opens the project (lead-only) with a contributor allocated,
+        # then we switch to that contributor to lock + unlock so we generate
+        # task events.
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
+        override_user(contributor)
 
         # Contributor locks task 1.
         r = await client.post(
@@ -169,13 +198,18 @@ class TestTaskAuditListing:
         kinds = {row["event_type"] for row in body["results"]}
         assert "task_locked" in kinds
         assert "task_unlocked" in kinds
-        # Every row should reference the right task (by id or task_number).
+        # The endpoint scopes by the `task_id` column; the task number is
+        # echoed in `details` as `taskNumber` (camelCase, as emitted by the
+        # task repository). Every row should reference task 1.
         for row in body["results"]:
-            assert row["task_id"] is not None or row.get("task_number") == 1
+            assert row["details"].get("taskNumber") == 1
 
-    async def test_unknown_task_404(self, client, as_lead, seeded_workspace_id):
+    async def test_unknown_task_404(
+        self, client, as_lead, seeded_workspace_id, extra_user_factory
+    ):
         """A bogus task number on a real project returns 404."""
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/99/audit"
         )
@@ -190,10 +224,11 @@ class TestTaskAuditListing:
 class TestAuditIncludeDeleted:
 
     async def test_deleted_project_hidden_by_default(
-        self, client, as_lead, seeded_workspace_id
+        self, client, as_lead, seeded_workspace_id, extra_user_factory
     ):
         """A soft-deleted project's audit returns 404 unless `include_deleted=true`."""
-        pid = await _open_project_with_tasks(client, seeded_workspace_id)
+        contributor = await extra_user_factory("contributor")
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
 
         # Project must be closed before delete.
         r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/close")
