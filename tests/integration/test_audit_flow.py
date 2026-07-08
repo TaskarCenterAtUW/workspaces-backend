@@ -208,10 +208,11 @@ class TestTaskAuditListing:
         kinds = {row["event_type"] for row in body["results"]}
         assert "task_locked" in kinds
         assert "task_unlocked" in kinds
-        # The endpoint is task-scoped via `details.task_number`, so every row
-        # should reference task 1.
+        # The endpoint scopes by the `task_id` column; the task number is
+        # echoed in `details` as `taskNumber` (camelCase, as emitted by the
+        # task repository). Every row should reference task 1.
         for row in body["results"]:
-            assert row["details"].get("task_number") == 1
+            assert row["details"].get("taskNumber") == 1
 
     async def test_unknown_task_404(
         self, client, as_lead, seeded_workspace_id, extra_user_factory
