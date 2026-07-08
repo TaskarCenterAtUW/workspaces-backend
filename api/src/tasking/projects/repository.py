@@ -1006,11 +1006,25 @@ class TaskingProjectRepository:
 
         missing = await self._missing_user_auth_uids([body.user_id])
         if missing:  # User never logged in, so we try to provision them from TDEI
-            provisioned_users = await self._provision_users_from_tdei(
+            still_missing = await self._provision_users_from_tdei(
                 missing,
                 project_group_id=project_group_id,
                 bearer_token=user_token,
             )
+            # If TDEI doesn't list the user either, surface the same structured
+            # 422 the create path returns rather than falling through to a raw
+            # foreign-key violation with a generic string detail.
+            if still_missing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": (
+                            "The `user_id` is not a member of this "
+                            "workspace's project group in TDEI."
+                        ),
+                        "missing_user_ids": still_missing,
+                    },
+                )
 
         from sqlalchemy import text
 

@@ -37,11 +37,22 @@ dependencies = [
     "shapely>=2.1.2",
 ]
 
+[project.optional-dependencies]
+# Integration tests boot a real PostGIS database via testcontainers (needs a
+# running Docker daemon). Install with `uv sync --extra integration` or
+# `--all-extras`, then run them with `pytest -m integration`.
+integration = [
+    "testcontainers[postgres]>=4.0.0",
+]
+
 [tool.pytest.ini_options]
 addopts = "-v --cov=api --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: tests that require a live PostGIS database (Docker + testcontainers)",
+]
 
 [tool.black]
 line-length = 88
