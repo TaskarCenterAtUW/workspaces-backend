@@ -145,15 +145,16 @@ class TaskingAuditRepository:
         page, page_size = _clamp_page(page, page_size, max_page_size=200)
         order_dir = _normalise_dir(order_dir)
 
-        # `task_number` is stored inside `details` JSONB rather than as a
-        # column, so filter via the typed accessor.
+        # The task number is stored inside `details` JSONB rather than as a
+        # column, under the camelCase key `taskNumber` that the task
+        # repository emits, so filter via the typed accessor on that key.
         where = ["project_id = :pid"]
         params: dict = {"pid": project_id}
         if event_type is not None:
             where.append("event_type = :et")
             params["et"] = event_type.value
         if task_number is not None:
-            where.append("(details->>'task_number')::int = :tn")
+            where.append("(details->>'taskNumber')::int = :tn")
             params["tn"] = task_number
         if actor_user_id is not None:
             where.append("actor_user_auth_uid = :au")
@@ -215,14 +216,14 @@ class TaskingAuditRepository:
         page, page_size = _clamp_page(page, page_size, max_page_size=200)
         order_dir = _normalise_dir(order_dir)
 
-        # Match either `task_id = :tid` or the `task_number` in `details`
+        # Match either `task_id = :tid` or the `taskNumber` in `details`
         # — early audit rows for task creation set task_id but later
         # rows that reference a task (e.g. project-level lock-extensions)
-        # may only persist the task_number. Both forms point at the
+        # may only persist the taskNumber. Both forms point at the
         # same task, so OR them.
         where = [
             "project_id = :pid",
-            "(task_id = :tid OR (details->>'task_number')::int = :tn)",
+            "(task_id = :tid OR (details->>'taskNumber')::int = :tn)",
         ]
         params: dict = {"pid": project_id, "tid": task_id, "tn": task_number}
         if event_type is not None:

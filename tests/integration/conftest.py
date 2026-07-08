@@ -389,24 +389,45 @@ def _clear_token() -> None:
 
 
 @pytest.fixture
-def app():
-    """Real app for the integration suite.
+def app(request, task_session, osm_session):
+    """App fixture for everything under ``tests/integration/``.
 
-    Overrides the unit-suite ``app`` fixture (tests/conftest.py), which swaps
-    in ``FakeSession`` objects for the DB dependencies. Here we want the real
-    engines wired up by the autouse ``_per_test_db_sessions`` fixture, so this
-    just yields the actual FastAPI app untouched. The shared ``client``
-    fixture depends on ``app`` by name and picks this up for integration
-    tests. Per-test overrides (sessions, ``validate_token``) are installed and
-    torn down by their own fixtures.
+    This directory hosts two kinds of test that share one conftest:
+
+    * **Container-backed** tests (marked ``integration``) run against a real
+      PostGIS database; their DB sessions are the real engines wired by the
+      autouse ``_per_test_db_sessions`` fixture, so we hand back the app
+      untouched here.
+    * **FakeSession-backed** tests (unmarked — the CLAUDE.md data-fetcher
+      model) run the real routes/repositories but fake the ``AsyncSession``.
+      For those we wire the fakes in exactly like the unit-suite ``app``
+      fixture this shadows.
+
+    Keying on the ``integration`` marker keeps the container machinery from
+    leaking onto the FakeSession tests (which need no Docker).
     """
+    from api.core.database import get_osm_session, get_task_session
     from api.main import app as fastapi_app
 
-    return fastapi_app
+    if request.node.get_closest_marker("integration"):
+        yield fastapi_app
+        return
+
+    fastapi_app.dependency_overrides[get_task_session] = lambda: task_session
+    fastapi_app.dependency_overrides[get_osm_session] = lambda: osm_session
+    yield fastapi_app
+    fastapi_app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
-async def _per_test_db_sessions(_pg_urls):
+async def _per_test_db_sessions(request):
+    # Only container-backed (``integration``-marked) tests need real DB
+    # sessions; for FakeSession tests this fixture is a no-op so they never
+    # pull in ``_pg_urls`` (which would boot / require the testcontainer).
+    if not request.node.get_closest_marker("integration"):
+        yield
+        return
+
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
     from sqlmodel.ext.asyncio.session import AsyncSession
@@ -414,7 +435,7 @@ async def _per_test_db_sessions(_pg_urls):
     from api.core.database import get_osm_session, get_task_session
     from api.main import app
 
-    task_url, osm_url = _pg_urls
+    task_url, osm_url = request.getfixturevalue("_pg_urls")
 
     # NullPool disables connection reuse: each session checkout opens a
     # fresh connection on the current event loop and disposes it on

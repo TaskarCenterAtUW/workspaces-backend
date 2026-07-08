@@ -53,6 +53,14 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: tests that require a live PostGIS database (Docker + testcontainers)",
 ]
+filterwarnings = [
+    # SQLModel deprecates `session.execute()` in favour of `session.exec()`,
+    # but many repository queries are raw `text()` SQL where `execute()` is the
+    # correct call. Silence this one nudge rather than rewrite ~85 call sites;
+    # every other warning still surfaces. (?s) lets `.*` span the multi-line
+    # warning body.
+    "ignore:(?s).*You probably want to use .session.exec:DeprecationWarning",
+]
 
 [tool.black]
 line-length = 88
