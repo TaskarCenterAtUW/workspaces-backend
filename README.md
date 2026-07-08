@@ -12,7 +12,7 @@ authorization and authentication based on a TDEI/Keycloak JWT token (see main.py
 * ```development``` keep this up to date with the "development" environment / dev tag
 * ```staging``` keep this up to date with the "staging" environment / stage tag
 * ```production``` keep this up to date with the "production" environment / prod tag
-* 
+  
 ## To start on your local machine for dev work
 
 ```
