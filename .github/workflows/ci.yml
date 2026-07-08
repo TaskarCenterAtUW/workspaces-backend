@@ -33,7 +33,10 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     # Runs the same checks locals get from scripts/ci.sh: uv sync, isort,
-    # black, pyright, and pytest. The script runs every check and exits
-    # non-zero if any fail, so a single red step still lists all failures.
+    # black, pyright, and pytest. `--integration` additionally runs the
+    # PostGIS/testcontainers suite (`pytest -m integration`); the ubuntu-latest
+    # runner ships a running Docker daemon, which testcontainers needs to boot
+    # the database. The script runs every check and exits non-zero if any fail,
+    # so a single red step still lists all failures.
     - name: Run CI checks
-      run: ./scripts/ci.sh
+      run: ./scripts/ci.sh --integration
