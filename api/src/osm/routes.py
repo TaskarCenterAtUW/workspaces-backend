@@ -60,8 +60,9 @@ async def resolve_changeset(
     repository_osm: OSMRepository = Depends(get_osm_repo),
     current_user: UserInfo = Depends(validate_token),
 ) -> None:
-    if (not current_user.isWorkspaceLead(workspace_id)
-            and not current_user.isWorkspaceValidator(workspace_id)):
+    if not current_user.isWorkspaceLead(
+        workspace_id
+    ) and not current_user.isWorkspaceValidator(workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only workspace leads and validators can resolve changesets",

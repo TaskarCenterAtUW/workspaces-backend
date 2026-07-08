@@ -35,11 +35,7 @@ class OSMRepository:
 
         return retVal
 
-    async def getChangesetAdiff(
-        self,
-        workspace_id: int,
-        changeset_id: int
-    ) -> list:
+    async def getChangesetAdiff(self, workspace_id: int, changeset_id: int) -> list:
         await self.session.execute(
             text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
         )

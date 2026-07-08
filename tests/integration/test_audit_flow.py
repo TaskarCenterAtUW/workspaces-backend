@@ -90,9 +90,7 @@ class TestProjectAuditListing:
     ):
         """Project create → AOI upload → tasks → activate all appear in audit."""
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
 
         r = await client.get(f"{API.format(wid=seeded_workspace_id)}/{pid}/audit")
         assert r.status_code == 200, r.text
@@ -112,9 +110,7 @@ class TestProjectAuditListing:
     ):
         """`event_type` query narrows results to one kind."""
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
 
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/audit",
@@ -129,9 +125,7 @@ class TestProjectAuditListing:
     ):
         """`actor_user_id` filters to events emitted by that user only."""
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/audit",
             params={"actor_user_id": str(as_lead.user_uuid)},
@@ -145,9 +139,7 @@ class TestProjectAuditListing:
     ):
         """Page size of 1 still returns one row; total reflects the whole set."""
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/audit",
             params={"page_size": 1, "page": 1},
@@ -184,9 +176,7 @@ class TestTaskAuditListing:
         # then we switch to that contributor to lock + unlock so we generate
         # task events.
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         override_user(contributor)
 
         # Contributor locks task 1.
@@ -219,9 +209,7 @@ class TestTaskAuditListing:
     ):
         """A bogus task number on a real project returns 404."""
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
         r = await client.get(
             f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/99/audit"
         )
@@ -240,9 +228,7 @@ class TestAuditIncludeDeleted:
     ):
         """A soft-deleted project's audit returns 404 unless `include_deleted=true`."""
         contributor = await extra_user_factory("contributor")
-        pid = await _open_project_with_tasks(
-            client, seeded_workspace_id, contributor
-        )
+        pid = await _open_project_with_tasks(client, seeded_workspace_id, contributor)
 
         # Project must be closed before delete.
         r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/close")
