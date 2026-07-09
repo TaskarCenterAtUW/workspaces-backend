@@ -414,10 +414,8 @@ async def _validate_token_uncached(
 
     # workspace roles from OSM DB
     result = await osm_db_session.execute(
-        text(
-            "SELECT workspace_id, role FROM user_workspace_roles \
-                                               WHERE user_auth_uid = :auth_uid"
-        ),
+        text("SELECT workspace_id, role FROM user_workspace_roles \
+                                               WHERE user_auth_uid = :auth_uid"),
         {"auth_uid": str(r.user_uuid)},
     )
     workspaceRoles = list(result.mappings().all())
