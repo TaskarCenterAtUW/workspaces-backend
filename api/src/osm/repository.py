@@ -22,9 +22,11 @@ class OSMRepository:
             text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
         )
 
+        # OSM stores node latitude/longitude as integers scaled by 1e7
+        # (100-nanodegree units), so divide by 1e7 to return decimal degrees.
         sql_query = text(
-            "select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, \
-                    MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes"
+            "select MAX(latitude) / 1e7 AS max_lat, MAX(longitude) / 1e7 AS max_lon, \
+                    MIN(latitude) / 1e7 AS min_lat, MIN(longitude) / 1e7 AS min_lon from nodes"
         )
 
         result = await self.session.execute(sql_query)
