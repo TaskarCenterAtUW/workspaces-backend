@@ -1,7 +1,8 @@
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from api.core.exceptions import NotFoundException
+from api.core.exceptions import ForbiddenException, NotFoundException
+from api.core.security import UserInfo
 
 
 class OSMRepository:
@@ -50,10 +51,22 @@ class OSMRepository:
 
     async def resolveChangeset(
         self,
+        current_user: UserInfo,
         workspace_id: int,
         changeset_id: int,
-        reviewer_uuid: str,
     ) -> None:
+        # Defense in depth: resolving a changeset is a validator/lead
+        # capability. The route also enforces this, but gate here too so the
+        # repository cannot be misused from another call site.
+        if not current_user.isWorkspaceLead(
+            workspace_id
+        ) and not current_user.isWorkspaceValidator(workspace_id):
+            raise ForbiddenException(
+                "Only workspace leads and validators can resolve changesets"
+            )
+
+        reviewer_uuid = str(current_user.user_uuid)
+
         await self.session.execute(
             text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
         )
