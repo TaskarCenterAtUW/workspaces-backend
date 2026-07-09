@@ -71,9 +71,7 @@ async def resolve_changeset(
     await repository_ws.getById(current_user, workspace_id)
 
     try:
-        await repository_osm.resolveChangeset(
-            current_user, workspace_id, changeset_id
-        )
+        await repository_osm.resolveChangeset(current_user, workspace_id, changeset_id)
     except Exception as e:
         logger.error(
             f"Failed to resolve changeset {changeset_id}"
