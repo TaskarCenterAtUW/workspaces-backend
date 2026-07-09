@@ -79,24 +79,42 @@ at all). Validated against the code:
 * **Export to TDEI** — no endpoint exists in this backend.
 * **Move Workspace PG→PG** — not possible; `WorkspacePatch` has no
   `tdeiProjectGroupId` field, so no route can change a workspace's project group.
-* **Validate Changeset** and **Edit POSM Element** — these go through the OSM
-  proxy catch-all (`api/main.py`), which gates *every* proxied operation on
+* **Edit POSM Element** — goes through the OSM proxy catch-all
+  (`api/main.py`), which gates *every* proxied operation on
   `isWorkspaceContributor` alone. There is no Validator- or Lead-level check on
-  proxied traffic.
+  proxied traffic. Raw changeset commits (proxied `PUT /api/0.6/changeset/...`)
+  are likewise Contributor-gated; the proxy only *tags* a contributor's new
+  changeset with `review_requested=yes` when the workspace has `autoFlagReview`
+  set — it does not enforce validation.
 
-**The Validator role grants nothing extra at this layer.**
-`isWorkspaceValidator` exists in `api/core/security.py` but no endpoint
-authorizes on it — it only appears in the `role` field of `WorkspaceResponse`.
-A Validator and a Contributor have identical permissions in this backend.
+**Enforced here, Validator-gated (`isWorkspaceLead || isWorkspaceValidator` →
+403).** This is a native FastAPI route, not proxied traffic. Leads (and POC via
+`isWorkspaceLead`) inherit it:
+
+| Capability | Endpoint |
+|---|---|
+| Resolve/Validate Changeset | PUT `/workspaces/{id}/changesets/{changeset_id}/resolve` |
+
+Resolving clears the `review_requested` tag and stamps `reviewed_by` with the
+reviewer's UUID. The gate is enforced both in the route
+(`api/src/osm/routes.py`) and, defensively, inside
+`OSMRepository.resolveChangeset` (`api/src/osm/repository.py`).
+
+**The Validator role grants exactly one thing at this layer:** the ability to
+resolve changesets via the endpoint above. Aside from that, a Validator and a
+Contributor have identical permissions in this backend. `isWorkspaceValidator`
+otherwise only appears in the `role` field of `WorkspaceResponse`.
 
 **"Contributor" and "Authenticated User With PG/Workspace Association" are the
 same gate.** `isWorkspaceContributor` simply checks whether the workspace is in
 one of the user's project groups (`accessibleWorkspaceIds`), i.e. PG/workspace
 association — so both rows collapse to the same check.
 
-If the Validator/Lead distinctions for changeset validation and TDEI export are
-required, they must be enforced downstream (`workspaces-openstreetmap-website/`,
-`workspaces-cgimap/`) — that has not been audited here.
+Changeset *resolution* is Validator/Lead-gated here (see above). But the
+Validator/Lead distinction on raw changeset *commits* and TDEI export is not
+enforced at this layer; if required, it must be enforced downstream
+(`workspaces-openstreetmap-website/`, `workspaces-cgimap/`) — that has not been
+audited here.
 
 ## Testing
 

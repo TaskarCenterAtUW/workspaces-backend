@@ -72,7 +72,7 @@ async def resolve_changeset(
 
     try:
         await repository_osm.resolveChangeset(
-            workspace_id, changeset_id, str(current_user.user_uuid)
+            current_user, workspace_id, changeset_id
         )
     except Exception as e:
         logger.error(
