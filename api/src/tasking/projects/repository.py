@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -313,13 +314,18 @@ class TaskingProjectRepository:
             await self.session.execute(
                 text(
                     "INSERT INTO users (auth_uid, email, display_name, auth_provider, status, pass_crypt, data_public, email_valid, terms_seen, creation_time, terms_agreed, tou_agreed) "
-                    "VALUES (:uid, :email, :name, 'TDEI', 'active', 'none', true, true, true, (now() at time zone 'utc'), (now() at time zone 'utc'), (now() at time zone 'utc')) "
+                    "VALUES (:uid, :email, :name, 'TDEI', 'active', :pass_crypt, true, true, true, (now() at time zone 'utc'), (now() at time zone 'utc'), (now() at time zone 'utc')) "
                     "ON CONFLICT (auth_uid) DO NOTHING"
                 ),
                 params={
                     "uid": uid,
                     "email": member.email,
                     "name": member.display_name,
+                    # OSM validates pass_crypt length 8..255; a too-short value
+                    # makes the user invalid and breaks Rails ops that re-validate
+                    # the author (changeset/note comments). TDEI manages auth, so
+                    # this is a throwaway.
+                    "pass_crypt": secrets.token_hex(16),
                 },
             )
             resolved.add(uid)

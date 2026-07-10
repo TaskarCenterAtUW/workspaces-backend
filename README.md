@@ -77,6 +77,47 @@ Every image tag, database name/user, and server host is parameterized by `${ENV}
 (`dev` / `stage` / `prod`), and secrets are injected from the shell environment
 (`${WS_TASKS_DB_PASS}`, `${WS_OSM_DB_PASS}`, `${WS_OSM_SECRET_KEY_BASE}`). Branches map to these
 environments — see the Branch Index below.
+## What the proxy must provide for osm-rails / osm-web
+
+This backend is the **only entry point** to the OSM tier (osm-rails + cgimap,
+behind `osm-web`): in the deployment, the public OSM host routes to this
+container, which proxies `/api/0.6/*` to `WS_OSM_HOST` (default
+`http://osm-web`). For the OSM services to work, the proxy must uphold the
+following contract. `CLAUDE.md` has the full rationale.
+
+1. **Bridge TDEI auth into OSM's OAuth2.** osm-rails authenticates the API *only*
+   via doorkeeper OAuth2 (`oauth_access_tokens`); it has no TDEI/JWT path. So on
+   token validation the backend mirrors the TDEI JWT into `oauth_access_tokens`
+   in the OSM DB (the "token bridge" in `api/core/security.py`), and forwards the
+   incoming `Authorization: Bearer <token>` header unchanged. Then osm-rails and
+   cgimap authenticate the token via plain OAuth2. Controlled by
+   `WS_OSM_TOKEN_BRIDGE_ENABLED` (on by default) — with it off, osm-rails returns
+   **401** for TDEI tokens. The backend auto-creates the doorkeeper application
+   (and a system user to own it), so no manual OSM setup is required.
+
+2. **Provision valid OSM `users` rows.** The backend creates OSM `users` rows for
+   TDEI users (`auth_provider='TDEI'`, `auth_uid` = the JWT `sub`). These must
+   satisfy OSM's `User` validations — in particular `pass_crypt` length 8..255.
+   A too-short value is invisible to cgimap but makes osm-rails operations that
+   re-validate the user fail (e.g. posting a changeset comment or a note),
+   surfacing as *"Unable to serialize … without an id"*. The
+   `alembic_osm` migration `*_heal_short_tdei_pass_crypt` repairs legacy rows.
+
+3. **Carry workspace tenancy.** Workspace-scoped OSM requests must include an
+   `X-Workspace: <id>` header. The proxy authorizes it against the caller's
+   workspaces and forwards it (it is *not* stripped) so cgimap/osm-rails scope to
+   the `workspace-<id>` schema. A few paths are exempt (`TENANT_BYPASSES` in
+   `api/main.py`): workspace create/delete (`PUT`/`DELETE /api/0.6/workspaces/{id}`)
+   and user provisioning during sign-in (`PUT /api/0.6/user/{uid}`).
+
+4. **Set the proxy headers.** The proxy rewrites `Host` to the OSM host and sets
+   `X-Real-IP` / `X-Forwarded-For` / `-Host` / `-Proto`, while stripping
+   hop-by-hop headers and any spoofed forwarding headers from the client. It does
+   *not* strip `Authorization` or `X-Workspace`.
+
+5. **Connectivity.** `WS_OSM_HOST` must reach `osm-web`, and the backend needs
+   **both** `OSM_DATABASE_URL` and `TASK_DATABASE_URL` — the token bridge and
+   user provisioning write to the OSM database.
 
 ## Branch Index
 
