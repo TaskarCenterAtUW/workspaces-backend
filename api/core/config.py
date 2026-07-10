@@ -1,3 +1,5 @@
+import json
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,8 +12,12 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Workspaces API"
 
-    # Comma separated list of origins, or "*" to allow all origins. Defaults to an empty list.
-    # Example: CORS_ORIGINS="https://workspaces.example.com,https://leaderboard.example.com"
+    # Allowed CORS origins. Accepts either a comma-separated list OR a JSON
+    # array (the deployment stack historically supplies a JSON array), plus "*"
+    # for all origins. Read via `cors_origins_list`, not this raw string.
+    # Examples:
+    #   CORS_ORIGINS="https://workspaces.example.com,https://leaderboard.example.com"
+    #   CORS_ORIGINS='["https://workspaces.example.com"]'
     CORS_ORIGINS: str = ""
 
     TASK_DATABASE_URL: str = (
@@ -54,6 +60,26 @@ class Settings(BaseSettings):
     )
 
     SENTRY_DSN: str = ""
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Allowed CORS origins as a list.
+
+        Tolerates both formats the deployment has used: a JSON array
+        (``["https://a","https://b"]``) and a comma-separated string
+        (``https://a,https://b``). ``"*"`` is passed through as-is.
+        """
+        raw = self.CORS_ORIGINS.strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                return [str(o).strip() for o in parsed if str(o).strip()]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     model_config = SettingsConfigDict(
         env_file=".env",
