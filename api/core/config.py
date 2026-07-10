@@ -38,6 +38,21 @@ class Settings(BaseSettings):
     # proxy destination--"osm-web" is a virtual docker network endpoint
     WS_OSM_HOST: str = "http://osm-web"
 
+    # OSM token bridge: when a TDEI token is validated, mirror it into the OSM
+    # database's `oauth_access_tokens` table so osm-rails (doorkeeper) and cgimap
+    # authenticate it via their standard OAuth2 path -- no custom JWT handling
+    # needed in those services. Disabled while WS_OSM_OAUTH_APPLICATION_ID is 0.
+    # Set it to the id of the doorkeeper `oauth_applications` row these tokens
+    # should belong to (create one via the OSM `register_apps` rake task or SQL).
+    WS_OSM_OAUTH_APPLICATION_ID: int = 0
+
+    # Scopes granted to the mirrored token. Must cover the OSM API operations the
+    # frontend performs; see `lib/oauth.rb` in the OSM website for valid values.
+    WS_OSM_OAUTH_SCOPES: str = (
+        "read_prefs write_prefs write_api write_changeset_comments "
+        "read_gpx write_gpx write_notes"
+    )
+
     SENTRY_DSN: str = ""
 
     model_config = SettingsConfigDict(
