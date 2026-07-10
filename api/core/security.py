@@ -1,3 +1,4 @@
+import time
 from enum import StrEnum
 from uuid import UUID
 
@@ -19,6 +20,8 @@ from api.src.users.schemas import WorkspaceUserRoleType
 # @test: Test that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
 # @test: Test that any failed network requests are handled gracefully
 # @test: Test that the caching mechanism works correctly and evicts entries when roles change
+# @test: Test that a validated token is mirrored into the OSM oauth_access_tokens table (with the user provisioned and expires_in from the JWT exp) when WS_OSM_OAUTH_APPLICATION_ID is set, and is a no-op otherwise
+# @test: Test that re-presenting a token reactivates its OSM row (revoked_at cleared, expiry refreshed) and that a rotated (superseded) token is revoked, both gated on WS_OSM_OAUTH_APPLICATION_ID
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -316,6 +319,14 @@ async def validate_token(
             logger.info("Token validation cache hit")
             return cached
         logger.info("Token validation cache miss: token rotated")
+        # The old token is superseded; revoke its OSM row so it stops
+        # authenticating against osm-rails/cgimap before its own exp.
+        # TODO: this assumes a single active token per user. Truly concurrent
+        # sessions (multiple valid jtis for one user) will flap -- each request
+        # revokes the other session's OSM token and reactivates its own via the
+        # DO UPDATE upsert. To support multi-session, track multiple active jtis
+        # per user (cache + revoke set) instead of a single cached token.
+        await _revoke_osm_token(osm_db_session, cached.credentials)
         del _user_info_cache[user_uuid]
 
     # Cache miss: fetch TDEI roles and DB data:
@@ -325,6 +336,123 @@ async def validate_token(
     _user_info_cache[user_uuid] = user_info
 
     return user_info
+
+
+async def _bridge_token_to_osm(
+    session: AsyncSession,
+    *,
+    user_uuid: UUID,
+    user_name: str,
+    email: str | None,
+    token: str,
+    exp: int | None,
+) -> None:
+    """Mirror a validated TDEI token into the OSM database so osm-rails
+    (doorkeeper) and cgimap authenticate it through their standard OAuth2 path,
+    with no custom JWT handling required in those services.
+
+    Two idempotent writes: provision the OSM ``users`` row (owns the token via
+    ``resource_owner_id``) and insert a plaintext ``oauth_access_tokens`` row.
+    Doorkeeper stores tokens plaintext (``SecretStoring::Plain``), so the raw JWT
+    matches on lookup for both osm-rails and cgimap; ``expires_in`` tracks the
+    JWT's own ``exp`` so OSM expires it in lockstep with TDEI.
+
+    No-op unless ``WS_OSM_OAUTH_APPLICATION_ID`` is set. Best-effort: a failure
+    here must not break token validation -- the ``/api/v1`` routes keep working;
+    only the proxied OSM calls would 401 until the row exists.
+    """
+    if settings.WS_OSM_OAUTH_APPLICATION_ID <= 0:
+        return
+
+    auth_uid = str(user_uuid)
+    try:
+        # Provision the users row (same shape as _provision_users_from_tdei).
+        await session.execute(
+            text(
+                "INSERT INTO users (auth_uid, email, display_name, auth_provider, "
+                "status, pass_crypt, data_public, email_valid, terms_seen, "
+                "creation_time, terms_agreed, tou_agreed) "
+                "VALUES (:auth_uid, :email, :name, 'TDEI', 'active', 'none', "
+                "true, true, true, (now() at time zone 'utc'), "
+                "(now() at time zone 'utc'), (now() at time zone 'utc')) "
+                "ON CONFLICT (auth_uid) DO NOTHING"
+            ),
+            {"auth_uid": auth_uid, "email": email, "name": user_name},
+        )
+        row = (
+            await session.execute(
+                text(
+                    "SELECT id FROM users "
+                    "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid"
+                ),
+                {"auth_uid": auth_uid},
+            )
+        ).first()
+        if row is None:
+            return
+        user_id = row[0]
+
+        expires_in = max(0, exp - int(time.time())) if exp else None
+        await session.execute(
+            text(
+                "INSERT INTO oauth_access_tokens (application_id, "
+                "resource_owner_id, token, scopes, created_at, expires_in) "
+                "VALUES (:app_id, :user_id, :token, :scopes, "
+                "(now() at time zone 'utc'), :expires_in) "
+                # Re-presenting a token reactivates it: refresh the expiry to
+                # track this validation and clear any prior revocation, so a
+                # token revoked on rotation heals if it is used again.
+                "ON CONFLICT (token) DO UPDATE SET "
+                "resource_owner_id = EXCLUDED.resource_owner_id, "
+                "scopes = EXCLUDED.scopes, "
+                "created_at = EXCLUDED.created_at, "
+                "expires_in = EXCLUDED.expires_in, "
+                "revoked_at = NULL"
+            ),
+            {
+                "app_id": settings.WS_OSM_OAUTH_APPLICATION_ID,
+                "user_id": user_id,
+                "token": token,
+                "scopes": settings.WS_OSM_OAUTH_SCOPES,
+                "expires_in": expires_in,
+            },
+        )
+        await session.commit()
+    except Exception as e:
+        # Never fail auth on a bridge error; the OSM row just won't exist yet.
+        logger.warning(
+            "Failed to bridge TDEI token into OSM oauth_access_tokens: %s", e
+        )
+        await session.rollback()
+
+
+async def _revoke_osm_token(session: AsyncSession, token: str) -> None:
+    """Revoke a superseded token's OSM ``oauth_access_tokens`` row (best-effort).
+
+    Called when a user's token rotates (new ``jti``) so the previous JWT stops
+    authenticating against osm-rails/cgimap before its own ``exp`` rather than
+    lingering until it expires. No-op unless the bridge is configured.
+
+    Note: OSM/cgimap are reachable only *through* this proxy, and every request
+    first passes ``validate_token`` -- so a TDEI-revoked token is already
+    rejected upstream. This revocation is defense-in-depth for the superseded
+    token and keeps the OSM token store tidy.
+    """
+    if settings.WS_OSM_OAUTH_APPLICATION_ID <= 0:
+        return
+    try:
+        await session.execute(
+            text(
+                "UPDATE oauth_access_tokens "
+                "SET revoked_at = (now() at time zone 'utc') "
+                "WHERE token = :token AND revoked_at IS NULL"
+            ),
+            {"token": token},
+        )
+        await session.commit()
+    except Exception as e:
+        logger.warning("Failed to revoke superseded OSM token: %s", e)
+        await session.rollback()
 
 
 async def _validate_token_uncached(
@@ -426,6 +554,17 @@ async def _validate_token_uncached(
             osmRoles[i["workspace_id"]] = []
         osmRoles[i["workspace_id"]].append(i["role"])
     r.osmWorkspaceRoles = osmRoles
+
+    # Mirror this validated token into the OSM DB so proxied OSM/cgimap calls
+    # authenticate via the standard OAuth2 path. No-op unless configured.
+    await _bridge_token_to_osm(
+        osm_db_session,
+        user_uuid=user_uuid,
+        user_name=r.user_name,
+        email=payload.get("email"),
+        token=token,
+        exp=payload.get("exp"),
+    )
 
     logger.info("Finished validation of token")
 
