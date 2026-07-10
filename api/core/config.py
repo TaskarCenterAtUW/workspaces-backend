@@ -10,11 +10,9 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Workspaces API"
 
-    # JSON array of allowed CORS origins. For example:
-    #
-    #   ["https://workspaces.example.com", "https://leaderboard.example.com"]
-    #
-    CORS_ORIGINS: list[str] = []
+    # Comma separated list of origins, or "*" to allow all origins. Defaults to an empty list.
+    # Example: CORS_ORIGINS="https://workspaces.example.com,https://leaderboard.example.com"
+    CORS_ORIGINS: str = ""
 
     TASK_DATABASE_URL: str = (
         "postgresql+asyncpg://user:pass@localhost:5432/tasking_manager"
