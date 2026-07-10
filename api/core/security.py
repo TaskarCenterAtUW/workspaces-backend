@@ -354,7 +354,7 @@ async def _ensure_osm_user(
             "INSERT INTO users (auth_uid, email, display_name, auth_provider, "
             "status, pass_crypt, data_public, email_valid, terms_seen, "
             "creation_time, terms_agreed, tou_agreed) "
-            "VALUES (:auth_uid, :email, :name, 'TDEI', 'active', 'none', "
+            "VALUES (:auth_uid, :email, :name, 'TDEI', 'active', :pass_crypt, "
             "true, true, true, (now() at time zone 'utc'), "
             "(now() at time zone 'utc'), (now() at time zone 'utc')) "
             "ON CONFLICT (auth_uid) DO NOTHING"
@@ -363,6 +363,12 @@ async def _ensure_osm_user(
             "auth_uid": auth_uid,
             "email": email or f"{auth_uid}@tdei.invalid",
             "name": display_name,
+            # OSM's User model validates pass_crypt length 8..255. TDEI manages
+            # auth, so this is a throwaway that just satisfies that rule (a too-
+            # short value makes the user invalid and breaks Rails operations
+            # that re-validate it via `validates :author, :associated => true`,
+            # e.g. posting a changeset comment).
+            "pass_crypt": secrets.token_hex(16),
         },
     )
     row = (
