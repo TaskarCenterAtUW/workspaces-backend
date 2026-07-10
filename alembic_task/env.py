@@ -8,6 +8,7 @@ from pathlib import Path
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import geoalchemy2.alembic_helpers  # noqa: F401
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -15,6 +16,13 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from api.core.config import settings
 from api.core.database import Base
+
+# Importing geoalchemy2.alembic_helpers (above) registers the geospatial
+# operations (`op.create_geospatial_table` / `create_geospatial_index`) that the
+# tasking-manager migration `cbc419d1740c` uses to create the `workspaces`
+# table. A bare `from geoalchemy2 import Geometry` does NOT register them, so
+# without this import that migration fails at upgrade time.
+
 
 # Automatically import all models
 src_path = Path(__file__).parent.parent / "api" / "src"
