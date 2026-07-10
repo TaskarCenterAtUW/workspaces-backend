@@ -14,7 +14,7 @@ def test_defaults_loaded_when_env_unset():
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
     assert s.PROJECT_NAME == "Workspaces API"
-    assert s.CORS_ORIGINS == []
+    assert s.CORS_ORIGINS == ""
     assert s.DEBUG is False
     assert s.SENTRY_DSN == ""
     assert s.WS_OSM_HOST == "http://osm-web"
@@ -38,18 +38,18 @@ def test_env_vars_override_members(monkeypatch):
 
 
 def test_cors_origins_parsed_from_json_env(monkeypatch):
-    monkeypatch.setenv("CORS_ORIGINS", '["https://a.example", "https://b.example"]')
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example,https://b.example")
 
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
-    assert s.CORS_ORIGINS == ["https://a.example", "https://b.example"]
+    assert s.CORS_ORIGINS == "https://a.example,https://b.example"
 
 
 def test_value_types_and_formats():
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
     assert isinstance(s.PROJECT_NAME, str)
-    assert isinstance(s.CORS_ORIGINS, list)
+    assert isinstance(s.CORS_ORIGINS, str)
     assert isinstance(s.DEBUG, bool)
     # empty-string default is preserved (not coerced to None):
     assert s.SENTRY_DSN == ""
