@@ -7,6 +7,7 @@ Create Date: 2019-05-24 23:05:45.512395
 """
 
 import json
+import os
 import sys
 
 import shapely.wkt
@@ -38,6 +39,15 @@ def upgrade():
     continents = ""
     count = 0
     match = 0
+
+    # The country backfill below reads ~20 MB of geojson from scripts/world/ and
+    # only applies to *existing* projects. workspaces-backend builds fresh
+    # databases and does not vendor those data files, so skip the backfill when
+    # there is nothing to populate (or the data is absent). Adding the `country`
+    # column above is the only part relevant to a compatible empty database.
+    if total_projects == 0 or not os.path.exists("scripts/world/continents.json"):
+        print("No projects to backfill (or scripts/world data absent); skipping.")
+        return
 
     with open("scripts/world/continents.json") as continents_data:
         continents = json.load(continents_data)
