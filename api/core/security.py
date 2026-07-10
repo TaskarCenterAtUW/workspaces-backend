@@ -1,3 +1,4 @@
+import secrets
 import time
 from enum import StrEnum
 from uuid import UUID
@@ -20,8 +21,8 @@ from api.src.users.schemas import WorkspaceUserRoleType
 # @test: Test that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
 # @test: Test that any failed network requests are handled gracefully
 # @test: Test that the caching mechanism works correctly and evicts entries when roles change
-# @test: Test that a validated token is mirrored into the OSM oauth_access_tokens table (with the user provisioned and expires_in from the JWT exp) when WS_OSM_OAUTH_APPLICATION_ID is set, and is a no-op otherwise
-# @test: Test that re-presenting a token reactivates its OSM row (revoked_at cleared, expiry refreshed) and that a rotated (superseded) token is revoked, both gated on WS_OSM_OAUTH_APPLICATION_ID
+# @test: Test that when WS_OSM_TOKEN_BRIDGE_ENABLED, a validated token is mirrored into oauth_access_tokens with the doorkeeper application + system-owner user + caller user auto-provisioned and expires_in from the JWT exp; and is a no-op when disabled
+# @test: Test that re-presenting a token reactivates its OSM row (revoked_at cleared, expiry refreshed) and that a rotated (superseded) token is revoked, both gated on WS_OSM_TOKEN_BRIDGE_ENABLED
 
 # Set up logger for this module
 logger = get_logger(__name__)
@@ -338,6 +339,84 @@ async def validate_token(
     return user_info
 
 
+async def _ensure_osm_user(
+    session: AsyncSession,
+    *,
+    auth_uid: str,
+    email: str | None,
+    display_name: str,
+) -> int | None:
+    """Idempotently provision an OSM ``users`` row (auth_provider ``TDEI``) and
+    return its id. ``email`` is synthesised when absent -- the column is UNIQUE
+    and NOT NULL."""
+    await session.execute(
+        text(
+            "INSERT INTO users (auth_uid, email, display_name, auth_provider, "
+            "status, pass_crypt, data_public, email_valid, terms_seen, "
+            "creation_time, terms_agreed, tou_agreed) "
+            "VALUES (:auth_uid, :email, :name, 'TDEI', 'active', 'none', "
+            "true, true, true, (now() at time zone 'utc'), "
+            "(now() at time zone 'utc'), (now() at time zone 'utc')) "
+            "ON CONFLICT (auth_uid) DO NOTHING"
+        ),
+        {
+            "auth_uid": auth_uid,
+            "email": email or f"{auth_uid}@tdei.invalid",
+            "name": display_name,
+        },
+    )
+    row = (
+        await session.execute(
+            text(
+                "SELECT id FROM users "
+                "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid"
+            ),
+            {"auth_uid": auth_uid},
+        )
+    ).first()
+    return row[0] if row else None
+
+
+async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
+    """Ensure the doorkeeper application the mirrored tokens belong to exists,
+    creating it (owned by a dedicated system user) if needed. Idempotent by the
+    configured client uid; returns the application id."""
+    owner_id = await _ensure_osm_user(
+        session,
+        auth_uid=settings.WS_OSM_SYSTEM_USER_AUTH_UID,
+        email=settings.WS_OSM_SYSTEM_USER_EMAIL,
+        display_name=settings.WS_OSM_SYSTEM_USER_DISPLAY_NAME,
+    )
+    if owner_id is None:
+        return None
+    await session.execute(
+        text(
+            "INSERT INTO oauth_applications (owner_type, owner_id, name, uid, "
+            "secret, redirect_uri, scopes, confidential, created_at, updated_at) "
+            "VALUES ('User', :owner_id, :name, :uid, :secret, "
+            "'urn:ietf:wg:oauth:2.0:oob', :scopes, true, "
+            "(now() at time zone 'utc'), (now() at time zone 'utc')) "
+            "ON CONFLICT (uid) DO NOTHING"
+        ),
+        {
+            "owner_id": owner_id,
+            "name": "Workspaces Backend",
+            "uid": settings.WS_OSM_OAUTH_CLIENT_UID,
+            # Never used (tokens are inserted directly rather than issued via the
+            # OAuth flow), but the column is NOT NULL.
+            "secret": secrets.token_hex(32),
+            "scopes": settings.WS_OSM_OAUTH_SCOPES,
+        },
+    )
+    row = (
+        await session.execute(
+            text("SELECT id FROM oauth_applications WHERE uid = :uid"),
+            {"uid": settings.WS_OSM_OAUTH_CLIENT_UID},
+        )
+    ).first()
+    return row[0] if row else None
+
+
 async def _bridge_token_to_osm(
     session: AsyncSession,
     *,
@@ -351,46 +430,28 @@ async def _bridge_token_to_osm(
     (doorkeeper) and cgimap authenticate it through their standard OAuth2 path,
     with no custom JWT handling required in those services.
 
-    Two idempotent writes: provision the OSM ``users`` row (owns the token via
-    ``resource_owner_id``) and insert a plaintext ``oauth_access_tokens`` row.
-    Doorkeeper stores tokens plaintext (``SecretStoring::Plain``), so the raw JWT
-    matches on lookup for both osm-rails and cgimap; ``expires_in`` tracks the
-    JWT's own ``exp`` so OSM expires it in lockstep with TDEI.
+    Auto-provisions everything it needs: the doorkeeper ``oauth_applications``
+    row (owned by a dedicated system user), the caller's ``users`` row, and a
+    plaintext ``oauth_access_tokens`` row -- no manual OSM setup. Doorkeeper
+    stores tokens plaintext (``SecretStoring::Plain``), so the raw JWT matches on
+    lookup for both osm-rails and cgimap; ``expires_in`` tracks the JWT's ``exp``.
 
-    No-op unless ``WS_OSM_OAUTH_APPLICATION_ID`` is set. Best-effort: a failure
-    here must not break token validation -- the ``/api/v1`` routes keep working;
-    only the proxied OSM calls would 401 until the row exists.
+    No-op unless ``WS_OSM_TOKEN_BRIDGE_ENABLED``. Best-effort: a failure here
+    must not break token validation -- the ``/api/v1`` routes keep working; only
+    the proxied OSM calls would 401 until the row exists.
     """
-    if settings.WS_OSM_OAUTH_APPLICATION_ID <= 0:
+    if not settings.WS_OSM_TOKEN_BRIDGE_ENABLED:
         return
 
-    auth_uid = str(user_uuid)
     try:
-        # Provision the users row (same shape as _provision_users_from_tdei).
-        await session.execute(
-            text(
-                "INSERT INTO users (auth_uid, email, display_name, auth_provider, "
-                "status, pass_crypt, data_public, email_valid, terms_seen, "
-                "creation_time, terms_agreed, tou_agreed) "
-                "VALUES (:auth_uid, :email, :name, 'TDEI', 'active', 'none', "
-                "true, true, true, (now() at time zone 'utc'), "
-                "(now() at time zone 'utc'), (now() at time zone 'utc')) "
-                "ON CONFLICT (auth_uid) DO NOTHING"
-            ),
-            {"auth_uid": auth_uid, "email": email, "name": user_name},
-        )
-        row = (
-            await session.execute(
-                text(
-                    "SELECT id FROM users "
-                    "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid"
-                ),
-                {"auth_uid": auth_uid},
-            )
-        ).first()
-        if row is None:
+        app_id = await _ensure_osm_oauth_application(session)
+        if app_id is None:
             return
-        user_id = row[0]
+        user_id = await _ensure_osm_user(
+            session, auth_uid=str(user_uuid), email=email, display_name=user_name
+        )
+        if user_id is None:
+            return
 
         expires_in = max(0, exp - int(time.time())) if exp else None
         await session.execute(
@@ -410,7 +471,7 @@ async def _bridge_token_to_osm(
                 "revoked_at = NULL"
             ),
             {
-                "app_id": settings.WS_OSM_OAUTH_APPLICATION_ID,
+                "app_id": app_id,
                 "user_id": user_id,
                 "token": token,
                 "scopes": settings.WS_OSM_OAUTH_SCOPES,
@@ -431,14 +492,14 @@ async def _revoke_osm_token(session: AsyncSession, token: str) -> None:
 
     Called when a user's token rotates (new ``jti``) so the previous JWT stops
     authenticating against osm-rails/cgimap before its own ``exp`` rather than
-    lingering until it expires. No-op unless the bridge is configured.
+    lingering until it expires. No-op unless the bridge is enabled.
 
     Note: OSM/cgimap are reachable only *through* this proxy, and every request
     first passes ``validate_token`` -- so a TDEI-revoked token is already
     rejected upstream. This revocation is defense-in-depth for the superseded
     token and keeps the OSM token store tidy.
     """
-    if settings.WS_OSM_OAUTH_APPLICATION_ID <= 0:
+    if not settings.WS_OSM_TOKEN_BRIDGE_ENABLED:
         return
     try:
         await session.execute(
