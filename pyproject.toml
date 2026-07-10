@@ -39,6 +39,11 @@ dependencies = [
     # backfill). Only runs on non-empty organisations tables, but the module
     # import must resolve whenever the task migration chain is loaded.
     "python-slugify>=8.0.0",
+    # Synchronous driver used by the alembic env.py files to run migrations
+    # (the app itself uses asyncpg). Needed because the imported tasking-manager
+    # migrations use psycopg2-era SQL that asyncpg's prepared-statement protocol
+    # rejects (e.g. multi-statement op.execute).
+    "psycopg2-binary>=2.9.0",
 ]
 
 [project.optional-dependencies]

@@ -1,4 +1,3 @@
-import asyncio
 import importlib
 import os
 import sys
@@ -10,9 +9,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import geoalchemy2.alembic_helpers  # noqa: F401
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from api.core.config import settings
 from api.core.database import Base
@@ -43,8 +41,16 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", settings.TASK_DATABASE_URL)
+# Run migrations with a SYNCHRONOUS psycopg2 driver, even though the app uses
+# asyncpg at runtime. Many of the imported tasking-manager migrations were
+# authored for psycopg2 and use patterns asyncpg rejects — most notably
+# multi-statement `op.execute` (asyncpg runs every statement as a prepared
+# statement and raises "cannot insert multiple commands into a prepared
+# statement", e.g. the full-text-search trigger in 451f6bd05a19). Only the
+# driver in the URL is swapped; host/database/credentials are untouched.
+config.set_main_option(
+    "sqlalchemy.url", settings.TASK_DATABASE_URL.replace("+asyncpg", "+psycopg2")
+)
 
 # Add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
@@ -71,26 +77,19 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context."""
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode with a synchronous engine."""
 
-    connectable = async_engine_from_config(
+    connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
 
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-
-    asyncio.run(run_async_migrations())
+    connectable.dispose()
 
 
 if context.is_offline_mode():
