@@ -10,7 +10,9 @@
       "Bash(git config *)",
       "Bash(command -v gh)",
       "Bash(gh api *)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('protected:', d.get\\('protected'\\)\\); p=d.get\\('protection',{}\\); print\\('required_pull_request_reviews:', 'yes' if p.get\\('required_pull_request_reviews'\\) else 'no'\\); print\\('enforce_admins:', \\(p.get\\('enforce_admins'\\) or {}\\).get\\('enabled'\\)\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('protected:', d.get\\('protected'\\)\\); p=d.get\\('protection',{}\\); print\\('required_pull_request_reviews:', 'yes' if p.get\\('required_pull_request_reviews'\\) else 'no'\\); print\\('enforce_admins:', \\(p.get\\('enforce_admins'\\) or {}\\).get\\('enabled'\\)\\)\")",
+      "Bash(grep -nA6 \"TENANT_BYPASSES: list\" api/main.py)",
+      "Bash(grep -nA10 \"STRIP_REQUEST_HEADERS = \" api/main.py)"
     ]
   }
 }
