@@ -1,0 +1,36 @@
+name: Trigger Deployment on Pull Request Merge
+on:
+    pull_request:
+        types: [closed]
+        branches: [ develop, staging, production]
+permissions:
+    contents: read
+    actions: write
+jobs:
+    on-merge:
+        if: github.event.pull_request.merged == true
+        runs-on: ubuntu-latest
+        outputs:
+            environment: ${{ steps.set-environment.outputs.environment }}
+        steps:
+            - name: Set Environment
+              id: set-environment
+              run: |
+                case "${{ github.base_ref }}" in
+                    develop)    echo "environment=develop" >> $GITHUB_OUTPUT ;;
+                    staging)    echo "environment=staging" >> $GITHUB_OUTPUT ;;
+                    production) echo "environment=production" >> $GITHUB_OUTPUT ;;
+                    testing)    echo "environment=testing" >> $GITHUB_OUTPUT ;;
+                esac
+    deploy:
+        needs: on-merge
+        runs-on: ubuntu-latest
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        steps:
+            - name: Trigger Deployment Workflow
+              run: |
+                gh workflow run push-docker-image.yml \
+                    --repo ${{ github.repository }} \
+                    --ref ${{ github.base_ref }} \
+                    --field environment=${{ needs.on-merge.outputs.environment }}
