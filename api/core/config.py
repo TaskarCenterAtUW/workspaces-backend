@@ -44,20 +44,32 @@ class Settings(BaseSettings):
     # proxy destination--"osm-web" is a virtual docker network endpoint
     WS_OSM_HOST: str = "http://osm-web"
 
-    # OSM token bridge: when a TDEI token is validated, mirror it into the OSM
-    # database's `oauth_access_tokens` table so osm-rails (doorkeeper) and cgimap
-    # authenticate it via their standard OAuth2 path -- no custom JWT handling
-    # needed in those services. Disabled while WS_OSM_OAUTH_APPLICATION_ID is 0.
-    # Set it to the id of the doorkeeper `oauth_applications` row these tokens
-    # should belong to (create one via the OSM `register_apps` rake task or SQL).
-    WS_OSM_OAUTH_APPLICATION_ID: int = 0
+    # OSM token bridge: when enabled, a validated TDEI token is mirrored into the
+    # OSM database's `oauth_access_tokens` table so osm-rails (doorkeeper) and
+    # cgimap authenticate it via their standard OAuth2 path -- no custom JWT
+    # handling needed in those services. The backend also auto-creates the
+    # doorkeeper `oauth_applications` row (keyed by WS_OSM_OAUTH_CLIENT_UID and
+    # owned by the dedicated system user below) that these tokens belong to, so
+    # no manual OSM setup is required.
+    WS_OSM_TOKEN_BRIDGE_ENABLED: bool = True
 
-    # Scopes granted to the mirrored token. Must cover the OSM API operations the
-    # frontend performs; see `lib/oauth.rb` in the OSM website for valid values.
+    # Stable client id (uid) for the auto-created doorkeeper application. Point
+    # this at an existing application's uid to reuse it instead of creating one.
+    WS_OSM_OAUTH_CLIENT_UID: str = "workspaces-backend"
+
+    # Scopes granted to the application and mirrored tokens. Must cover the OSM
+    # API operations the frontend performs; see `lib/oauth.rb` in the OSM website.
     WS_OSM_OAUTH_SCOPES: str = (
         "read_prefs write_prefs write_api write_changeset_comments "
         "read_gpx write_gpx write_notes"
     )
+
+    # Dedicated OSM `users` row that owns the auto-created doorkeeper application
+    # (satisfies oauth_applications.owner_id, a NOT-NULL FK to users). It never
+    # signs in; these values just need to be stable and unique among users.
+    WS_OSM_SYSTEM_USER_AUTH_UID: str = "workspaces-backend-system"
+    WS_OSM_SYSTEM_USER_DISPLAY_NAME: str = "Workspaces Backend (system)"
+    WS_OSM_SYSTEM_USER_EMAIL: str = "workspaces-backend-system@tdei.us"
 
     SENTRY_DSN: str = ""
 
