@@ -35,6 +35,10 @@ dependencies = [
     "sqlmodel>=0.0.8",
     "cachetools",
     "shapely>=2.1.2",
+    # Required by the tasking-manager migration bfcf4182dcb5 (organisations.slug
+    # backfill). Only runs on non-empty organisations tables, but the module
+    # import must resolve whenever the task migration chain is loaded.
+    "python-slugify>=8.0.0",
 ]
 
 [project.optional-dependencies]
