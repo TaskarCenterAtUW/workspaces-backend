@@ -243,6 +243,7 @@ class TaskingProjectRepository:
             created_by_name=project.created_by_name,
             created_at=project.created_at,
             updated_at=project.updated_at,
+            custom_imagery=project.custom_imagery,  # type: ignore[arg-type]
         )
 
     async def _provision_users_from_tdei(
@@ -531,6 +532,7 @@ class TaskingProjectRepository:
             lock_timeout_hours=body.lock_timeout_hours,
             created_by=current_user.user_uuid,
             created_by_name=current_user.user_name,
+            custom_imagery=body.custom_imagery,  # type: ignore[arg-type]
         )
         if body.aoi is not None:
             geom = _aoi_to_shapely(body.aoi)
@@ -632,6 +634,8 @@ class TaskingProjectRepository:
             updates["lock_timeout_hours"] = body.lock_timeout_hours
         if body.review_required is not None:
             updates["review_required"] = body.review_required
+        if body.custom_imagery is not None:
+            updates["custom_imagery"] = body.custom_imagery  # type: ignore[arg-type]
 
         if updates:
             updates["updated_at"] = datetime.now()
