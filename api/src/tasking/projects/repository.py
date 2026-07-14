@@ -654,6 +654,8 @@ class TaskingProjectRepository:
             updates["review_required"] = body.review_required
         if body.custom_imagery is not None:
             updates["custom_imagery"] = body.custom_imagery  # type: ignore[arg-type]
+        if body.description is not None:
+            updates["description"] = body.description
 
         if updates:
             updates["updated_at"] = datetime.now()
