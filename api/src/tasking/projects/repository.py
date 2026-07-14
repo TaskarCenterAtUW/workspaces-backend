@@ -470,6 +470,22 @@ class TaskingProjectRepository:
             pagination=Pagination(page=page, page_size=page_size, total=total),
         )
 
+    async def project_name_exists(self, workspace_id: int, name: str) -> bool:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(TaskingProject)
+            .where(
+                (TaskingProject.workspace_id == workspace_id)
+                & (TaskingProject.name == name)
+                & (
+                    TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
+            )
+        )
+        return int(result.scalar() or 0) > 0
+
     async def create(
         self,
         workspace_id: int,

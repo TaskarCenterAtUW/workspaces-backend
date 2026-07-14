@@ -206,6 +206,38 @@ class TestProjectPermissions:
         assert r.status_code == 404
 
 
+class TestProjectNameValidation:
+    async def test_validate_name_false_then_true(
+        self, client, as_lead, seeded_workspace_id
+    ):
+        """validate-name reports false before create and true after create for same workspace."""
+        path = f"{API.format(wid=seeded_workspace_id)}/validate-name"
+
+        r = await client.get(path, params={"name": "name-check"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"exists": False}
+
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "name-check"},
+        )
+        assert r.status_code == 201, r.text
+
+        r = await client.get(path, params={"name": "name-check"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"exists": True}
+
+    async def test_validate_name_outsider_404(
+        self, client, as_outsider, seeded_workspace_id
+    ):
+        """Outsider receives 404 from tenancy gate on validate-name."""
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/validate-name",
+            params={"name": "anything"},
+        )
+        assert r.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Workflow 3b — error mapping (constraint violations → precise HTTP status).
 # ---------------------------------------------------------------------------

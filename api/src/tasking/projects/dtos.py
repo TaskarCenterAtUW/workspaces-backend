@@ -120,6 +120,10 @@ class ProjectListResponse(WireModel):
     pagination: Pagination
 
 
+class ProjectNameValidationResponse(WireModel):
+    exists: bool
+
+
 # ---------------------------------------------------------------------------
 # AOI response shape (canonical Feature wrapping a MultiPolygon)
 # ---------------------------------------------------------------------------
@@ -190,6 +194,7 @@ __all__ = [
     "ProjectCreateRequest",
     "ProjectListItem",
     "ProjectListResponse",
+    "ProjectNameValidationResponse",
     "ProjectResponse",
     "ProjectRoleAddRequest",
     "ProjectRoleAssignment",

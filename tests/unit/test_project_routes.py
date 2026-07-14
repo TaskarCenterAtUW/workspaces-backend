@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 API = "/api/v1/workspaces/{wid}/tasking/projects"
 
 
@@ -68,6 +70,17 @@ class TestProjectCrud:
         )
         assert r.status_code == 422
 
+    @pytest.mark.parametrize("bad_value", ["not-an-object", 123, True, ["x"]])
+    async def test_create_rejects_non_object_custom_imagery_422(
+        self, client, as_lead, seeded_workspace_id, fake_repos, bad_value
+    ):
+        """custom_imagery must be a JSON object; scalar/array values are rejected (422)."""
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "Pilot", "custom_imagery": bad_value},
+        )
+        assert r.status_code == 422
+
     async def test_get_404_when_missing(
         self, client, as_lead, seeded_workspace_id, fake_repos
     ):
@@ -105,6 +118,24 @@ class TestProjectCrud:
         assert r.status_code == 200
         assert r.json()["name"] == "after"
 
+    @pytest.mark.parametrize("bad_value", ["not-an-object", 123, False, ["x"]])
+    async def test_patch_rejects_non_object_custom_imagery_422(
+        self, client, as_lead, seeded_workspace_id, fake_repos, bad_value
+    ):
+        """PATCH rejects custom_imagery when it is not a JSON object (422)."""
+        pid = (
+            await client.post(
+                API.format(wid=seeded_workspace_id),
+                json={"name": "before"},
+            )
+        ).json()["id"]
+
+        r = await client.patch(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}",
+            json={"custom_imagery": bad_value},
+        )
+        assert r.status_code == 422
+
     async def test_soft_delete_204_then_404(
         self, client, as_lead, seeded_workspace_id, fake_repos
     ):
@@ -135,6 +166,55 @@ class TestProjectCrud:
             json={"name": "dup"},
         )
         assert r.status_code == 409
+
+
+class TestProjectNameValidation:
+    async def test_validate_name_returns_false_when_missing(
+        self, client, as_contributor, seeded_workspace_id, fake_repos
+    ):
+        """Validation returns exists=false when no active project uses the name."""
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/validate-name",
+            params={"name": "new-project"},
+        )
+        assert r.status_code == 200
+        assert r.json() == {"exists": False}
+
+    async def test_validate_name_returns_true_when_exists(
+        self, client, as_lead, seeded_workspace_id, fake_repos
+    ):
+        """Validation returns exists=true when an active project with same name exists."""
+        await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "pilot-check"},
+        )
+
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/validate-name",
+            params={"name": "pilot-check"},
+        )
+        assert r.status_code == 200
+        assert r.json() == {"exists": True}
+
+    async def test_validate_name_blank_rejected_422(
+        self, client, as_contributor, seeded_workspace_id, fake_repos
+    ):
+        """Whitespace-only name is rejected with 422."""
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/validate-name",
+            params={"name": "   "},
+        )
+        assert r.status_code == 422
+
+    async def test_validate_name_outsider_404(
+        self, client, as_outsider, seeded_workspace_id, fake_repos
+    ):
+        """Tenancy gate hides workspace existence for outsiders."""
+        r = await client.get(
+            f"{API.format(wid=seeded_workspace_id)}/validate-name",
+            params={"name": "pilot-check"},
+        )
+        assert r.status_code == 404
 
 
 # ---------------------------------------------------------------------------
