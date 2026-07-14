@@ -1,0 +1,71 @@
+services:
+  database:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testing
+      POSTGRES_DB: workspaces-osm-local
+    ports:
+      - 5432:5432
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d workspaces-osm-local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  osm-cgimap:
+    image: opensidewalksdev.azurecr.io/workspaces-osm-cgimap:dev
+    environment:
+      CGIMAP_INSTANCES: 10
+      CGIMAP_HOST: database
+      CGIMAP_USERNAME: postgres
+      CGIMAP_PASSWORD: testing
+      CGIMAP_DBNAME: workspaces-osm-local
+      CGIMAP_MAX_CHANGESET_ELEMENTS: 100000000 # max features per import or save
+      CGIMAP_MAX_PAYLOAD: 1000000000 # max size of dataset uploads
+      CGIMAP_MAP_NODES: 100000000 # max number of nodes per requeset
+      CGIMAP_MAP_AREA: 1 # max area per request in square degrees
+    ports:
+      - 8000
+  osm-rails:
+    image: opensidewalksdev.azurecr.io/workspaces-osm-rails:dev
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: osm_secret_key
+      WS_OSM_DB_HOST: database
+      WS_OSM_DB_USER: postgres
+      WS_OSM_DB_PASS: testing
+      WS_OSM_DB_NAME: workspaces-osm-local
+    stdin_open: true
+    tty: true
+    ports:
+      - 3000
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+  
+  osm-rails-worker:
+      image: opensidewalksdev.azurecr.io/workspaces-osm-rails:dev
+      environment:
+        RAILS_ENV: production
+        SECRET_KEY_BASE: osm_secret_key
+        WS_OSM_DB_HOST: database
+        WS_OSM_DB_USER: postgres
+        WS_OSM_DB_PASS: testing
+        WS_OSM_DB_NAME: workspaces-osm-local
+      stdin_open: true
+      tty: true
+      command: ["bundle", "exec", "rake", "jobs:work"]
+  
+  backend:
+     build: .
+     container_name: workspaces-backend
+     volumes:
+       - .:/app
+     ports:
+        - 8000:8000
+     environment:
+        TDEI_BACKEND_URL: ${TDEI_BACKEND_URL}
+        TDEI_OIDC_REALM: ${TDEI_OIDC_REALM}
+        TDEI_OIDC_URL: ${TDEI_OIDC_URL}
+        OSM_DATABASE_URL: postgresql+asyncpg://postgres:testing@database:5432/workspaces-osm-local
+        TASK_DATABASE_URL: postgresql+asyncpg://postgres:testing@database:5432/workspaces-tasks-local
