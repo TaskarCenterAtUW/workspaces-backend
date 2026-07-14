@@ -12,6 +12,7 @@ from api.src.tasking.projects.dtos import (
     AoiFeature,
     ProjectCreateRequest,
     ProjectListResponse,
+    ProjectNameValidationResponse,
     ProjectResponse,
     ProjectRoleAddRequest,
     ProjectRoleItem,
@@ -125,6 +126,26 @@ async def create_project(
         current_user,
         body,
         tdei_project_group_id=str(workspace.tdeiProjectGroupId),
+    )
+
+
+@router.get("/validate-name", response_model=ProjectNameValidationResponse)
+async def validate_project_name(
+    workspace_id: int,
+    name: str = Query(..., min_length=1, max_length=255),
+    current_user: UserInfo = Depends(validate_token),
+    workspace_repo: WorkspaceRepository = Depends(get_workspace_repo),
+    project_repo: TaskingProjectRepository = Depends(get_project_repo),
+):
+    await assert_workspace_visible(workspace_id, current_user, workspace_repo)
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="name cannot be blank",
+        )
+    return ProjectNameValidationResponse(
+        exists=await project_repo.project_name_exists(workspace_id, normalized_name)
     )
 
 

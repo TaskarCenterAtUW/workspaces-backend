@@ -82,3 +82,28 @@ uvx pyright --pythonpath .venv/bin/python api tests
 uv run black api tests && uv run isort api tests
 ```
 
+## Development with local environment
+
+Use the file `docker-compose.local.yml` to build and deploy local code changes. This allows you to run the entire system at once instead of 
+connecting to existing Databases.
+
+### Initial setup.
+- On first launch, rails-worker will fail because migrations are not done
+- Go to the `osm-rails` `/bin/sh` and execute `bundle exec rails db:migrate`
+- The above script runs the migration code for osm-rails
+- The rails-worker will be able to run
+- The backend code will fail first time becase `workspaces-tasks-local` database is not available
+- Login to postgresql container and run the following commands
+   `psql --username postgres`
+   `create database "workspaces-tasks-local";`
+   `psql --username postgres --dbname "workspaces-tasks-local";`
+   `create extension if not exists postgis;`
+- Run the backend code now and it should be able to run
+
+### Commands to start and stop the docker compose
+
+`docker compose --file docker-compose.local.yml  up --build -d`
+
+`docker compose --file docker-compose.local.yml down`
+
+Backend code will be available at `http://localhost:8000`
