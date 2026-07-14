@@ -106,4 +106,4 @@ connecting to existing Databases.
 
 `docker compose --file docker-compose.local.yml down`
 
-Backend code will be available at `http://localhost:3000`
+Backend code will be available at `http://localhost:8000`
