@@ -244,6 +244,7 @@ class TaskingProjectRepository:
             created_at=project.created_at,
             updated_at=project.updated_at,
             custom_imagery=project.custom_imagery,  # type: ignore[arg-type]
+            description=project.description,  # type: ignore[arg-type]
         )
 
     async def _provision_users_from_tdei(
@@ -533,6 +534,7 @@ class TaskingProjectRepository:
             created_by=current_user.user_uuid,
             created_by_name=current_user.user_name,
             custom_imagery=body.custom_imagery,  # type: ignore[arg-type]
+            description=body.description,  # type: ignore[arg-type]
         )
         if body.aoi is not None:
             geom = _aoi_to_shapely(body.aoi)

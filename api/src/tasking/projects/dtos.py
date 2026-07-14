@@ -47,7 +47,8 @@ class ProjectCreateRequest(WireModel):
     lock_timeout_hours: int = PydField(default=8, ge=1, le=720)
     aoi: Optional[AoiInput] = None
     role_assignments: list[ProjectRoleAssignment] = PydField(default_factory=list)
-    custom_imagery: Optional[Any] = PydField(default=None)
+    custom_imagery: Optional[dict[str, Any]] = PydField(default=None)
+    description: Optional[str] = PydField(default=None, max_length=10_000)
 
     @field_validator("name")
     @classmethod
@@ -69,7 +70,8 @@ class ProjectUpdateRequest(WireModel):
     instructions: Optional[str] = PydField(default=None, max_length=10_000)
     lock_timeout_hours: Optional[int] = PydField(default=None, ge=1, le=720)
     review_required: Optional[bool] = None
-    custom_imagery: Optional[Any] = PydField(default=None)
+    custom_imagery: Optional[dict[str, Any]] = PydField(default=None)
+    description: Optional[str] = PydField(default=None, max_length=10_000)
 
 
 class ProjectResponse(WireModel):
@@ -90,6 +92,7 @@ class ProjectResponse(WireModel):
     created_at: datetime
     updated_at: datetime
     custom_imagery: Optional[Any] = None
+    description: Optional[str] = None
 
 
 class ProjectListItem(WireModel):

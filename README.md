@@ -102,7 +102,7 @@ connecting to existing Databases.
 
 ### Commands to start and stop the docker compose
 
-`docker compose --file docker-compose.local.yml build up -d`
+`docker compose --file docker-compose.local.yml  up --build -d`
 
 `docker compose --file docker-compose.local.yml down`
 
