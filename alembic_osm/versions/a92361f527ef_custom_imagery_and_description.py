@@ -28,10 +28,8 @@ def upgrade() -> None:
         "tasking_projects",
         sa.Column("description", sa.String(length=10000), nullable=True),
     )
-    pass
 
 
 def downgrade() -> None:
     op.drop_column("tasking_projects", "custom_imagery")
     op.drop_column("tasking_projects", "description")
-    pass
