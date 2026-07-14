@@ -10,8 +10,8 @@ from pydantic import BaseModel
 from pydantic import Field as PydField
 from sqlalchemy import Column
 from sqlalchemy import Enum as SAEnum
-from sqlmodel import Field, SQLModel
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlmodel import Field, SQLModel
 
 # ---------------------------------------------------------------------------
 # Enums (mirrors of postgres enums in the migration)
@@ -97,9 +97,10 @@ class TaskingProject(SQLModel, table=True):
 
     # Custom Imagery data for the project. Stored as JSONB in the database and converted to / from a Pydantic model in the repository layer.
     custom_imagery: Optional[Any] = Field(
-        default=None,
-        sa_column=Column(JSONB, nullable=True,default=None)
+        default=None, sa_column=Column(JSONB, nullable=True, default=None)
     )
+
+    description: Optional[str] = Field(default=None, nullable=True)
 
 
 # ---------------------------------------------------------------------------
