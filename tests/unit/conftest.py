@@ -175,6 +175,14 @@ class FakeProjectRepo:
             raise NotFoundException(f"Project {project_id} not found")
         return self._response(p)
 
+    async def project_name_exists(self, workspace_id: int, name: str) -> bool:
+        return any(
+            p["workspace_id"] == workspace_id
+            and p["name"] == name
+            and p["deleted_at"] is None
+            for p in self._projects.values()
+        )
+
     async def patch(self, workspace_id, project_id, body, current_user):
         p_resp = await self.get(workspace_id, project_id)
         p = self._projects[project_id]
