@@ -11,6 +11,7 @@ from pydantic import Field as PydField
 from sqlalchemy import Column
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
+from sqlalchemy.dialects.postgresql import JSONB
 
 # ---------------------------------------------------------------------------
 # Enums (mirrors of postgres enums in the migration)
@@ -93,6 +94,12 @@ class TaskingProject(SQLModel, table=True):
         sa_column_kwargs={"nullable": False, "onupdate": datetime.now},
     )
     deleted_at: Optional[datetime] = None
+
+    # Custom Imagery data for the project. Stored as JSONB in the database and converted to / from a Pydantic model in the repository layer.
+    custom_imagery: Optional[Any] = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True,default=None)
+    )
 
 
 # ---------------------------------------------------------------------------
