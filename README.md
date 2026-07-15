@@ -159,18 +159,55 @@ uv run black api tests && uv run isort api tests
 Use the file `docker-compose.local.yml` to build and deploy local code changes. This allows you to run the entire system at once instead of 
 connecting to existing Databases.
 
-### Initial setup.
-- On first launch, rails-worker will fail because migrations are not done
-- Go to the `osm-rails` `/bin/sh` and execute `bundle exec rails db:migrate`
-- The above script runs the migration code for osm-rails
-- The rails-worker will be able to run
-- The backend code will fail first time becase `workspaces-tasks-local` database is not available
-- Login to postgresql container and run the following commands
-   `psql --username postgres`
-   `create database "workspaces-tasks-local";`
-   `psql --username postgres --dbname "workspaces-tasks-local";`
-   `create extension if not exists postgis;`
-- Run the backend code now and it should be able to run
+### Initial setup for development local environment 
+
+Step 1: Login to azure docker
+
+The docker compose relies on images in `opensidewalksdev` azure container registry. Make sure your docker system is logged into it before pulling the images and trying to run the containers.
+
+Docker login command: 
+
+`docker login opensidewalksdev.azurecr.io -u opensidewalksdev `
+
+Password needs to be obtained from Azure portal
+
+Step 2: Run docker compose for the first time
+
+Use the following command to start the containers first time
+
+`docker compose --file docker-compose.local.yml  up --build`
+
+Step 3: Run the migration scripts.
+
+You will observe that only `osm-rails` component seems to work but the backend and other services may be down. this is because the database migrations on the base osm database are not done. To do the base migrations, do the following:
+
+- Connect to the `osm-rails` container. If you are using docker hub for desktop, just go to the exec section of the container.
+  If you want to use command line, execute the command `docker exec -it <container_name_or_id> /bin/bash` where `container_name` is the name of osm-rails container
+- Execute the migration script in the /bin/bash with `bundle exec rails db:migrate`
+- The above command runs the migration script for databases
+
+Step 4: Add `workspaces-tasks-local` database in postgresql
+
+Workspaces backend relies on an additional database. This is needed for some older migrations code.
+
+- Connect to `database` container.
+- Run the following set of commands one by one
+
+```shell
+psql --username postgres
+create database "workspaces-tasks-local";
+exit;
+psql --username postgres --dbname "workspaces-tasks-local";
+create extension if not exists postgis;
+
+```
+
+Step 5: Restart the docker compose again
+
+- `docker compose --file docker-compose.local.yml down`
+- `docker compose --file docker-compose.local.yml up --build`
+
+
 
 ### Commands to start and stop the docker compose
 
