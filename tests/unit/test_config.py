@@ -14,7 +14,7 @@ def test_defaults_loaded_when_env_unset():
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
     assert s.PROJECT_NAME == "Workspaces API"
-    assert s.CORS_ORIGINS == []
+    assert s.CORS_ORIGINS == ""
     assert s.DEBUG is False
     assert s.SENTRY_DSN == ""
     assert s.WS_OSM_HOST == "http://osm-web"
@@ -38,18 +38,55 @@ def test_env_vars_override_members(monkeypatch):
 
 
 def test_cors_origins_parsed_from_json_env(monkeypatch):
-    monkeypatch.setenv("CORS_ORIGINS", '["https://a.example", "https://b.example"]')
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example,https://b.example")
 
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
-    assert s.CORS_ORIGINS == ["https://a.example", "https://b.example"]
+    assert s.CORS_ORIGINS == "https://a.example,https://b.example"
+
+
+def test_cors_origins_list_comma_separated(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example, https://b.example")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    assert s.cors_origins_list == ["https://a.example", "https://b.example"]
+
+
+def test_cors_origins_list_json_array(monkeypatch):
+    # The deployment stack supplies a JSON array; it must parse, not become one
+    # malformed bracketed origin.
+    monkeypatch.setenv("CORS_ORIGINS", '["https://a.example","https://b.example"]')
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    assert s.cors_origins_list == ["https://a.example", "https://b.example"]
+
+
+def test_cors_origins_list_single_json_array(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", '["https://only.example"]')
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    assert s.cors_origins_list == ["https://only.example"]
+
+
+def test_cors_origins_list_empty_and_wildcard(monkeypatch):
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    assert s.cors_origins_list == []
+
+    monkeypatch.setenv("CORS_ORIGINS", "*")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    assert s.cors_origins_list == ["*"]
+
+
+def test_cors_origins_list_malformed_json_falls_back_to_comma(monkeypatch):
+    # A value that starts with "[" but isn't valid JSON should not crash; fall
+    # back to comma-splitting rather than raising.
+    monkeypatch.setenv("CORS_ORIGINS", "[not json")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    assert s.cors_origins_list == ["[not json"]
 
 
 def test_value_types_and_formats():
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
     assert isinstance(s.PROJECT_NAME, str)
-    assert isinstance(s.CORS_ORIGINS, list)
+    assert isinstance(s.CORS_ORIGINS, str)
     assert isinstance(s.DEBUG, bool)
     # empty-string default is preserved (not coerced to None):
     assert s.SENTRY_DSN == ""

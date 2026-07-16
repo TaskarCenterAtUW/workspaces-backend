@@ -79,24 +79,120 @@ at all). Validated against the code:
 * **Export to TDEI** — no endpoint exists in this backend.
 * **Move Workspace PG→PG** — not possible; `WorkspacePatch` has no
   `tdeiProjectGroupId` field, so no route can change a workspace's project group.
-* **Validate Changeset** and **Edit POSM Element** — these go through the OSM
-  proxy catch-all (`api/main.py`), which gates *every* proxied operation on
+* **Edit POSM Element** — goes through the OSM proxy catch-all
+  (`api/main.py`), which gates *every* proxied operation on
   `isWorkspaceContributor` alone. There is no Validator- or Lead-level check on
-  proxied traffic.
+  proxied traffic. Raw changeset commits (proxied `PUT /api/0.6/changeset/...`)
+  are likewise Contributor-gated; the proxy only *tags* a contributor's new
+  changeset with `review_requested=yes` when the workspace has `autoFlagReview`
+  set — it does not enforce validation.
 
-**The Validator role grants nothing extra at this layer.**
-`isWorkspaceValidator` exists in `api/core/security.py` but no endpoint
-authorizes on it — it only appears in the `role` field of `WorkspaceResponse`.
-A Validator and a Contributor have identical permissions in this backend.
+**Enforced here, Validator-gated (`isWorkspaceLead || isWorkspaceValidator` →
+403).** This is a native FastAPI route, not proxied traffic. Leads (and POC via
+`isWorkspaceLead`) inherit it:
+
+| Capability | Endpoint |
+|---|---|
+| Resolve/Validate Changeset | PUT `/workspaces/{id}/changesets/{changeset_id}/resolve` |
+
+Resolving clears the `review_requested` tag and stamps `reviewed_by` with the
+reviewer's UUID. The gate is enforced both in the route
+(`api/src/osm/routes.py`) and, defensively, inside
+`OSMRepository.resolveChangeset` (`api/src/osm/repository.py`).
+
+**The Validator role grants exactly one thing at this layer:** the ability to
+resolve changesets via the endpoint above. Aside from that, a Validator and a
+Contributor have identical permissions in this backend. `isWorkspaceValidator`
+otherwise only appears in the `role` field of `WorkspaceResponse`.
 
 **"Contributor" and "Authenticated User With PG/Workspace Association" are the
 same gate.** `isWorkspaceContributor` simply checks whether the workspace is in
 one of the user's project groups (`accessibleWorkspaceIds`), i.e. PG/workspace
 association — so both rows collapse to the same check.
 
-If the Validator/Lead distinctions for changeset validation and TDEI export are
-required, they must be enforced downstream (`workspaces-openstreetmap-website/`,
-`workspaces-cgimap/`) — that has not been audited here.
+Changeset *resolution* is Validator/Lead-gated here (see above). But the
+Validator/Lead distinction on raw changeset *commits* and TDEI export is not
+enforced at this layer; if required, it must be enforced downstream
+(`workspaces-openstreetmap-website/`, `workspaces-cgimap/`) — that has not been
+audited here.
+
+## The OSM proxy layer: routing, auth, and user provisioning
+
+This service is a reverse proxy in front of the OSM website (`osm-rails`) and
+cgimap. The non-obvious parts, learned the hard way:
+
+### Deployment routing (workspaces-stack)
+
+In `workspaces-stack`, the **api container (this backend) serves the public OSM
+host** (`osm.workspaces-<env>...`) alongside the API hosts — its traefik router
+rule is `Host(new-api) || Host(api) || Host(osm)`, and the `osm-web` /
+`osm-log-proxy` routers are commented out. So **every OSM call the frontend
+makes routes through this backend**: `validate_token`, the `X-Workspace` gate,
+and the CORS middleware all apply. The backend then proxies `/api/0.6/*` to
+`WS_OSM_HOST` (config default `http://osm-web` — the internal service, *not* the
+public domain). `osm-web`'s nginx splits traffic: changeset read/write subpaths
+to cgimap, everything else to osm-rails.
+
+The frontend (`services/osm.ts`) calls the OSM host directly with
+`credentials: 'include'` + a Bearer TDEI token. Because it's *credentialed*
+CORS, `CORS_ORIGINS` must list the exact frontend origin (no `*`;
+`allow_credentials` is on). The stack supplies `WS_API_CORS_ORIGINS` as a **JSON
+array** (`["https://..."]`), while older config comma-split it — a JSON array
+would then become one malformed origin. `api/main.py` therefore reads
+`settings.cors_origins_list`, which parses **both** a JSON array and a
+comma-separated string (and `*`); set `CORS_ORIGINS` in either form.
+
+### Two databases; `users` is owned by OSM Rails
+
+`TASK_DATABASE_URL` (`alembic_task` tree) holds workspaces / tasking-manager
+tables; `OSM_DATABASE_URL` (`alembic_osm` tree) holds OSM data, `users`, and the
+`tasking_*` tables. The **`users` table is owned by the OSM Rails website**, not
+either alembic tree — the trees only FK to it, and integration tests stub it
+(`tests/integration/conftest.py`). The backend provisions `users` rows itself
+via raw SQL with `auth_provider='TDEI'` and `auth_uid = str(<JWT sub>)` (the OSM
+`auth_uid` **is** the token's `sub` claim).
+
+### How OSM authenticates, and the TDEI token bridge
+
+* **osm-rails** authenticates API calls *only* via **doorkeeper OAuth2**: it
+  looks the bearer token up in `oauth_access_tokens` (`token` →
+  `resource_owner_id` → `users.id`). Doorkeeper stores tokens **plaintext**
+  (`SecretStoring::Plain`), so the raw JWT matches directly. It has **no**
+  TDEI/JWT auth path.
+* **cgimap** has both: the oauth2 lookup *and* a custom TDEI path
+  (`get_user_id_for_tdei_token`, which verifies the JWT and matches
+  `users.auth_uid`).
+
+To make TDEI tokens work against osm-rails without forking it, the **token
+bridge** (`_bridge_token_to_osm` in `api/core/security.py`) mirrors a validated
+TDEI JWT into `oauth_access_tokens` — on the cache-miss path of `validate_token`
+(so ~once per token, not per request). Gated by `WS_OSM_TOKEN_BRIDGE_ENABLED`.
+It auto-provisions everything: a dedicated **system user** (`WS_OSM_SYSTEM_USER_*`)
+to own the doorkeeper `oauth_applications` row it creates (keyed by
+`WS_OSM_OAUTH_CLIENT_UID`; `oauth_applications.owner_id` is a NOT-NULL FK to
+`users`, hence the system user), the caller's `users` row, and the plaintext
+`oauth_access_tokens` row (`expires_in` from the JWT `exp`;
+`ON CONFLICT (token) DO UPDATE` so re-presenting reactivates it). On token
+rotation (new `jti`) the superseded token is revoked. Since the token then lives
+in `oauth_access_tokens`, both osm-rails and cgimap authenticate it via plain
+OAuth2 — cgimap's custom TDEI path becomes redundant.
+
+### Provisioning gotcha: `pass_crypt` must be 8..255 chars
+
+The OSM `User` model has `validates :pass_crypt, :length => 8..255`. When the
+backend provisions a `users` row, **`pass_crypt` must be 8–255 chars** (use a
+random throwaway — TDEI manages auth, so it's never used to log in). A too-short
+value (the old `'none'`) makes the user *invalid*. This is silent for **cgimap**
+operations — cgimap runs no Rails validations — but breaks any **osm-rails**
+operation that re-validates the author via `validates :author, :associated =>
+true`: notably `POST /api/0.6/changeset/{id}/comment` and note comments. The
+comment fails to save (no `id`), then rendering it throws *"Unable to serialize
+… without an id"*. Both provisioning paths (`_ensure_osm_user`,
+`_provision_users_from_tdei`) set a valid `pass_crypt`; migration
+`alembic_osm/versions/f3a7b9c1d2e4` heals legacy short rows. General principle:
+a backend-provisioned `users` row must satisfy OSM's `User` validations (also
+`display_name` 3..255 + unique, `email` present + unique) or Rails operations
+that touch it will fail even though cgimap operations succeed.
 
 ## Testing
 

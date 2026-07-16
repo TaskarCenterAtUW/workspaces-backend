@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -242,6 +243,8 @@ class TaskingProjectRepository:
             created_by_name=project.created_by_name,
             created_at=project.created_at,
             updated_at=project.updated_at,
+            custom_imagery=project.custom_imagery,  # type: ignore[arg-type]
+            description=project.description,  # type: ignore[arg-type]
         )
 
     async def _provision_users_from_tdei(
@@ -313,13 +316,18 @@ class TaskingProjectRepository:
             await self.session.execute(
                 text(
                     "INSERT INTO users (auth_uid, email, display_name, auth_provider, status, pass_crypt, data_public, email_valid, terms_seen, creation_time, terms_agreed, tou_agreed) "
-                    "VALUES (:uid, :email, :name, 'TDEI', 'active', 'none', true, true, true, (now() at time zone 'utc'), (now() at time zone 'utc'), (now() at time zone 'utc')) "
+                    "VALUES (:uid, :email, :name, 'TDEI', 'active', :pass_crypt, true, true, true, (now() at time zone 'utc'), (now() at time zone 'utc'), (now() at time zone 'utc')) "
                     "ON CONFLICT (auth_uid) DO NOTHING"
                 ),
                 params={
                     "uid": uid,
                     "email": member.email,
                     "name": member.display_name,
+                    # OSM validates pass_crypt length 8..255; a too-short value
+                    # makes the user invalid and breaks Rails ops that re-validate
+                    # the author (changeset/note comments). TDEI manages auth, so
+                    # this is a throwaway.
+                    "pass_crypt": secrets.token_hex(16),
                 },
             )
             resolved.add(uid)
@@ -462,6 +470,22 @@ class TaskingProjectRepository:
             pagination=Pagination(page=page, page_size=page_size, total=total),
         )
 
+    async def project_name_exists(self, workspace_id: int, name: str) -> bool:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(TaskingProject)
+            .where(
+                (TaskingProject.workspace_id == workspace_id)
+                & (TaskingProject.name == name)
+                & (
+                    TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                        None
+                    )
+                )
+            )
+        )
+        return int(result.scalar() or 0) > 0
+
     async def create(
         self,
         workspace_id: int,
@@ -525,6 +549,8 @@ class TaskingProjectRepository:
             lock_timeout_hours=body.lock_timeout_hours,
             created_by=current_user.user_uuid,
             created_by_name=current_user.user_name,
+            custom_imagery=body.custom_imagery,  # type: ignore[arg-type]
+            description=body.description,  # type: ignore[arg-type]
         )
         if body.aoi is not None:
             geom = _aoi_to_shapely(body.aoi)
@@ -626,6 +652,10 @@ class TaskingProjectRepository:
             updates["lock_timeout_hours"] = body.lock_timeout_hours
         if body.review_required is not None:
             updates["review_required"] = body.review_required
+        if body.custom_imagery is not None:
+            updates["custom_imagery"] = body.custom_imagery  # type: ignore[arg-type]
+        if body.description is not None:
+            updates["description"] = body.description
 
         if updates:
             updates["updated_at"] = datetime.now()
