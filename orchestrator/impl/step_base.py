@@ -1,0 +1,33 @@
+"""
+Base class for steps in the orchestrator. All steps should inherit from this class and implement the `execute` method.
+The class shall also implement the `validate` method to ensure that the inputs meet the step's requirements.
+"""
+
+
+class StepBase:
+    def __init__(self, step_definition):
+        self.step_definition = step_definition
+
+    def execute(self, inputs: dict) -> dict:
+        """
+        Execute the step with the given inputs.
+
+        Args:
+            inputs (dict): A dictionary of input values for the step.
+
+        Returns:
+            dict: A dictionary of output values from the step.
+        """
+        raise NotImplementedError("Subclasses must implement the execute method.")
+
+    def validate(self, inputs: dict) -> bool:
+        """
+        Validate the inputs for the step.
+
+        Args:
+            inputs (dict): A dictionary of input values for the step.
+
+        Returns:
+            bool: True if the inputs are valid, False otherwise.
+        """
+        raise NotImplementedError("Subclasses must implement the validate method.")

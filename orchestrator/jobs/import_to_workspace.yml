@@ -1,0 +1,14 @@
+id: workspace-import-job
+name: "Import Dataset to Workspace"
+description: "Import a dataset into a workspace"
+inputs:
+  workspace_id: "integer"
+  tdei_dataset_id: "string"
+outputs:
+  imported_dataset_path: "string"
+workflow:
+  - name: Download TDEI Dataset
+    step_id: "download_tdei_dataset_step"
+    with:
+      workspace_id: "${job.inputs.workspace_id}"
+      tdei_dataset_id: "${job.inputs.tdei_dataset_id}"
