@@ -1,6 +1,5 @@
 id: "download_tdei_dataset_step"
 name: "Download TDEI Dataset"
-process_type: "HTTP_DOWNLOAD"
 class_name: "orchestrator.impl.download_dataset.DownloadDatasetStep"
 description: "Download a TDEI dataset from a source URL"
 type: "class"

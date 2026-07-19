@@ -1,0 +1,11 @@
+id: "create_changeset_step"
+name: "Create Changeset"
+class_name: "orchestrator.impl.create_changeset.CreateChangesetStep"
+description: "Create a changeset for a dataset"
+type: "class"
+inputs:
+  xml_file_path: "string"
+  workspace_id: "string"
+  tdei_token: "string"
+outputs:
+  changeset_id: "string"

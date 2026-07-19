@@ -5,5 +5,9 @@ orchestrator = JobOrchestrator(
 )
 orchestrator.execute_job(
     job_id="workspace-import-job",
-    inputs={"workspace_id": "workspace_123", "tdei_dataset_id": "dataset_456"},
+    inputs={
+        "workspace_id": "workspace_123",
+        "tdei_dataset_id": "dataset_456",
+        "tdei_token": "token",
+    },
 )

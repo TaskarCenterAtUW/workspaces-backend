@@ -4,6 +4,7 @@ description: "Import a dataset into a workspace"
 inputs:
   workspace_id: "integer"
   tdei_dataset_id: "string"
+  tdei_token: "string"
 outputs:
   imported_dataset_path: "string"
 workflow:
@@ -12,3 +13,9 @@ workflow:
     with:
       workspace_id: "${job.inputs.workspace_id}"
       tdei_dataset_id: "${job.inputs.tdei_dataset_id}"
+  - name: Create Changeset
+    step_id: "create_changeset_step"
+    with:
+      xml_file_path: "${steps.download_tdei_dataset_step.outputs.downloaded_file_path}"
+      workspace_id: "${job.inputs.workspace_id}"
+      tdei_token: "${job.inputs.tdei_token}"
