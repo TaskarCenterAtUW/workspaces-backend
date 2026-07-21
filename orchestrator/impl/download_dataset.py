@@ -18,6 +18,7 @@ class DownloadDatasetStep(StepBase):
         )  # Assuming the input is named 'workspace_id' for demonstration
         if not workspace_id:
             raise ValueError("Missing required input: workspace_id")
+        self.print_inputs(inputs)
         dataset_id = inputs.get("tdei_dataset_id")
         tdei_token = inputs.get("tdei_token")
         print(f"Downloading dataset  {dataset_id} into {self.working_dir}")

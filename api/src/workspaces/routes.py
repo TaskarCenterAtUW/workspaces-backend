@@ -183,7 +183,7 @@ async def create_workspace(
     },
 )
             
-
+        print(f' Returning workspace ID {workspace.id} in API response')
         return {"workspaceId": workspace.id}
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")

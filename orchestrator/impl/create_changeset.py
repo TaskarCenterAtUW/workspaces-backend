@@ -48,16 +48,16 @@ class CreateChangesetStep(StepBase):
         return changeset_file_path
 
     def execute(self, inputs):
+        self.print_inputs(inputs)
         xml_file_path = inputs["xml_file_path"]
         workspace_id = inputs["workspace_id"]
         tdei_token = inputs["tdei_token"]
         # Implement the logic to create a changeset here
-        self.logger.info(f" XML Path at CreateChangesetStep: {xml_file_path}")
+        self.logger.info(f"XML Path at CreateChangesetStep: {xml_file_path} workspace_id: {workspace_id}")
         # Create changeset with the osm service
         osm_base_url = "http://osm-proxy:80"
         osm_service = OSMService(tdei_token, osm_base_url, workspace_id)
         osm_service.create_workspace(workspace_id)
-        time.sleep(3)  # Wait for the workspace to be created before creating the changeset
         changeset_id = osm_service.create_changeset(
             created_by="Workspaces Orchestrator",
             comment=f"Changeset for workspace {workspace_id} Import",
@@ -68,3 +68,5 @@ class CreateChangesetStep(StepBase):
         changeset_path = self.create_changeset_file(xml_file_path, changeset_id)
 
         return {"changeset_id": changeset_id, "changeset_xml_path": changeset_path}
+
+    

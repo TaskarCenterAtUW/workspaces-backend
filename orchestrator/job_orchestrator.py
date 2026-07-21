@@ -23,18 +23,24 @@ class JobOrchestrator:
         # and the provided inputs. This is a placeholder for demonstration purposes.
         print(f"Executing job: {job_definition.name}")
         # Return a mock result for demonstration
-        job_executor = JobExecutor(self.registry)
+        # job_executor = JobExecutor(self.registry)
         job_working_folder, job_unique_id = self.create_job_working_directory()
         # job_status = job_executor.execute_job(job_id, inputs, job_working_folder)
 
         job_execution_thread = self.thread_pool.submit(
-            job_executor.execute_job, job_id, inputs, job_working_folder
+            self._execute_job, job_id, inputs, job_working_folder
         )
         job_execution_thread.add_done_callback(
             lambda x: self.on_job_completion(job_unique_id, x)
         )
 
         return {"job_id": job_unique_id}
+    
+    def _execute_job(self, job_id: str, inputs: dict, working_dir: str):
+        print(f'Job for workspace {inputs.get("workspace_id")} started in {working_dir}')
+        job_executor = JobExecutor(self.registry)
+        job_status = job_executor.execute_job(job_id, inputs, working_dir)
+        return job_status
 
     def get_step(self, step_id: str):
         return self.registry.get_step(step_id)
@@ -55,6 +61,6 @@ class JobOrchestrator:
     def on_job_completion(self, job_id: str, status: Future):
         # Implement any post-job completion logic here, such as logging or notifications.
         job_folder = os.path.join("jobs", job_id)
-        # self.remove_job_working_directory(job_folder=job_folder)
+        self.remove_job_working_directory(job_folder=job_folder)
         result = status.result()
         print(f"Job {job_id} completed with status: {result.get('job_id')}")

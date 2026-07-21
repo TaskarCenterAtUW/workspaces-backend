@@ -6,6 +6,7 @@ import xml.etree.cElementTree as ET
 
 class UploadChangesetStep(StepBase):
     def execute(self, inputs):
+        self.print_inputs(inputs)
         changeset_file = inputs["changeset_file"]
         changeset_id = inputs["changeset_id"]
         posm_auth_token = inputs["posm_auth_token"]

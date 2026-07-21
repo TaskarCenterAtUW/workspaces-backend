@@ -33,3 +33,14 @@ class StepBase:
             bool: True if the inputs are valid, False otherwise.
         """
         raise NotImplementedError("Subclasses must implement the validate method.")
+    
+    def print_inputs(self, inputs: dict):
+        """
+        Print the inputs for debugging purposes.
+
+        Args:
+            inputs (dict): A dictionary of input values for the step.
+        """
+        self.logger.info(f"Inputs for step {self.step_definition.name}")
+        for key, value in inputs.items():
+            self.logger.info(f"{key}: {value}")

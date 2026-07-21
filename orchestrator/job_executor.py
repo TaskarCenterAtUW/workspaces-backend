@@ -6,13 +6,13 @@ being executed, and retrieve the current job being executed.
 """
 
 import importlib
+import logging
 import re
 from functools import reduce
 
 from orchestrator.impl.step_base import StepBase
 
 VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
-import logging
 
 class JobExecutor:
     def __init__(self, orchestrator_registry):
@@ -32,10 +32,11 @@ class JobExecutor:
             raise ValueError(f"Job with ID {job_id} not found.")
 
         self.current_job = job_definition
-        self.context_dictionary["job"] = {}
-        self.context_dictionary["job"][
-            "inputs"
-        ] = inputs  # Store the job inputs in the context dictionary
+        # Reset per-run context so no values leak across sequential executions.
+        self.context_dictionary = {
+            "job": {"inputs": inputs},
+            "steps": {},
+        }
         self.working_directory = working_dir
         # Here you would implement the logic to execute the job based on the job_definition
         # and the provided inputs. This is a placeholder for demonstration purposes.
@@ -59,10 +60,8 @@ class JobExecutor:
             if not step_class:
                 raise ValueError(f"Step class {class_name} not found.")
             step_instance = step_class(step_definition, self.working_directory)
-            step_arguments = self.apply_context_values(step_ref.arguments)
+            step_arguments = self.apply_context_values(step_ref.arguments or {})
             step_outputs = step_instance.execute(step_arguments)
-            if not self.context_dictionary.get("steps"):
-                self.context_dictionary["steps"] = {}
             self.context_dictionary["steps"][step_ref.step_id] = {
                 "outputs": step_outputs
             }
@@ -84,21 +83,30 @@ class JobExecutor:
         return self.current_job
 
     def apply_context_values(self, inputs: dict) -> dict:
-        """Apply context values to the inputs dictionary."""
-        # This method can be used to replace placeholders in the inputs with actual context values.
-        # For example, if an input value is "${job.inputs.workspace_id}", it will be replaced with the actual value.
+        """Return a copy of inputs with ${...} placeholders resolved from context."""
+        resolved_inputs = {}
         for key, value in inputs.items():
-            resolved_value = self.resolve_context_value(value)
-            if resolved_value is not None:
-                inputs[key] = resolved_value
-        return inputs
+            resolved_inputs[key] = self.resolve_context_value(value)
+        return resolved_inputs
 
-    def resolve_context_value(self, value: str):
+    def resolve_context_value(self, value):
         """Resolve a context value from the context dictionary."""
-        match = VARIABLE_PATTERN.match(value)
+        if isinstance(value, dict):
+            return self.apply_context_values(value)
+
+        if isinstance(value, list):
+            return [self.resolve_context_value(item) for item in value]
+
+        if not isinstance(value, str):
+            return value
+
+        match = VARIABLE_PATTERN.fullmatch(value)
         if match:
             context_key = match.group(1)
-            return self.get_nested_value(context_key)
+            resolved = self.get_nested_value(context_key)
+            # Keep original placeholder when no context value exists.
+            return value if resolved is None else resolved
+
         return value
 
     def get_nested_value(self, key_path: str):
