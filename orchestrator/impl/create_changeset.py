@@ -22,27 +22,28 @@ class CreateChangesetStep(StepBase):
                 with xf.element(
                     "osmChange", version="0.6", generator="Workspaces Orchestrator"
                 ):
-                    context = etree.iterparse(xml_file_path, events=("end",))
-                    for _, elem in context:
-                        local_name = self._local_name(elem)
-                        if local_name in {"node", "way", "relation"}:
-                            element_id = elem.get("id")
-                            if element_id is not None and not element_id.startswith(
-                                "-"
-                            ):
-                                elem.set("id", f"-{element_id}")
-                                elem.set("changeset", f"{changeset_id}")
-                            if local_name == "way":
-                                for nd in elem.iterfind("nd"):
-                                    nd_ref = nd.get("ref")
-                                    if nd_ref is not None and not nd_ref.startswith(
-                                        "-"
-                                    ):
-                                        nd.set("ref", f"-{nd_ref}")
-                            xf.write(elem)
-                            elem.clear()
+                    with xf.element("create"):
+                        context = etree.iterparse(xml_file_path, events=("end",))
+                        for _, elem in context:
+                            local_name = self._local_name(elem)
+                            if local_name in {"node", "way", "relation"}:
+                                element_id = elem.get("id")
+                                if element_id is not None and not element_id.startswith(
+                                    "-"
+                                ):
+                                    elem.set("id", f"-{element_id}")
+                                    elem.set("changeset", f"{changeset_id}")
+                                if local_name == "way":
+                                    for nd in elem.iterfind("nd"):
+                                        nd_ref = nd.get("ref")
+                                        if nd_ref is not None and not nd_ref.startswith(
+                                            "-"
+                                        ):
+                                            nd.set("ref", f"-{nd_ref}")
+                                xf.write(elem)
+                                elem.clear()
 
-                    del context
+                        del context
 
         return changeset_file_path
 
@@ -55,6 +56,8 @@ class CreateChangesetStep(StepBase):
         # Create changeset with the osm service
         osm_base_url = "http://osm-proxy:80"
         osm_service = OSMService(tdei_token, osm_base_url, workspace_id)
+        osm_service.create_workspace(workspace_id)
+        time.sleep(3)  # Wait for the workspace to be created before creating the changeset
         changeset_id = osm_service.create_changeset(
             created_by="Workspaces Orchestrator",
             comment=f"Changeset for workspace {workspace_id} Import",
@@ -62,6 +65,6 @@ class CreateChangesetStep(StepBase):
             url="http://example.com"
         )
         self.logger.info(f"Created changeset with ID: {changeset_id}")
-        self.create_changeset_file(xml_file_path, changeset_id)
+        changeset_path = self.create_changeset_file(xml_file_path, changeset_id)
 
-        return {"changeset_id": changeset_id}
+        return {"changeset_id": changeset_id, "changeset_xml_path": changeset_path}

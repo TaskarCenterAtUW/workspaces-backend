@@ -9,3 +9,4 @@ inputs:
   tdei_token: "string"
 outputs:
   changeset_id: "string"
+  changeset_xml_path: "string"

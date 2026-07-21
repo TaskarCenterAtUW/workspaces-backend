@@ -109,6 +109,8 @@ class OSMService(object):
 
             if response.status == httplib.OK:
                 response_body = response.read()
+            elif response.status == httplib.NO_CONTENT:
+                response_body = b""
             else:
                 err = response.read()
                 raise HTTPError(
@@ -196,3 +198,10 @@ class OSMService(object):
         )
         self.changeset = None
         self.logger.info("done.")
+    
+    def create_workspace(self, workspace_id: str):
+        self.logger.info(f"Creating workspace {workspace_id}")
+        # body = f"<workspace><id>{workspace_id}</id></workspace>"
+        self._run_request("PUT", f"/api/0.6/workspaces/{workspace_id}", body=None)
+        self.logger.info("done.")
+        return None

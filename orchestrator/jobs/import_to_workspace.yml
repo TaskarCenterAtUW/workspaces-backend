@@ -20,3 +20,10 @@ workflow:
       xml_file_path: "${steps.download_tdei_dataset_step.outputs.downloaded_file_path}"
       workspace_id: "${job.inputs.workspace_id}"
       tdei_token: "${job.inputs.tdei_token}"
+  - name: Upload Changeset to POSM
+    step_id: upload_changeset
+    with:
+      changeset_file: "${steps.create_changeset_step.outputs.changeset_xml_path}"
+      changeset_id: "${steps.create_changeset_step.outputs.changeset_id}"
+      posm_auth_token: "${job.inputs.tdei_token}"
+      workspace_id: "${job.inputs.workspace_id}"
