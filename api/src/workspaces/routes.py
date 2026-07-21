@@ -1,7 +1,7 @@
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.database import get_osm_session, get_task_session
@@ -144,10 +144,11 @@ async def get_workspace_bbox(
 # Returns 201 on success?
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
+    request: Request,
     workspace_data: WorkspaceCreate,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     repository_users: UserRepository = Depends(get_user_repository),
-    current_user: UserInfo = Depends(validate_token),
+    current_user: UserInfo = Depends(validate_token) 
 ) -> dict[str, int]:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
@@ -167,6 +168,21 @@ async def create_workspace(
         # an hour:
         #
         evict_user_from_cache(current_user.user_uuid)
+        header_token = request.headers.get("Authorization")
+        # split with bearer
+        schema, token = header_token.split()
+
+
+        orchestrator = request.app.orchestrator
+        orchestrator.execute_job(
+    job_id="workspace-import-job",
+    inputs={
+        "workspace_id": str(workspace.id),
+        "tdei_dataset_id": str(workspace_data.tdeiRecordId),
+        "tdei_token": token,
+    },
+)
+            
 
         return {"workspaceId": workspace.id}
     except Exception as e:

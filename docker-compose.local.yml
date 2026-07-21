@@ -26,6 +26,9 @@ services:
       CGIMAP_MAX_PAYLOAD: 1000000000 # max size of dataset uploads
       CGIMAP_MAP_NODES: 100000000 # max number of nodes per requeset
       CGIMAP_MAP_AREA: 1 # max area per request in square degrees
+    depends_on:
+       database:
+         condition: service_healthy
     ports:
       - 8000
   osm-rails:
@@ -55,6 +58,17 @@ services:
       stdin_open: true
       tty: true
       command: ["bundle", "exec", "rake", "jobs:work"]
+
+  osm-proxy:
+    depends_on:
+      - osm-rails
+      - osm-cgimap
+    # 💡 Tip: Change this image to your custom one containing your lighttpd.conf
+    image: sebp/lighttpd:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./dev/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
   
   backend:
      build: .

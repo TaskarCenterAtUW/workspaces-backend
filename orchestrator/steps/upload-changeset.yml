@@ -1,0 +1,12 @@
+name: Upload Changeset to POSM
+id: upload_changeset
+description: Uploads changeset to POSM
+class_name: "orchestrator.impl.upload_changeset.UploadChangesetStep"
+type: class
+inputs:
+  changeset_file: string
+  changeset_id: string
+  posm_auth_token: string
+  workspace_id: string
+outputs:
+  changeset_result: string

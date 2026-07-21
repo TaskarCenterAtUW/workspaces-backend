@@ -33,6 +33,7 @@ from api.src.users.routes import router as users_router
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
+from orchestrator.job_orchestrator import JobOrchestrator
 
 sentry_sdk.init(
     dsn=config.settings.SENTRY_DSN,
@@ -78,6 +79,10 @@ async def lifespan(_app: FastAPI):
     )
     init_tdei_client()
     init_json_schema_client()
+    _orchestrator = JobOrchestrator(
+        steps_dir="orchestrator/steps", jobs_dir="orchestrator/jobs"
+    )
+    _app.orchestrator = _orchestrator
 
     yield  # App runs
 

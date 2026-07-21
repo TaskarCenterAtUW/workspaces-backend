@@ -12,7 +12,7 @@ from functools import reduce
 from orchestrator.impl.step_base import StepBase
 
 VARIABLE_PATTERN = re.compile(r"\$\{([^}]+)\}")
-
+import logging
 
 class JobExecutor:
     def __init__(self, orchestrator_registry):
@@ -20,11 +20,13 @@ class JobExecutor:
         self.current_step = None
         self.current_job = None
         self.job_inputs = None
+        self.working_directory = None
         self.context_dictionary = (
             {}
         )  # Dictionary to hold context data for the job execution
+        self.logger = logging.getLogger(self.__class__.__name__)
 
-    def execute_job(self, job_id: str, inputs: dict):
+    def execute_job(self, job_id: str, inputs: dict, working_dir: str):
         job_definition = self.registry.get_job(job_id)
         if not job_definition:
             raise ValueError(f"Job with ID {job_id} not found.")
@@ -34,10 +36,10 @@ class JobExecutor:
         self.context_dictionary["job"][
             "inputs"
         ] = inputs  # Store the job inputs in the context dictionary
-
+        self.working_directory = working_dir
         # Here you would implement the logic to execute the job based on the job_definition
         # and the provided inputs. This is a placeholder for demonstration purposes.
-        print(f"Executing job: {job_definition.name} with inputs: {inputs}")
+        self.logger.info(f"Executing job: {job_definition.name}")
         self.job_inputs = inputs
         # Start executing each step in the job's workflow
         for step_ref in job_definition.workflow:
@@ -46,8 +48,8 @@ class JobExecutor:
                 raise ValueError(f"Step with ID {step_ref.step_id} not found.")
 
             self.current_step = step_definition
-            print(
-                f"Executing step: {step_definition.name} with arguments: {step_ref.arguments}"
+            self.logger.info(
+                f"Executing step: {step_definition.name}"
             )
             # Here you would call the actual step execution logic, passing in the arguments.
             # For demonstration, we just print the step execution.
@@ -56,7 +58,7 @@ class JobExecutor:
             step_class = self._import_class(class_name)
             if not step_class:
                 raise ValueError(f"Step class {class_name} not found.")
-            step_instance = step_class(step_definition)
+            step_instance = step_class(step_definition, self.working_directory)
             step_arguments = self.apply_context_values(step_ref.arguments)
             step_outputs = step_instance.execute(step_arguments)
             if not self.context_dictionary.get("steps"):

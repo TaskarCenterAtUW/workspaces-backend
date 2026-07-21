@@ -13,6 +13,7 @@ workflow:
     with:
       workspace_id: "${job.inputs.workspace_id}"
       tdei_dataset_id: "${job.inputs.tdei_dataset_id}"
+      tdei_token: "${job.inputs.tdei_token}"
   - name: Create Changeset
     step_id: "create_changeset_step"
     with:

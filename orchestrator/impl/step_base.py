@@ -2,11 +2,13 @@
 Base class for steps in the orchestrator. All steps should inherit from this class and implement the `execute` method.
 The class shall also implement the `validate` method to ensure that the inputs meet the step's requirements.
 """
-
+import logging
 
 class StepBase:
-    def __init__(self, step_definition):
+    def __init__(self, step_definition, working_dir: str):
         self.step_definition = step_definition
+        self.working_dir = working_dir
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def execute(self, inputs: dict) -> dict:
         """
