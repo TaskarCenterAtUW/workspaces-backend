@@ -2,7 +2,6 @@ import time
 
 from orchestrator.impl.step_base import StepBase
 from orchestrator.services.osm_service import OSMService
-import xml.etree.cElementTree as ET
 
 class UploadChangesetStep(StepBase):
     def execute(self, inputs):
@@ -16,8 +15,7 @@ class UploadChangesetStep(StepBase):
         osm_base_url = "http://osm-proxy:80"
         osm_service = OSMService(posm_auth_token, osm_base_url, workspace_id)
         osm_service.changeset = int(changeset_id)
-        changesetElement = ET.ElementTree(file=changeset_file)
-        osm_service.upload(changesetElement.getroot())
+        osm_service.upload(changeset_file)
         
         # osm_service.upload()
         # osm_service.upload_changeset(
