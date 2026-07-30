@@ -104,6 +104,15 @@ app.add_middleware(
     max_age=100,
 )
 
+# Set up CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,  # Adjust this to your needs
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include routers
 app.include_router(osm_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
@@ -113,6 +122,7 @@ app.include_router(tasking_projects_router, prefix="/api/v1")
 app.include_router(tasking_me_router, prefix="/api/v1")
 app.include_router(tasking_tasks_router, prefix="/api/v1")
 app.include_router(tasking_audit_router, prefix="/api/v1")
+
 
 
 @app.get("/health")

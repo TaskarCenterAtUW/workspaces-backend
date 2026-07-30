@@ -162,6 +162,18 @@ def evict_user_from_cache(auth_uid: UUID) -> None:
     _user_info_cache.pop(auth_uid, None)
 
 
+
+def evict_user_from_cache(auth_uid: str) -> None:
+    """
+    Evict a user's cached UserInfo object so that their next request re-fetches
+    permissions.
+
+    Call this after modifying a user's roles in the OSM DB to ensure the change
+    takes effect on their next request rather than after the cache TTL expires.
+    """
+    _user_info_cache.pop(auth_uid, None)
+
+
 security = HTTPBearer()
 
 
@@ -244,11 +256,14 @@ class UserInfo:
             return True
         return False
 
-    # user has has any association with a project group that owns the workspace
+    # user has has any association with a project group that owns the workspace,
+    # OR has any explicit role granted in the OSM DB for that workspace
     def isWorkspaceContributor(self, workspaceId: int) -> bool:
         for pgid, wsids in self.accessibleWorkspaceIds.items():
             if workspaceId in wsids:
                 return True
+        if workspaceId in self.osmWorkspaceRoles:
+            return True
         return False
 
     def effective_role(self, workspaceId: int) -> WorkspaceUserRoleType:

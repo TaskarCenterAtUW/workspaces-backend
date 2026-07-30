@@ -12,7 +12,6 @@ from api.core.security import UserInfo
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
     QuestDefinitionType,
-    QuestSettingsPatch,
     Workspace,
     WorkspaceCreate,
     WorkspaceImagery,
@@ -201,3 +200,31 @@ class WorkspaceRepository:
             raise NotFoundException(f"Workspace delete failed for id {workspace_id}")
 
         await self.session.commit()
+
+
+class OSMRepository:
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def getWorkspaceBBox(
+        self,
+        current_user: UserInfo,
+        workspace_id: int,
+    ):
+        await self.session.execute(
+            text(f"SET search_path TO 'workspace-{workspace_id}', public")
+        )
+
+        sql_query = text(
+            "select MAX(latitude) AS max_lat, MAX(longitude) AS max_lon, \
+                         MIN(latitude) AS min_lat, MIN(longitude) AS min_lon from nodes"
+        )
+
+        result = await self.session.execute(sql_query)
+        retVal = result.mappings().first()
+
+        if retVal is None:
+            raise NotFoundException(f"Workspace with id {workspace_id} not found")
+
+        return retVal

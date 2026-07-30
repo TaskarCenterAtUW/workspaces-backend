@@ -1,5 +1,6 @@
 import json
 from uuid import UUID
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -16,6 +17,9 @@ from api.src.osm.routes import get_osm_repo
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import WorkspaceRepository
+from api.src.users.repository import UserRepository
+from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.repository import OSMRepository, WorkspaceRepository
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
     QuestDefinitionTypeName,
@@ -24,13 +28,35 @@ from api.src.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceImagery,
     WorkspacePatch,
+    WorkspaceLongQuest,
     WorkspaceResponse,
 )
+
 
 # Set up logger for this module
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+def _to_response(workspace: Workspace, user: "UserInfo") -> WorkspaceResponse:
+    """Convert a Workspace ORM object to a response model with the user's effective role."""
+    return WorkspaceResponse(
+        id=workspace.id,
+        type=workspace.type,
+        title=workspace.title,
+        description=workspace.description,
+        tdeiProjectGroupId=workspace.tdeiProjectGroupId,
+        tdeiRecordId=workspace.tdeiRecordId,
+        tdeiServiceId=workspace.tdeiServiceId,
+        tdeiMetadata=workspace.tdeiMetadata,
+        createdAt=workspace.createdAt,
+        createdBy=workspace.createdBy,
+        createdByName=workspace.createdByName,
+        externalAppAccess=workspace.externalAppAccess,
+        kartaViewToken=workspace.kartaViewToken,
+        role=user.effectiveRole(workspace.id),
+    )
 
 
 def get_workspace_repository(
@@ -53,6 +79,12 @@ def get_user_repository(
 # @test: Test that this method properly handles the case where the workspace does not exist and doesn't include it
 # @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
 # @test: Test that this method's results match the values of the fetch-by-workspace-id method below; all workspaces in this list are retrievable via that method
+
+
+def get_user_repository(
+    session: AsyncSession = Depends(get_osm_session),
+) -> UserRepository:
+    return UserRepository(session)
 
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none

@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Self
+from typing import Any, Optional
 from uuid import UUID
 
 from geoalchemy2 import Geometry
