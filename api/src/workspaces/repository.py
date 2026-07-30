@@ -69,6 +69,7 @@ class WorkspaceRepository:
             Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())  # type: ignore[attr-defined]
         )
         result = await self.session.execute(query)
+        # Join the project count, memberCount, and updated at
         return list(result.scalars().all())
 
     async def update(

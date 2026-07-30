@@ -8,7 +8,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - ./data/db:/var/lib/postgresql/data
+      - /Users/nareshd/Documents/wa-proviso/docker-data/db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d workspaces-osm-local"]
       interval: 10s
