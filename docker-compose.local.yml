@@ -32,7 +32,7 @@ services:
     ports:
       - 8000
   osm-rails:
-    image: opensidewalksdev.azurecr.io/workspaces-osm-rails:dev
+    image: opensidewalksdev.azurecr.io/workspaces-osm-rails:stage
     environment:
       RAILS_ENV: production
       SECRET_KEY_BASE: osm_secret_key
