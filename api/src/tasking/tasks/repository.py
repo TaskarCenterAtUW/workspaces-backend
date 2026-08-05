@@ -360,7 +360,7 @@ class TaskingTaskRepository:
 
         feedback: Optional[List[TaskFeedbackResponse]] = None
         if task.id is not None:
-            feedback_list = await self.session.exec(
+            feedback_list = await self.session.execute(
                 select(TaskingFeedback).where(
                     TaskingFeedback.task_id
                     == task.id,  # pyright: ignore[reportArgumentType]
