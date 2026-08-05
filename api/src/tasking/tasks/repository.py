@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -36,6 +36,7 @@ from api.src.tasking.tasks.dtos import (
     TaskBoundariesFeatureCollection,
     TaskBoundaryFeature,
     TaskBoundaryPolygon,
+    TaskFeedbackResponse,
     TaskListResponse,
     TaskLockSummary,
     TaskResponse,
@@ -356,6 +357,29 @@ class TaskingTaskRepository:
             last_mapper = LastMapper(
                 user_id=UUID(task.last_mapper_id), user_name=display
             )
+        
+        feedback: Optional[List[TaskFeedbackResponse]] = None
+        if task.id is not None:
+            feedback_list = await self.session.execute(
+                select(TaskingFeedback).where(
+                    TaskingFeedback.task_id == task.id,
+                    TaskingFeedback.project_id == task.project_id,
+                )
+            )
+            feedback = []
+            for item in feedback_list.scalars().all():
+                feedback_obj = item
+                if feedback_obj:
+                    display = await self._lookup_user_display(feedback_obj.author_user_auth_uid)
+                    feedback.append(
+                        TaskFeedbackResponse(
+                            reason_category=feedback_obj.reason_category,
+                            notes=feedback_obj.notes,
+                            created_at=feedback_obj.created_at,
+                            created_by_user_id=UUID(feedback_obj.author_user_auth_uid),
+                            created_by_user_name=display,
+                        )
+                    )
 
         return TaskResponse(
             id=task.id,  # type: ignore[arg-type]
@@ -367,6 +391,7 @@ class TaskingTaskRepository:
             last_mapper=last_mapper,
             created_at=task.created_at,
             updated_at=task.updated_at,
+            feedback=feedback,
         )
 
     # ---- grid generation -------------------------------------------------
