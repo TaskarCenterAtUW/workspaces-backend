@@ -357,7 +357,7 @@ class TaskingTaskRepository:
             last_mapper = LastMapper(
                 user_id=UUID(task.last_mapper_id), user_name=display
             )
-        
+
         feedback: Optional[List[TaskFeedbackResponse]] = None
         if task.id is not None:
             feedback_list = await self.session.execute(
@@ -370,7 +370,9 @@ class TaskingTaskRepository:
             for item in feedback_list.scalars().all():
                 feedback_obj = item
                 if feedback_obj:
-                    display = await self._lookup_user_display(feedback_obj.author_user_auth_uid)
+                    display = await self._lookup_user_display(
+                        feedback_obj.author_user_auth_uid
+                    )
                     feedback.append(
                         TaskFeedbackResponse(
                             reason_category=feedback_obj.reason_category,
