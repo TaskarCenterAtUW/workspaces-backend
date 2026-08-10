@@ -52,13 +52,20 @@ def evictions(monkeypatch):
 # === GET /mine =============================================================
 
 
-async def test_list_my_workspaces(client, login, task_session):
+async def test_list_my_workspaces(client, login, task_session, osm_session):
     login()
     task_session.queue(
         fakes.rows(
             factories.make_workspace(id=1, title="One"),
             factories.make_workspace(id=2, title="Two"),
-        )
+        ),
+    )
+    # tasking_projects and user_workspace_roles both live in the OSM DB, so
+    # both batched counts are queued on osm_session, in the order the route
+    # calls them: projects counts, then member counts.
+    osm_session.queue(
+        fakes.rows((1, 4), (2, 2)),  # get_projects_counts
+        fakes.rows((1, 3), (2, 1)),  # get_member_counts
     )
 
     response = await client.get(f"{API}/mine")
@@ -67,6 +74,11 @@ async def test_list_my_workspaces(client, login, task_session):
     body = response.json()
     assert [w["id"] for w in body] == [1, 2]
     assert body[0]["role"] == "contributor"
+    assert body[0]["projectsCount"] == 4
+    assert body[0]["membersCount"] == 3
+    assert body[1]["projectsCount"] == 2
+    assert body[1]["membersCount"] == 1
+    assert "updatedAt" in body[0]
 
 
 async def test_list_my_workspaces_empty(client, login, task_session):
@@ -86,14 +98,18 @@ async def test_list_my_workspaces_unexpected_error_500(
     assert response.status_code == 500
 
 
-async def test_list_matches_get_by_id(client, login, task_session):
+async def test_list_matches_get_by_id(client, login, task_session, osm_session):
     # The same workspace serialized via /mine and via /{id} agree on shared fields.
     login(
         factories.make_user_info(osm_workspace_roles={1: [WorkspaceUserRoleType.LEAD]})
     )
     task_session.queue(
-        fakes.rows(factories.make_workspace(id=1, title="Shared")),
-        fakes.rows(factories.make_workspace(id=1, title="Shared")),
+        fakes.rows(factories.make_workspace(id=1, title="Shared")),  # /mine getAll
+        fakes.rows(factories.make_workspace(id=1, title="Shared")),  # /1 getById
+    )
+    osm_session.queue(
+        fakes.rows((1, 0)),  # get_projects_counts for /mine
+        fakes.rows((1, 0)),  # get_member_counts for /mine
     )
 
     listed = (await client.get(f"{API}/mine")).json()[0]

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -44,6 +44,24 @@ class UserRepository:
             )
             for user, role in result.all()
         ]
+
+    async def get_member_counts(self, workspace_ids: list[int]) -> dict[int, int]:
+        if not workspace_ids:
+            return {}
+        query = (
+            select(  # pyright: ignore[reportCallIssue]
+                WorkspaceUserRole.workspace_id,  # pyright: ignore[reportArgumentType]
+                func.count(),
+            )
+            .where(
+                WorkspaceUserRole.workspace_id.in_(  # pyright: ignore[reportAttributeAccessIssue]
+                    workspace_ids
+                )
+            )
+            .group_by(WorkspaceUserRole.workspace_id)
+        )
+        result = await self.session.execute(query)
+        return {wid: int(c) for wid, c in result.all()}
 
     async def get_current_user(self, current_user: UserInfo) -> User:
         result = await self.session.exec(  # pyright: ignore[reportCallIssue]
