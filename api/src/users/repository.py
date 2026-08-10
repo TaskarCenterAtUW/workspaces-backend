@@ -50,8 +50,8 @@ class UserRepository:
             return {}
         query = (
             select(  # pyright: ignore[reportCallIssue]
-                WorkspaceUserRole.workspace_id,
-                func.count(),  # pyright: ignore[reportArgumentType]
+                WorkspaceUserRole.workspace_id,  # pyright: ignore[reportArgumentType]
+                func.count(),
             )
             .where(
                 WorkspaceUserRole.workspace_id.in_(  # pyright: ignore[reportAttributeAccessIssue]

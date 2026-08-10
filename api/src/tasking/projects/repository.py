@@ -491,8 +491,8 @@ class TaskingProjectRepository:
             return {}
         query = (
             select(  # pyright: ignore[reportCallIssue]
-                TaskingProject.workspace_id,
-                func.count(),  # pyright: ignore[reportArgumentType]
+                TaskingProject.workspace_id,  # pyright: ignore[reportArgumentType]
+                func.count(),
             )
             .where(
                 TaskingProject.workspace_id.in_(  # pyright: ignore[reportAttributeAccessIssue]
