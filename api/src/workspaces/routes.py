@@ -74,9 +74,6 @@ async def get_my_workspaces(
         workspaces = await repository.getAll(current_user)
         workspace_ids = [ws.id for ws in workspaces if ws.id is not None]
 
-        # tasking_projects and user_workspace_roles both live in the OSM DB
-        # (see CLAUDE.md), so both counts come off the osm_session-bound
-        # repositories, not WorkspaceRepository's task session.
         projects_counts = await project_repo.get_projects_counts(workspace_ids)
         members_counts = await user_repo.get_member_counts(workspace_ids)
 
