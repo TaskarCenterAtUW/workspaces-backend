@@ -13,6 +13,7 @@ from api.core.logging import get_logger
 from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.osm.repository import OSMRepository
 from api.src.osm.routes import get_osm_repo
+from api.src.tasking.projects.repository import TaskingProjectRepository
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.repository import WorkspaceRepository
@@ -46,6 +47,12 @@ def get_user_repository(
     return UserRepository(session)
 
 
+def get_project_repository(
+    session: AsyncSession = Depends(get_osm_session),
+) -> TaskingProjectRepository:
+    return TaskingProjectRepository(session)
+
+
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this method properly calls the repository method to fetch the workspace and that the repository method properly fetches the workspace from the database
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
@@ -59,11 +66,32 @@ def get_user_repository(
 @router.get("/mine", response_model=list[WorkspaceResponse])
 async def get_my_workspaces(
     repository: WorkspaceRepository = Depends(get_workspace_repository),
+    user_repo: UserRepository = Depends(get_user_repository),
+    project_repo: TaskingProjectRepository = Depends(get_project_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> list[WorkspaceResponse]:
     try:
         workspaces = await repository.getAll(current_user)
-        return [WorkspaceResponse.from_workspace(ws, current_user) for ws in workspaces]
+        workspace_ids = [ws.id for ws in workspaces if ws.id is not None]
+
+        # tasking_projects and user_workspace_roles both live in the OSM DB
+        # (see CLAUDE.md), so both counts come off the osm_session-bound
+        # repositories, not WorkspaceRepository's task session.
+        projects_counts = await project_repo.get_projects_counts(workspace_ids)
+        members_counts = await user_repo.get_member_counts(workspace_ids)
+
+        responses = []
+        for ws in workspaces:
+            assert ws.id is not None  # persisted workspace always has an id
+            responses.append(
+                WorkspaceResponse.from_workspace(
+                    ws,
+                    current_user,
+                    projects_count=projects_counts.get(ws.id, 0),
+                    members_count=members_counts.get(ws.id, 0),
+                )
+            )
+        return responses
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
         raise

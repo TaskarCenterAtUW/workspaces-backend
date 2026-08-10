@@ -486,6 +486,27 @@ class TaskingProjectRepository:
         )
         return int(result.scalar() or 0) > 0
 
+    async def get_projects_counts(self, workspace_ids: list[int]) -> dict[int, int]:
+        if not workspace_ids:
+            return {}
+        query = (
+            select(  # pyright: ignore[reportCallIssue]
+                TaskingProject.workspace_id,
+                func.count(),  # pyright: ignore[reportArgumentType]
+            )
+            .where(
+                TaskingProject.workspace_id.in_(  # pyright: ignore[reportAttributeAccessIssue]
+                    workspace_ids
+                )
+                & TaskingProject.deleted_at.is_(  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+                    None
+                )
+            )
+            .group_by(TaskingProject.workspace_id)
+        )
+        result = await self.session.execute(query)
+        return {wid: int(c) for wid, c in result.all()}
+
     async def create(
         self,
         workspace_id: int,

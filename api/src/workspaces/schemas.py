@@ -216,10 +216,13 @@ class WorkspaceResponse(SQLModel):
     createdAt: datetime
     createdBy: UUID
     createdByName: str
+    updatedAt: datetime
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
     autoFlagReview: bool = False
     role: str
+    projectsCount: int = 0
+    membersCount: int = 0
     # Included in single-workspace GET for mobile app consumption. TODO: remove
     # this when the app fetches these from dedicated endpoints:
     longFormQuestDef: Optional[Any] = None
@@ -236,6 +239,8 @@ class WorkspaceResponse(SQLModel):
         *,
         imagery_list_def: Any = None,
         long_form_quest_def: Any = None,
+        projects_count: int = 0,
+        members_count: int = 0,
     ) -> Self:
         assert workspace.id is not None  # persisted workspace always has an id
         return cls(
@@ -250,10 +255,13 @@ class WorkspaceResponse(SQLModel):
             createdAt=workspace.createdAt,
             createdBy=workspace.createdBy,
             createdByName=workspace.createdByName,
+            updatedAt=workspace.updatedAt or workspace.createdAt,
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
             autoFlagReview=workspace.autoFlagReview,
             role=user.effective_role(workspace.id),
+            projectsCount=projects_count,
+            membersCount=members_count,
             imageryListDef=imagery_list_def,
             longFormQuestDef=long_form_quest_def,
         )
@@ -285,6 +293,14 @@ class Workspace(SQLModel, table=True):
     createdAt: datetime = Field(sa_column=Column(nullable=False, default=datetime.now))
     createdBy: UUID
     createdByName: str
+
+    # Nullable so that adding this column never requires a data backfill: rows
+    # written before this column existed simply read back as None, and
+    # WorkspaceResponse.from_workspace falls back to createdAt for those.
+    updatedAt: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(nullable=True, default=datetime.now, onupdate=datetime.now),
+    )
 
     geometry: Optional[Any] = Field(
         default=None, sa_column=Column(Geometry("MULTIPOLYGON", srid=4326))

@@ -61,6 +61,7 @@ def test_workspace_table_schema():
         "createdAt",
         "createdBy",
         "createdByName",
+        "updatedAt",
         "geometry",
         "externalAppAccess",
         "kartaViewToken",
@@ -138,6 +139,7 @@ def test_workspace_preserves_uuid_and_datetime():
         createdBy=pg,
         createdByName="N",
         createdAt=created,
+        updatedAt=created,
     )
     assert ws.tdeiProjectGroupId == pg
     assert ws.createdAt == created  # no truncation
@@ -159,6 +161,31 @@ def test_workspace_response_includes_effective_role():
     assert resp.title == "Mappy"
     assert resp.role == WorkspaceUserRoleType.LEAD
     assert resp.type == WorkspaceType.OSW
+    assert resp.updatedAt == ws.updatedAt
+    assert resp.projectsCount == 0
+    assert resp.membersCount == 0
+
+
+def test_workspace_response_includes_counts():
+    user = factories.make_user_info()
+    ws = factories.make_workspace(id=3)
+
+    resp = WorkspaceResponse.from_workspace(ws, user, projects_count=5, members_count=2)
+
+    assert resp.projectsCount == 5
+    assert resp.membersCount == 2
+
+
+def test_workspace_response_updated_at_falls_back_to_created_at():
+    # Rows written before the updatedAt column existed read back as None --
+    # the response should report createdAt for those rather than null.
+    user = factories.make_user_info()
+    created = datetime(2026, 1, 2, 3, 4, 5)
+    ws = factories.make_workspace(id=4, updatedAt=None, createdAt=created)
+
+    resp = WorkspaceResponse.from_workspace(ws, user)
+
+    assert resp.updatedAt == created
 
 
 def test_workspace_response_passes_through_defs():
