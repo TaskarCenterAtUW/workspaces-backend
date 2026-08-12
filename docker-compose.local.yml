@@ -56,6 +56,16 @@ services:
       tty: true
       command: ["bundle", "exec", "rake", "jobs:work"]
   
+  osm-proxy:
+    depends_on:
+      - osm-rails
+      - osm-cgimap
+    # 💡 Tip: Change this image to your custom one containing your lighttpd.conf
+    image: sebp/lighttpd:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./dev/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro
   backend:
      build: .
      container_name: workspaces-backend

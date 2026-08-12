@@ -10,6 +10,7 @@ from api.core.json_schema import (
     validate_quest_definition_schema,
 )
 from api.core.logging import get_logger
+from api.core.messenger import Messenger
 from api.core.security import UserInfo, evict_user_from_cache, validate_token
 from api.src.osm.repository import OSMRepository
 from api.src.osm.routes import get_osm_repo
@@ -235,6 +236,10 @@ async def create_workspace(
             ignore_permissions=True,
         )
         # Send the message over the bus here.
+        messenger = Messenger()
+        messenger.send_message(
+            request_data
+        )  # send the message to the bus for processing
 
         evict_user_from_cache(current_user.user_uuid)
         return {"workspaceId": workspace.id, "importJobId": job_id}
