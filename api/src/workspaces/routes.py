@@ -16,6 +16,8 @@ from api.src.osm.routes import get_osm_repo
 from api.src.tasking.projects.repository import TaskingProjectRepository
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.jobs.repository import JobRepository
+from api.src.workspaces.jobs.schemas import Job
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
@@ -51,6 +53,12 @@ def get_project_repository(
     session: AsyncSession = Depends(get_osm_session),
 ) -> TaskingProjectRepository:
     return TaskingProjectRepository(session)
+
+
+def get_jobs_repository(
+    session: AsyncSession = Depends(get_osm_session),
+) -> JobRepository:
+    return JobRepository(session)
 
 
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
@@ -172,6 +180,7 @@ async def create_workspace(
     workspace_data: WorkspaceCreate,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     repository_users: UserRepository = Depends(get_user_repository),
+    jobs_repository: JobRepository = Depends(get_jobs_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> dict[str, int]:
     try:
@@ -187,6 +196,7 @@ async def create_workspace(
             WorkspaceUserRoleType.LEAD,
         )
 
+        # await jobs_repository.create(current_user, workspace.id)
         # Evict the creator's cache so their next request reflects the new
         # workspace and lead role rather than serving stale data for up to
         # an hour:
@@ -454,4 +464,18 @@ async def update_imagery_settings(
         await repository_ws.save_imagery_def(current_user, workspace_id, imagery_data)
     except Exception as e:
         logger.error(f"Failed to update workspace {workspace_id}: {str(e)}")
+        raise
+
+
+@router.get("/{workspace_id}/jobs", response_model=list[Job])
+async def get_jobs_by_workspace_id(
+    workspace_id: int,
+    repository: JobRepository = Depends(get_jobs_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> list[Job]:
+    try:
+        jobs = await repository.getWorkspaceJobs(current_user, workspace_id)
+        return jobs
+    except Exception as e:
+        logger.error(f"Failed to fetch jobs for workspace {workspace_id}: {str(e)}")
         raise
