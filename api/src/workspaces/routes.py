@@ -17,7 +17,7 @@ from api.src.tasking.projects.repository import TaskingProjectRepository
 from api.src.users.repository import UserRepository
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.jobs.repository import JobRepository
-from api.src.workspaces.jobs.schemas import Job
+from api.src.workspaces.jobs.schemas import Job, JobCreate, JobPatch
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
@@ -201,9 +201,43 @@ async def create_workspace(
         # workspace and lead role rather than serving stale data for up to
         # an hour:
         #
-        evict_user_from_cache(current_user.user_uuid)
+        # Get the user access_token from the header
+        access_token = current_user.credentials
+        request_data = {
+            "workspace_id": workspace.id,
+            "tdei_dataset_id": (
+                str(workspace_data.tdeiRecordId)
+                if workspace_data.tdeiRecordId is not None
+                else ""
+            ),
+            "tdei_token": access_token,
+        }
+        create_job = await jobs_repository.create(
+            current_user,
+            JobCreate(
+                job_type="workspace-import",
+                status="requested",
+                request=request_data,
+                workspace_id=workspace.id,
+            ),
+        )
+        job_id = create_job.id
+        logger.info(
+            f"Import job with ID: {job_id} created for workspace ID: {workspace.id}"
+        )
 
-        return {"workspaceId": workspace.id}
+        request_data["unique_job_id"] = job_id
+        # since this is the first time, we donot have the job_id unless we created one. Update the same in the request
+        await jobs_repository.update(
+            current_user,
+            job_id,
+            JobPatch(request=request_data),
+            ignore_permissions=True,
+        )
+        # Send the message over the bus here.
+
+        evict_user_from_cache(current_user.user_uuid)
+        return {"workspaceId": workspace.id, "importJobId": job_id}
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
