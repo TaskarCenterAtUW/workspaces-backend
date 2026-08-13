@@ -18,6 +18,7 @@ import pytest
 
 import api.src.workspaces.routes as ws_routes
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.jobs.schemas import Job
 from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceLongQuest
 from tests.support import factories, fakes
 
@@ -184,9 +185,33 @@ async def test_get_bbox_no_nodes_404(client, login, task_session, osm_session):
 # === POST "" create ========================================================
 
 
-async def test_create_workspace(client, login, task_session, osm_session, evictions):
+async def test_create_workspace(
+    client, login, task_session, osm_session, evictions, monkeypatch
+):
+    class _FakeMessenger:
+        def send_message(self, _message):
+            return None
+
+    monkeypatch.setattr(ws_routes, "Messenger", _FakeMessenger)
+
     login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
-    osm_session.queue(fakes.scalar(1))  # assign_member_role: user exists
+    osm_session.queue(
+        fakes.scalar(1),  # assign_member_role: user exists
+        fakes.affected(1),  # assign_member_role: role upsert execute
+        fakes.affected(1),  # jobs_repository.update(...)
+        fakes.rows(
+            Job(
+                id=1,
+                job_type="workspace-import",
+                status="requested",
+                request={"workspace_id": 1},
+                current_task=None,
+                current_task_status=None,
+                response=None,
+                workspace_id=1,
+            )
+        ),  # jobs_repository._getJobById(...)
+    )
 
     response = await client.post(
         f"{API}",
@@ -199,8 +224,9 @@ async def test_create_workspace(client, login, task_session, osm_session, evicti
 
     assert response.status_code == 201
     assert response.json()["workspaceId"] is not None
+    assert response.json()["importJobId"] is not None
     assert task_session.commits == 1  # workspace insert
-    assert osm_session.commits == 1  # role insert
+    assert osm_session.commits == 3  # role insert + job create + job update
     assert evictions == [UUID(factories.DEFAULT_USER_ID)]  # creator's cache evicted
 
 
