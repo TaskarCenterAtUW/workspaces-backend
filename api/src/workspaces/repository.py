@@ -18,6 +18,7 @@ from api.src.workspaces.schemas import (
     WorkspaceImagery,
     WorkspaceLongQuest,
     WorkspacePatch,
+    WorkspaceType,
 )
 
 
@@ -29,10 +30,17 @@ class WorkspaceRepository:
     async def create(
         self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> Workspace:
+        importStatus = "NA"
+        if (
+            workspace_data.type == WorkspaceType.OSW
+            and workspace_data.tdeiRecordId is not None
+        ):
+            importStatus = "in-progress"
         workspace = Workspace(
             **workspace_data.model_dump(),
             createdBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
             createdByName=current_user.user_name,
+            importStatus=importStatus,
         )
 
         if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():
