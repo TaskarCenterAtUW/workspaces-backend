@@ -227,6 +227,7 @@ class WorkspaceResponse(SQLModel):
     # this when the app fetches these from dedicated endpoints:
     longFormQuestDef: Optional[Any] = None
     imageryListDef: Optional[Any] = None
+    importStatus: Optional[str] = None
 
     # @test: Test that this class properly serializes the workspace data for API responses, including the effective role for the user making the request
     # @test: Test that the values are populated in this class match the expected values from the database and that the relationships are correctly serialized
@@ -264,6 +265,7 @@ class WorkspaceResponse(SQLModel):
             membersCount=members_count,
             imageryListDef=imagery_list_def,
             longFormQuestDef=long_form_quest_def,
+            importStatus=workspace.importStatus,
         )
 
 
