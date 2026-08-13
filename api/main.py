@@ -316,10 +316,11 @@ async def catch_all(
     ):
         workspace = await repository.getById(current_user, workspace_id)
 
-        if (
-            workspace.autoFlagReview
-            and current_user.effective_role(workspace_id) == "contributor"
-        ):
+        # if (
+        #     workspace.autoFlagReview
+        #     and current_user.effective_role(workspace_id) == "contributor"
+        # ):
+        if True:
             logger.info("Injecting review request tag")
             body = await request.body()
             root = ET.fromstring(body)
