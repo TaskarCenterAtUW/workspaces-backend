@@ -31,10 +31,7 @@ class WorkspaceRepository:
         self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> Workspace:
         importStatus = "NA"
-        if (
-            workspace_data.type == WorkspaceType.OSW
-            and workspace_data.tdeiRecordId is not None
-        ):
+        if workspace_data.isTDEIDataset():
             importStatus = "in-progress"
         workspace = Workspace(
             **workspace_data.model_dump(),

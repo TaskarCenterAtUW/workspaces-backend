@@ -202,44 +202,46 @@ async def create_workspace(
         # workspace and lead role rather than serving stale data for up to
         # an hour:
         #
-        # Get the user access_token from the header
-        access_token = current_user.credentials
-        request_data = {
-            "workspace_id": workspace.id,
-            "tdei_dataset_id": (
-                str(workspace_data.tdeiRecordId)
-                if workspace_data.tdeiRecordId is not None
-                else ""
-            ),
-            "tdei_token": access_token,
-        }
-        create_job = await jobs_repository.create(
-            current_user,
-            JobCreate(
-                job_type="workspace-import",
-                status="requested",
-                request=request_data,
-                workspace_id=workspace.id,
-            ),
-        )
-        job_id = create_job.id
-        logger.info(
-            f"Import job with ID: {job_id} created for workspace ID: {workspace.id}"
-        )
+        job_id = None
+        if workspace_data.isTDEIOSWDataset():
+            # Get the user access_token from the header
+            access_token = current_user.credentials
+            request_data = {
+                "workspace_id": workspace.id,
+                "tdei_dataset_id": (
+                    str(workspace_data.tdeiRecordId)
+                    if workspace_data.tdeiRecordId is not None
+                    else ""
+                ),
+                "tdei_token": access_token,
+            }
+            create_job = await jobs_repository.create(
+                current_user,
+                JobCreate(
+                    job_type="workspace-import",
+                    status="requested",
+                    request=request_data,
+                    workspace_id=workspace.id,
+                ),
+            )
+            job_id = create_job.id
+            logger.info(
+                f"Import job with ID: {job_id} created for workspace ID: {workspace.id}"
+            )
 
-        request_data["unique_job_id"] = job_id
-        # since this is the first time, we donot have the job_id unless we created one. Update the same in the request
-        await jobs_repository.update(
-            current_user,
-            job_id,
-            JobPatch(request=request_data),
-            ignore_permissions=True,
-        )
-        # Send the message over the bus here.
-        messenger = Messenger()
-        messenger.send_message(
-            request_data
-        )  # send the message to the bus for processing
+            request_data["unique_job_id"] = job_id
+            # since this is the first time, we donot have the job_id unless we created one. Update the same in the request
+            await jobs_repository.update(
+                current_user,
+                job_id,
+                JobPatch(request=request_data),
+                ignore_permissions=True,
+            )
+            # Send the message over the bus here.
+            messenger = Messenger()
+            messenger.send_message(
+                request_data
+            )  # send the message to the bus for processing
 
         evict_user_from_cache(current_user.user_uuid)
         return {"workspaceId": workspace.id, "importJobId": job_id}

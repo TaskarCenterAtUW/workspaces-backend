@@ -186,31 +186,44 @@ async def test_get_bbox_no_nodes_404(client, login, task_session, osm_session):
 
 
 async def test_create_workspace(
-    client, login, task_session, osm_session, evictions, monkeypatch
+    client, app, login, task_session, osm_session, evictions, monkeypatch
 ):
     class _FakeMessenger:
         def send_message(self, _message):
             return None
 
-    monkeypatch.setattr(ws_routes, "Messenger", _FakeMessenger)
-
-    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
-    osm_session.queue(
-        fakes.scalar(1),  # assign_member_role: user exists
-        fakes.affected(1),  # assign_member_role: role upsert execute
-        fakes.affected(1),  # jobs_repository.update(...)
-        fakes.rows(
-            Job(
+    class _FakeJobsRepository:
+        async def create(self, _current_user, job_data):
+            return Job(
                 id=1,
+                job_type=job_data.job_type,
+                status=job_data.status,
+                request=job_data.request,
+                current_task=job_data.current_task,
+                current_task_status=job_data.current_task_status,
+                response=job_data.response,
+                workspace_id=job_data.workspace_id,
+            )
+
+        async def update(self, _current_user, job_id, job_data, **_kwargs):
+            return Job(
+                id=job_id,
                 job_type="workspace-import",
                 status="requested",
-                request={"workspace_id": 1},
+                request=job_data.request if job_data.request is not None else {},
                 current_task=None,
                 current_task_status=None,
                 response=None,
                 workspace_id=1,
             )
-        ),  # jobs_repository._getJobById(...)
+
+    monkeypatch.setattr(ws_routes, "Messenger", _FakeMessenger)
+    app.dependency_overrides[ws_routes.get_jobs_repository] = _FakeJobsRepository
+
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    osm_session.queue(
+        fakes.scalar(1),  # assign_member_role: user exists
+        fakes.affected(1),  # assign_member_role: role upsert execute
     )
 
     response = await client.post(
@@ -219,6 +232,8 @@ async def test_create_workspace(
             "type": "osw",
             "title": "Fresh",
             "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": "33333333-3333-3333-3333-333333333333",
+            "tdeiServiceId": "44444444-4444-4444-4444-444444444444",
         },
     )
 
@@ -226,7 +241,7 @@ async def test_create_workspace(
     assert response.json()["workspaceId"] is not None
     assert response.json()["importJobId"] is not None
     assert task_session.commits == 1  # workspace insert
-    assert osm_session.commits == 3  # role insert + job create + job update
+    assert osm_session.commits == 1  # role insert
     assert evictions == [UUID(factories.DEFAULT_USER_ID)]  # creator's cache evicted
 
 

@@ -139,6 +139,12 @@ class WorkspaceCreate(SQLModel):
     tdeiServiceId: Optional[UUID] = None
     tdeiMetadata: Optional[Any] = None
 
+    def isTDEIDataset(self) -> bool:
+        return self.tdeiRecordId is not None and self.tdeiProjectGroupId is not None
+
+    def isTDEIOSWDataset(self) -> bool:
+        return self.type == WorkspaceType.OSW and self.isTDEIDataset()
+
 
 class WorkspacePatch(SQLModel):
     """Fields the client may supply when updating a workspace"""
