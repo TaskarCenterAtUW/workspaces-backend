@@ -336,3 +336,8 @@ class Workspace(SQLModel, table=True):
             "cascade": "all, delete-orphan",
         }
     )
+
+    importStatus: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Unicode, nullable=True),
+    )
