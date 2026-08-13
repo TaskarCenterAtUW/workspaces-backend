@@ -67,7 +67,7 @@ class JobRepository:
         if ignore_permissions:
             query = (
                 update(Job)
-                .where(Job.id == job_id)
+                .where(Job.id == job_id)  # pyright: ignore[reportArgumentType]
                 .values(**job_data.model_dump(exclude_unset=True))
             )
             result = await self.session.execute(query)
@@ -118,12 +118,16 @@ class JobRepository:
                 "User does not have permissions to view jobs in that workspace."
             )
 
-        query = select(Job).where(Job.workspace_id == workspace_id)
+        query = select(Job).where(
+            Job.workspace_id == workspace_id  # pyright: ignore[reportArgumentType]
+        )
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
     async def _getJobById(self, job_id: int) -> Job:
-        query = select(Job).where(Job.id == job_id)
+        query = select(Job).where(
+            Job.id == job_id  # pyright: ignore[reportArgumentType]
+        )
         result = await self.session.execute(query)
         job = result.scalar_one_or_none()
 

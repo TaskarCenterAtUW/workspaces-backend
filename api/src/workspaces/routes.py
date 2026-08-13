@@ -183,7 +183,7 @@ async def create_workspace(
     repository_users: UserRepository = Depends(get_user_repository),
     jobs_repository: JobRepository = Depends(get_jobs_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> dict[str, int]:
+) -> dict[str, int | None]:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
         assert workspace.id is not None  # freshly persisted workspace has an id

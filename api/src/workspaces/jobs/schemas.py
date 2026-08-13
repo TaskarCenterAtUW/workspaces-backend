@@ -7,17 +7,21 @@ from sqlmodel import Field, Relationship, SQLModel
 
 
 class Job(SQLModel, table=True):
-    __tablename__ = "jobs"
+    __tablename__ = "jobs"  # type: ignore[assignment]
 
     id: int = Field(default=None, primary_key=True)
     job_type: str = Field(default=None, nullable=False)
     status: str = Field(default=None, nullable=False)
-    request: dict = Field(default=None, sa_column=Column(SAJson, nullable=False))
+    request: dict[str, Any] = Field(
+        default=None, sa_column=Column(SAJson, nullable=False)
+    )
     created_at: datetime = Field(sa_column=Column(nullable=False, default=datetime.now))
     updated_at: datetime = Field(sa_column=Column(nullable=False, default=datetime.now))
-    current_task: str = Field(default=None, nullable=True)
-    current_task_status: str = Field(default=None, nullable=True)
-    response: dict = Field(default=None, sa_column=Column(SAJson, nullable=True))
+    current_task: str | None = Field(default=None, nullable=True)
+    current_task_status: str | None = Field(default=None, nullable=True)
+    response: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(SAJson, nullable=True)
+    )
     workspace_id: int = Field(default=None)  # Not sure if we have to add index here.
 
     # workspace_id: int = Field(foreign_key="workspaces.id")
