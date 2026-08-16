@@ -214,6 +214,7 @@ async def create_workspace(
                     else ""
                 ),
                 "tdei_token": access_token,
+                "data_type": workspace.type.name,
             }
             create_job = await jobs_repository.create(
                 current_user,
