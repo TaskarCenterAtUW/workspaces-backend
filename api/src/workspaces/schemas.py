@@ -145,6 +145,9 @@ class WorkspaceCreate(SQLModel):
     def isTDEIOSWDataset(self) -> bool:
         return self.type == WorkspaceType.OSW and self.isTDEIDataset()
 
+    def isTDEIPathwaysDataset(self) -> bool:
+        return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
+
 
 class WorkspacePatch(SQLModel):
     """Fields the client may supply when updating a workspace"""

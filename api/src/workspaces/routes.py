@@ -203,7 +203,7 @@ async def create_workspace(
         # an hour:
         #
         job_id = None
-        if workspace_data.isTDEIOSWDataset():
+        if workspace_data.isTDEIOSWDataset() or workspace_data.isTDEIPathwaysDataset():
             # Get the user access_token from the header
             access_token = current_user.credentials
             request_data = {
@@ -214,7 +214,7 @@ async def create_workspace(
                     else ""
                 ),
                 "tdei_token": access_token,
-                "data_type": workspace.type.name,
+                "data_type": workspace_data.type.name.lower(),
             }
             create_job = await jobs_repository.create(
                 current_user,
