@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ develop, main ]
   pull_request:
-    branches: [ develop ]
+    branches: [ develop, main ]
 
 # Cancel any in-progress run for the same branch/PR when a newer commit lands.
 concurrency:
@@ -40,3 +40,33 @@ jobs:
     # so a single red step still lists all failures.
     - name: Run CI checks
       run: ./scripts/ci.sh --integration
+
+    # Coverage is already measured by pytest (`--cov=api` in pyproject.toml's
+    # addopts), but the term-missing table is buried in the verbose pytest
+    # output above. These steps surface it: a per-file table on the run's
+    # summary page, and a browsable HTML report as a downloadable artifact.
+    # `always()` so a red test run still reports the coverage it managed to
+    # collect; the `.coverage` guard covers the case where pytest never ran
+    # (e.g. an earlier lint step exploded).
+    - name: Publish coverage summary
+      if: always()
+      run: |
+        if [ ! -f .coverage ]; then
+          echo "No coverage data (.coverage missing) — skipping." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        {
+          echo "## Test coverage — $(uv run coverage report --format=total)%"
+          echo ""
+          uv run coverage report --format=markdown
+        } >> "$GITHUB_STEP_SUMMARY"
+        uv run coverage html
+
+    - name: Upload HTML coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-html-py${{ matrix.python-version }}
+        path: htmlcov/
+        if-no-files-found: ignore
+        retention-days: 14
