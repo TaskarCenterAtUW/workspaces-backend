@@ -157,7 +157,7 @@ def upgrade() -> None:
             # upcast to single-member MultiPolygons in the app layer.
             sa.Column(
                 "aoi",
-                postgresql.BYTEA(),  # placeholder; replaced below
+                sa.dialects.postgresql.BYTEA(),  # placeholder; replaced below
                 nullable=True,
             ),
             sa.Column("created_by", sa.Uuid(), nullable=False),
