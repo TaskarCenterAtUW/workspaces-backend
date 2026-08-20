@@ -1,9 +1,23 @@
 import json
-from uuid import UUID
+import shutil
+from pathlib import Path
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.concurrency import run_in_threadpool
 from sqlmodel.ext.asyncio.session import AsyncSession
+from typing_extensions import Annotated
 
+from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
 from api.core.json_schema import (
     validate_imagery_definition_schema,
@@ -26,6 +40,7 @@ from api.src.workspaces.schemas import (
     QuestSettingsPatch,
     QuestSettingsResponse,
     WorkspaceCreate,
+    WorkspaceCreateWithForm,
     WorkspaceImagery,
     WorkspacePatch,
     WorkspaceResponse,
@@ -60,6 +75,27 @@ def get_jobs_repository(
     session: AsyncSession = Depends(get_osm_session),
 ) -> JobRepository:
     return JobRepository(session)
+
+
+def _upload_dest_path(workspace_id: int, upload: UploadFile) -> Path:
+    # Path(...).name strips any directory components from the client-supplied
+    # filename, so a malicious "../../etc/passwd" can't escape WS_JOBS_DIR.
+    original_name = Path(upload.filename or "upload").name
+    unique_name = f"{workspace_id}-{uuid4().hex}-{original_name}"
+    return Path(settings.WS_JOBS_DIR) / unique_name
+
+
+async def save_uploaded_dataset(workspace_id: int, upload: UploadFile) -> Path:
+    dest = _upload_dest_path(workspace_id, upload)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with dest.open("wb") as buffer:
+            # copyfileobj reads/writes in chunks itself; run_in_threadpool keeps
+            # this blocking I/O off the event loop.
+            await run_in_threadpool(shutil.copyfileobj, upload.file, buffer)
+    finally:
+        await upload.close()
+    return dest
 
 
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
@@ -166,6 +202,84 @@ async def get_workspace_bbox(
         raise
 
 
+@router.post("/from-file", status_code=status.HTTP_201_CREATED)
+async def create_workspace_from_file(
+    workspace_data: Annotated[
+        WorkspaceCreateWithForm, Depends(WorkspaceCreateWithForm.as_form)
+    ],
+    file: Annotated[UploadFile, File()],
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    repository_users: UserRepository = Depends(get_user_repository),
+    jobs_repository: JobRepository = Depends(get_jobs_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> dict[str, int | None]:
+    try:
+        workspace = await repository_ws.create(current_user, workspace_data)
+        assert workspace.id is not None  # freshly persisted workspace has an id
+
+        # Assign the creator as lead so that non-POC members can manage their
+        # own workspace:
+        #
+        await repository_users.assign_member_role(
+            workspace.id,
+            current_user.user_uuid,
+            WorkspaceUserRoleType.LEAD,
+        )
+
+        file_path = await save_uploaded_dataset(workspace.id, file)
+
+        # await jobs_repository.create(current_user, workspace.id)
+        # Evict the creator's cache so their next request reflects the new
+        # workspace and lead role rather than serving stale data for up to
+        # an hour:
+        #
+        job_id = None
+        if workspace_data.isTDEIOSWDataset() or workspace_data.isTDEIPathwaysDataset():
+            # Get the user access_token from the header
+            access_token = current_user.credentials
+            request_data = {
+                "workspace_id": workspace.id,
+                "tdei_token": access_token,
+                "data_type": workspace_data.type.name.lower(),
+                "file_path": str(file_path),
+                "import_type": "file",
+            }
+            create_job = await jobs_repository.create(
+                current_user,
+                JobCreate(
+                    job_type="workspace-import-file",  # Job type doesn't exist yet
+                    status="requested",
+                    request=request_data,
+                    workspace_id=workspace.id,
+                ),
+            )
+            job_id = create_job.id
+            logger.info(
+                f"Import job with ID: {job_id} created for workspace ID: {workspace.id}"
+            )
+
+            request_data["unique_job_id"] = job_id
+            # since this is the first time, we donot have the job_id unless we created one. Update the same in the request
+            await jobs_repository.update(
+                current_user,
+                job_id,
+                JobPatch(request=request_data),
+                ignore_permissions=True,
+            )
+            print(f"Request data for job {job_id}: {request_data}")
+            # Send the message over the bus here.
+            messenger = Messenger()
+            messenger.send_message(
+                request_data
+            )  # send the message to the bus for processing
+
+        evict_user_from_cache(current_user.user_uuid)
+        return {"workspaceId": workspace.id, "importJobId": job_id}
+    except Exception as e:
+        logger.error(f"Failed to create workspace: {str(e)}")
+        raise
+
+
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
 # @test: Test that this method properly calls the repository method to create the workspace and that the repository method properly creates the workspace in the database
@@ -215,6 +329,7 @@ async def create_workspace(
                 ),
                 "tdei_token": access_token,
                 "data_type": workspace_data.type.name.lower(),
+                "import_type": "tdei",
             }
             create_job = await jobs_repository.create(
                 current_user,

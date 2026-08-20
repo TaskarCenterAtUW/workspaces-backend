@@ -1,8 +1,10 @@
+import json
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Self
 from uuid import UUID
 
+from fastapi import Form
 from geoalchemy2 import Geometry
 from pydantic import model_validator
 from sqlalchemy import JSON as SAJson
@@ -147,6 +149,34 @@ class WorkspaceCreate(SQLModel):
 
     def isTDEIPathwaysDataset(self) -> bool:
         return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
+
+
+class WorkspaceCreateWithForm(WorkspaceCreate):
+    """Fields the client may supply when creating a workspace via form"""
+
+    def isTDEIDataset(self) -> bool:
+        return self.tdeiProjectGroupId is not None
+
+    def isTDEIOSWDataset(self) -> bool:
+        return self.type == WorkspaceType.OSW and self.isTDEIDataset()
+
+    def isTDEIPathwaysDataset(self) -> bool:
+        return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
+
+    @classmethod
+    def as_form(
+        cls,
+        type: WorkspaceType = Form(...),
+        title: str = Form(...),
+        tdeiProjectGroupId: UUID = Form(...),
+        description: Optional[str] = Form(None),
+    ) -> "WorkspaceCreateWithForm":
+        return cls(
+            type=type,
+            title=title,
+            description=description,
+            tdeiProjectGroupId=tdeiProjectGroupId,
+        )
 
 
 class WorkspacePatch(SQLModel):
