@@ -151,13 +151,8 @@ class WorkspaceCreate(SQLModel):
         return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
 
 
-class WorkspaceCreateWithForm(SQLModel):
+class WorkspaceCreateWithForm(WorkspaceCreate):
     """Fields the client may supply when creating a workspace via form"""
-
-    type: WorkspaceType
-    title: str
-    description: Optional[str] = None
-    tdeiProjectGroupId: UUID
 
     def isTDEIDataset(self) -> bool:
         return self.tdeiProjectGroupId is not None
