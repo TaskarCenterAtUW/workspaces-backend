@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 # Mark the whole module — every test in this file requires the
@@ -126,7 +128,7 @@ class TestAoiInputShapes:
     async def fresh_project(self, client, as_lead, seeded_workspace_id):
         r = await client.post(
             API.format(wid=seeded_workspace_id),
-            json={"name": f"AOI shapes {id(self)}"},
+            json={"name": f"AOI shapes {uuid.uuid4().hex}"},
         )
         assert r.status_code == 201, r.text
         return r.json()["id"]
