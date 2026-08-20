@@ -1,11 +1,12 @@
+import json
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Self
 from uuid import UUID
+
 from fastapi import Form
 from geoalchemy2 import Geometry
 from pydantic import model_validator
-import json
 from sqlalchemy import JSON as SAJson
 from sqlalchemy import Boolean, Column, SmallInteger, TypeDecorator, Unicode
 from sqlmodel import Field, Relationship, SQLModel
@@ -128,6 +129,7 @@ class WorkspaceImagery(SQLModel, table=True):
     modifiedBy: UUID
     modifiedByName: str
 
+
 class WorkspaceCreate(SQLModel):
     """Fields the client may supply when creating a workspace"""
 
@@ -148,6 +150,7 @@ class WorkspaceCreate(SQLModel):
     def isTDEIPathwaysDataset(self) -> bool:
         return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
 
+
 class WorkspaceCreateWithForm(SQLModel):
     """Fields the client may supply when creating a workspace via form"""
 
@@ -164,7 +167,7 @@ class WorkspaceCreateWithForm(SQLModel):
 
     def isTDEIPathwaysDataset(self) -> bool:
         return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
-    
+
     @classmethod
     def as_form(
         cls,
