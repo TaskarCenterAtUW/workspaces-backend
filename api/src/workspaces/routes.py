@@ -1,12 +1,21 @@
 import json
 import shutil
 from pathlib import Path
-from typing_extensions import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from sqlmodel.ext.asyncio.session import AsyncSession
+from typing_extensions import Annotated
 
 from api.core.config import settings
 from api.core.database import get_osm_session, get_task_session
@@ -66,6 +75,7 @@ def get_jobs_repository(
     session: AsyncSession = Depends(get_osm_session),
 ) -> JobRepository:
     return JobRepository(session)
+
 
 def _upload_dest_path(workspace_id: int, upload: UploadFile) -> Path:
     # Path(...).name strips any directory components from the client-supplied
@@ -191,15 +201,18 @@ async def get_workspace_bbox(
         logger.error(f"Failed to fetch workspace {workspace_id}: {str(e)}")
         raise
 
+
 @router.post("/from-file", status_code=status.HTTP_201_CREATED)
 async def create_workspace_from_file(
-    workspace_data:  Annotated[WorkspaceCreateWithForm, Depends(WorkspaceCreateWithForm.as_form)],
+    workspace_data: Annotated[
+        WorkspaceCreateWithForm, Depends(WorkspaceCreateWithForm.as_form)
+    ],
     file: Annotated[UploadFile, File()],
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
     repository_users: UserRepository = Depends(get_user_repository),
     jobs_repository: JobRepository = Depends(get_jobs_repository),
-    current_user: UserInfo = Depends(validate_token)
-)-> dict[str, int | None]:
+    current_user: UserInfo = Depends(validate_token),
+) -> dict[str, int | None]:
     try:
         workspace = await repository_ws.create(current_user, workspace_data)
         assert workspace.id is not None  # freshly persisted workspace has an id
@@ -212,7 +225,7 @@ async def create_workspace_from_file(
             current_user.user_uuid,
             WorkspaceUserRoleType.LEAD,
         )
-        
+
         file_path = await save_uploaded_dataset(workspace.id, file)
 
         # await jobs_repository.create(current_user, workspace.id)
@@ -229,11 +242,12 @@ async def create_workspace_from_file(
                 "tdei_token": access_token,
                 "data_type": workspace_data.type.name.lower(),
                 "file_path": str(file_path),
+                "import_type": "file",
             }
             create_job = await jobs_repository.create(
                 current_user,
                 JobCreate(
-                    job_type="workspace-import-file", # Job type doesn't exist yet
+                    job_type="workspace-import-file",  # Job type doesn't exist yet
                     status="requested",
                     request=request_data,
                     workspace_id=workspace.id,
@@ -253,7 +267,7 @@ async def create_workspace_from_file(
                 ignore_permissions=True,
             )
             print(f"Request data for job {job_id}: {request_data}")
-            #Send the message over the bus here.
+            # Send the message over the bus here.
             messenger = Messenger()
             messenger.send_message(
                 request_data
@@ -264,7 +278,6 @@ async def create_workspace_from_file(
     except Exception as e:
         logger.error(f"Failed to create workspace: {str(e)}")
         raise
-
 
 
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
@@ -316,6 +329,7 @@ async def create_workspace(
                 ),
                 "tdei_token": access_token,
                 "data_type": workspace_data.type.name.lower(),
+                "import_type": "tdei",
             }
             create_job = await jobs_repository.create(
                 current_user,
