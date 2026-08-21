@@ -243,6 +243,7 @@ async def create_workspace_from_file(
                 "data_type": workspace_data.type.name.lower(),
                 "file_path": str(file_path),
                 "import_type": "file",
+                "tdei_project_group_id": str(workspace_data.tdeiProjectGroupId),
             }
             create_job = await jobs_repository.create(
                 current_user,
