@@ -73,6 +73,13 @@ class Settings(BaseSettings):
 
     SENTRY_DSN: str = ""
 
+    # Azure Service Bus connection string and topic name for sending messages
+    SERVICE_BUS_CONNECTION_STRING: str = ""
+    SERVICE_BUS_TOPIC_NAME: str = ""
+
+    # Shared folder for saving files
+    WS_JOBS_DIR: str = "/jobs"
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Allowed CORS origins as a list.

@@ -17,5 +17,8 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen
 
+# set the environment variable for uvicorn to run the FastAPI app
+ENV UV_PROJECT_ENVIRONMENT=.uvenv
+
 # Run with uvicorn
 CMD ["uv", "run", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
