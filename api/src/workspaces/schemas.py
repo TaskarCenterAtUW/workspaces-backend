@@ -186,6 +186,7 @@ class WorkspacePatch(SQLModel):
     description: Optional[str] = None
     externalAppAccess: Optional[ExternalAppsDefinitionType] = None
     autoFlagReview: Optional[bool] = None
+    override_conflicts: Optional[bool] = None
 
 
 class QuestSettingsPatch(SQLModel):
@@ -259,6 +260,7 @@ class WorkspaceResponse(SQLModel):
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
     autoFlagReview: bool = False
+    overrideConflicts: bool = False
     role: str
     projectsCount: int = 0
     membersCount: int = 0
@@ -299,6 +301,7 @@ class WorkspaceResponse(SQLModel):
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
             autoFlagReview=workspace.autoFlagReview,
+            overrideConflicts=workspace.override_conflicts,
             role=user.effective_role(workspace.id),
             projectsCount=projects_count,
             membersCount=members_count,
@@ -381,4 +384,9 @@ class Workspace(SQLModel, table=True):
     importStatus: Optional[str] = Field(
         default=None,
         sa_column=Column(Unicode, nullable=True),
+    )
+
+    override_conflicts: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=True, server_default="false"),
     )
