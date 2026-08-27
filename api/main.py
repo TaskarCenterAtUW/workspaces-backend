@@ -105,6 +105,22 @@ app.add_middleware(
     max_age=100,
 )
 
+# Never log these header values verbatim (tokens/session identifiers):
+_SENSITIVE_LOG_HEADERS = frozenset({"authorization", "cookie", "set-cookie"})
+
+
+# Registered after CORSMiddleware, so it runs outermost and sees every
+# request -- including OPTIONS preflights CORSMiddleware intercepts itself.
+@app.middleware("http")
+async def log_request_headers(request: Request, call_next):
+    safe_headers = {
+        k: ("<redacted>" if k.lower() in _SENSITIVE_LOG_HEADERS else v)
+        for k, v in request.headers.items()
+    }
+    logger.info(f"{request.method} {request.url.path} headers={safe_headers}")
+    return await call_next(request)
+
+
 # Include routers
 app.include_router(osm_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
