@@ -343,6 +343,7 @@ async def catch_all(
         )
     try:
         rp_resp = await client.send(rp_req, stream=True)
+        logger.info(f"Upstream request to {rp_req.url} sent successfully")
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
