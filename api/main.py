@@ -180,6 +180,20 @@ STRIP_REQUEST_HEADERS = HOP_BY_HOP_HEADERS | {
     "forwarded",
 }
 
+# osm-rails sets its own Access-Control-*/Vary headers on some API responses
+# (e.g. GET /api/0.6/users) for direct browser access. Forwarding those
+# verbatim alongside our own CORSMiddleware's headers produces duplicate,
+# conflicting values that browsers reject as a CORS error.
+STRIP_RESPONSE_HEADERS = HOP_BY_HOP_HEADERS | {
+    "vary",
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-allow-methods",
+    "access-control-allow-headers",
+    "access-control-expose-headers",
+    "access-control-max-age",
+}
+
 # Paths that do not require X-Workspace header, scoped by HTTP method. Each
 # entry is a tuple of: (compiled regex, set of allowed methods).
 TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
@@ -228,7 +242,9 @@ async def capabilities(request: Request):
         )
 
     forwarded_headers = {
-        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+        k: v
+        for k, v in rp_resp.headers.items()
+        if k.lower() not in STRIP_RESPONSE_HEADERS
     }
 
     return StreamingResponse(
@@ -364,7 +380,9 @@ async def catch_all(
         logger.warning(msg)
 
     forwarded_headers = {
-        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+        k: v
+        for k, v in rp_resp.headers.items()
+        if k.lower() not in STRIP_RESPONSE_HEADERS
     }
 
     return StreamingResponse(
