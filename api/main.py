@@ -142,6 +142,11 @@ def get_workspace_repository(
 # @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
 # @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error
 # @test: Any request with a missing X-Workspace header that does not match the TENANT_BYPASSES returns a 400 Bad Request error
+# @test: A `/workspace/{id}/...` path prefix selects the workspace without an X-Workspace header, is authorized the same way, and is stripped from the path proxied upstream
+# @test: A `/workspace/{id}/...` prefix whose id disagrees with an X-Workspace header returns a 400 Bad Request error
+# @test: A `/workspace/{id}/...` prefix on a workspace the user cannot access returns a 403 Forbidden error
+# @test: The X-Workspace header sent upstream carries the resolved workspace id, replacing any client-supplied copy, and is absent when no workspace applies
+# @test: A `/workspace/{id}/...` prefix is stripped before TENANT_BYPASSES and changeset-create detection, so both match the underlying path
 # @test: All the values for Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Host, and X-Forwarded-Proto headers are correctly set when proxied to the OSM service
 # @test: The response from the OSM service is correctly streamed back to the client with the correct status code and headers, and the response body is not modified in any way
 
@@ -189,6 +194,17 @@ TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
 
 # Changeset create path — buffered for potential tag injection
 _CHANGESET_CREATE_RE = re.compile(r"^/api/0\.6/changeset/create$")
+
+# Workspace selection via a URL path prefix (`/workspace/{id}/...`), for
+# third-party clients that cannot set an `X-Workspace` header. Mirrors the
+# nginx `location ~ ^/workspace/(\d+)/` rule, which is not deployed --
+# `osm-web` runs lighttpd, which has no prefix handling (see
+# `docs/deploy/lighttpd.conf`). The prefix MUST be stripped before proxying:
+# lighttpd anchors its cgimap dispatch rules at `^/api/0\.6/`, so a prefixed
+# path would match none of them and be misrouted to osm-rails as a 404.
+# Requires a trailing path segment, like the nginx rule it replaces, so a bare
+# `/workspace/123` is left alone.
+_WORKSPACE_PREFIX_RE = re.compile(r"^/workspace/(\d+)(/.*)$")
 
 
 @app.get("/api/capabilities.json")
@@ -250,12 +266,22 @@ async def catch_all(
     Catch-all route to proxy requests to the OSM service.
     """
 
+    # Resolve the `/workspace/{id}/...` prefix first, so everything below --
+    # the /api/v1/ guard, TENANT_BYPASSES, changeset-create detection, and the
+    # URL actually proxied -- all operate on the normalized path.
+    prefix_workspace_id: int | None = None
+    proxied_path = request.url.path
+    prefix_match = _WORKSPACE_PREFIX_RE.match(proxied_path)
+    if prefix_match is not None:
+        prefix_workspace_id = int(prefix_match.group(1))
+        proxied_path = prefix_match.group(2)
+
     # `/api/v1/...` paths belong to the FastAPI routers (workspaces,
     # users, teams, tasking-projects, tasking-tasks). If none matched,
     # the URL is wrong or the method is unsupported — surface that as
     # a clean 404 instead of letting the OSM proxy swallow it with a
     # misleading "No X-Workspace header supplied".
-    if request.url.path.startswith("/api/v1/"):
+    if proxied_path.startswith("/api/v1/"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -265,15 +291,31 @@ async def catch_all(
         )
 
     workspace_id: int | None = None
-    if request.headers.get("X-Workspace") is not None:
+    header_workspace = request.headers.get("X-Workspace")
+    if header_workspace is not None:
         try:
-            workspace_id = int(request.headers.get("X-Workspace") or "-1")
+            workspace_id = int(header_workspace or "-1")
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="X-Workspace header must be a valid integer",
             )
 
+        # A path prefix and a header that disagree is a client bug. Refuse
+        # rather than silently authorizing one workspace while the caller
+        # believes it is addressing the other.
+        if prefix_workspace_id is not None and prefix_workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Workspace mismatch: path prefix says {prefix_workspace_id}, "
+                    f"X-Workspace header says {workspace_id}"
+                ),
+            )
+    elif prefix_workspace_id is not None:
+        workspace_id = prefix_workspace_id
+
+    if workspace_id is not None:
         if not current_user.isWorkspaceContributor(workspace_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -281,7 +323,7 @@ async def catch_all(
             )
     else:
         if not any(
-            p.fullmatch(request.url.path) and request.method in methods
+            p.fullmatch(proxied_path) and request.method in methods
             for p, methods in TENANT_BYPASSES
         ):
             raise HTTPException(
@@ -289,16 +331,18 @@ async def catch_all(
                 detail="No X-Workspace header supplied",
             )
 
-    url = httpx.URL(
-        path=request.url.path.strip(), query=request.url.query.encode("utf-8")
-    )
+    url = httpx.URL(path=proxied_path.strip(), query=request.url.query.encode("utf-8"))
 
     client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
     req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
-        if k.lower() not in STRIP_REQUEST_HEADERS
+        # X-Workspace is re-emitted below from the resolved id, which may have
+        # come from the path prefix instead of a header. Drop any client copy
+        # so the proxied request carries exactly one, and lighttpd/cgimap and
+        # osm-rails see the same workspace this route authorized.
+        if k.lower() not in STRIP_REQUEST_HEADERS and k.lower() != "x-workspace"
     ] + [
         (b"Host", client.base_url.host.encode()),
         (b"X-Real-IP", client_host.encode()),
@@ -306,13 +350,15 @@ async def catch_all(
         (b"X-Forwarded-Host", (request.url.hostname or "").encode()),
         (b"X-Forwarded-Proto", request.url.scheme.encode()),
     ]
+    if workspace_id is not None:
+        req_headers.append((b"X-Workspace", str(workspace_id).encode()))
 
     # For changeset creation, inject review_requested tag for contributors:
     request_content: object = request.stream()
     if (
         workspace_id is not None
         and request.method == "PUT"
-        and _CHANGESET_CREATE_RE.fullmatch(request.url.path)
+        and _CHANGESET_CREATE_RE.fullmatch(proxied_path)
     ):
         workspace = await repository.getById(current_user, workspace_id)
 
