@@ -17,7 +17,7 @@ import httpx
 import pytest
 
 import api.main
-from tests.support import factories
+from tests.support import factories, fakes
 from tests.support.http import StreamingMockTransport
 
 
@@ -188,3 +188,167 @@ async def test_response_body_is_streamed_unmodified(client, login, monkeypatch):
     assert response.status_code == 200
     assert response.content == body
     assert response.headers["content-type"] == "application/xml"
+
+
+# --- /workspace/{id}/ path prefix ------------------------------------------
+#
+# Workspace selection for third-party clients that cannot set an X-Workspace
+# header. The prefix must be stripped before proxying: osm-web (lighttpd)
+# anchors its cgimap dispatch rules at ^/api/0\.6/, so a prefixed path would
+# match none of them and be misrouted to osm-rails. See docs/deploy/lighttpd.conf.
+
+
+async def test_path_prefix_selects_workspace_without_header(client, login, mock_osm):
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/workspace/1/api/0.6/map")
+    assert response.status_code == 200
+    # Prefix stripped upstream, and the workspace re-emitted as a header.
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.url.path == "/api/0.6/map"
+    assert mock_osm.last_request.headers["X-Workspace"] == "1"
+
+
+async def test_path_prefix_preserves_query_string(client, login, mock_osm):
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/workspace/1/api/0.6/map?bbox=1,2,3,4")
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.url.path == "/api/0.6/map"
+    assert mock_osm.last_request.url.query == b"bbox=1,2,3,4"
+
+
+async def test_path_prefix_without_access_returns_403(client, login, mock_osm):
+    login(factories.make_user_info(accessible_workspace_ids={}))
+    response = await client.get("/workspace/1/api/0.6/map")
+    assert response.status_code == 403
+
+
+async def test_path_prefix_matching_header_is_accepted(client, login, mock_osm):
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"X-Workspace": "1"}
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    # Exactly one X-Workspace upstream, not a duplicated pair.
+    assert mock_osm.last_request.headers.get_list("X-Workspace") == ["1"]
+
+
+async def test_path_prefix_conflicting_with_header_returns_400(client, login, mock_osm):
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1, 2]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"X-Workspace": "2"}
+    )
+    assert response.status_code == 400
+    assert "mismatch" in response.json()["detail"].lower()
+    # Refused before proxying — nothing reached the upstream.
+    assert mock_osm.last_request is None
+
+
+async def test_client_supplied_workspace_header_is_replaced_upstream(
+    client, login, mock_osm
+):
+    # The forwarded header comes from the resolved id, not the raw client copy.
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [7]}))
+    response = await client.get("/api/0.6/map", headers={"X-Workspace": "007"})
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers.get_list("X-Workspace") == ["7"]
+
+
+async def test_no_workspace_header_sent_upstream_for_bypass_paths(
+    client, login, mock_osm
+):
+    # TENANT_BYPASSES paths carry no workspace, so none should be invented.
+    login(factories.make_user_info())
+    response = await client.put("/api/0.6/workspaces/123")
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert "X-Workspace" not in mock_osm.last_request.headers
+
+
+async def test_bare_workspace_prefix_is_not_treated_as_selection(
+    client, login, mock_osm
+):
+    # `/workspace/123` with no trailing path is not a prefix (matches nginx's
+    # `^/workspace/(\d+)/`), so it still needs a header -> 400.
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [123]}))
+    response = await client.get("/workspace/123")
+    assert response.status_code == 400
+
+
+async def test_path_prefix_is_stripped_before_api_v1_guard(client, login, mock_osm):
+    # After stripping, this is an unrouted /api/v1 path -> clean 404, not a proxy.
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/workspace/1/api/v1/does-not-exist")
+    assert response.status_code == 404
+    assert mock_osm.last_request is None
+
+
+async def test_path_prefix_is_stripped_before_changeset_create_detection(
+    client, login, mock_osm, task_session
+):
+    """A prefixed changeset/create still gets the review_requested tag.
+
+    Detection runs on the stripped path, so the prefix does not hide a
+    changeset creation from the auto-flag logic.
+    """
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    task_session.queue(fakes.rows(factories.make_workspace(id=1, autoFlagReview=True)))
+
+    response = await client.put(
+        "/workspace/1/api/0.6/changeset/create",
+        content=b"<osm><changeset/></osm>",
+        headers={"content-type": "text/xml"},
+    )
+
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.url.path == "/api/0.6/changeset/create"
+    assert b'k="review_requested"' in mock_osm.last_request.content
+
+
+async def test_authorization_sent_upstream_is_always_bearer(client, login, mock_osm):
+    """osm-rails/doorkeeper has no Basic path, so the proxy must normalize.
+
+    The token comes from the validated `UserInfo`, so a caller who
+    authenticated with Basic still reaches osm-rails as Bearer.
+    """
+    user = factories.make_user_info(accessible_workspace_ids={"pg": [1]})
+    user.credentials = "jwt-from-basic-auth"
+    login(user)
+
+    response = await client.get(
+        "/api/0.6/map",
+        # A client-supplied Basic header must not survive to the upstream.
+        headers={"X-Workspace": "1", "Authorization": "Basic aWdub3JlZDo="},
+    )
+
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers.get_list("Authorization") == [
+        "Bearer jwt-from-basic-auth"
+    ]
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+async def test_empty_workspace_header_returns_400(client, login, mock_osm, value):
+    """An empty value is malformed, not "a workspace you cannot reach".
+
+    It previously fell back to "-1", which no user can access, so a blank
+    header surfaced as a misleading 403 instead of the documented 400.
+    """
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/api/0.6/map", headers={"X-Workspace": value})
+    assert response.status_code == 400
+    assert "valid integer" in response.json()["detail"]
+    assert mock_osm.last_request is None
+
+
+async def test_valid_workspace_header_still_proxies(client, login, mock_osm):
+    # Guard the "preserve existing handling for valid IDs" half of the change.
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/api/0.6/map", headers={"X-Workspace": "1"})
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers["X-Workspace"] == "1"
