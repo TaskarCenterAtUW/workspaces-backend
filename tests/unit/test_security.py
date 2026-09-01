@@ -8,12 +8,13 @@ Covers the @test comments on the module / UserInfo / validate_token:
 - the user-info cache works and evicts on token rotation / explicit eviction
 """
 
+from base64 import b64encode
 from typing import cast
 from uuid import UUID
 
 import httpx
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -332,3 +333,215 @@ def test_evict_user_from_cache_removes_entry():
 
     # Evicting an absent key is a no-op (no KeyError).
     sec.evict_user_from_cache(uid)
+
+
+# --- TDEIHTTPBearer: Bearer or Basic ---------------------------------------
+#
+# Third-party OSM editors commonly cannot set a custom Authorization scheme, so
+# the TDEI token is also accepted in the username field of HTTP Basic (which is
+# what URI userinfo, `https://<token>@host/`, encodes to). Specified in the
+# workspaces-stack nginx.conf, which is not deployed -- the deployed osm-web
+# runs lighttpd and does no token mapping, so this layer owns it.
+
+
+def _request_with_auth(value: str | None, path: str = "/api/0.6/map"):
+    """A minimal Starlette request carrying (or omitting) an Authorization header.
+
+    Defaults to a proxied OSM path, where Basic is allowed. Pass an `/api/v1/`
+    path to exercise the Bearer-only scoping.
+    """
+    raw = [] if value is None else [(b"authorization", value.encode())]
+    return Request({"type": "http", "headers": raw, "method": "GET", "path": path})
+
+
+def _basic(username: str, password: str = "") -> str:
+    return "Basic " + b64encode(f"{username}:{password}".encode()).decode()
+
+
+async def test_bearer_token_is_accepted():
+    creds = await sec.security(_request_with_auth("Bearer abc.def.ghi"))
+    assert creds is not None
+    assert creds.credentials == "abc.def.ghi"
+
+
+async def test_basic_username_is_used_as_the_token():
+    creds = await sec.security(_request_with_auth(_basic("abc.def.ghi")))
+    assert creds is not None
+    assert creds.credentials == "abc.def.ghi"
+    # Normalized so everything downstream sees a single shape.
+    assert creds.scheme == "Bearer"
+
+
+async def test_basic_password_is_ignored():
+    # Mirrors nginx's `$remote_user`: the token is the username field only.
+    creds = await sec.security(_request_with_auth(_basic("the-token", "ignored")))
+    assert creds is not None
+    assert creds.credentials == "the-token"
+
+
+async def test_basic_with_empty_username_is_rejected():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("", "the-token")))
+    assert excinfo.value.status_code == 401
+    # Names the specific problem, and where the token belongs.
+    assert "password but no username" in excinfo.value.detail
+    assert "username" in excinfo.value.detail
+
+
+async def test_basic_with_undecodable_payload_is_rejected():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth("Basic !!!not-base64!!!"))
+    assert excinfo.value.status_code == 401
+    assert "base64" in excinfo.value.detail
+
+
+async def test_basic_with_swapped_fields_says_so():
+    """The likely mistake: token in the password box, account name as username."""
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("alice", "head.payload.sig")))
+    assert excinfo.value.status_code == 401
+    assert "swapped" in excinfo.value.detail
+
+
+async def test_non_jwt_username_is_not_second_guessed():
+    """Only a JWT-shaped password triggers the swap hint.
+
+    Otherwise the username is passed through and fails (or not) in the normal
+    token validation, so this heuristic never rejects on its own.
+    """
+    creds = await sec.security(_request_with_auth(_basic("not-a-jwt", "hunter2")))
+    assert creds is not None
+    assert creds.credentials == "not-a-jwt"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Basic !!!not-base64!!!",
+        _basic("", ""),
+        _basic("", "the-token"),
+        _basic("alice", "head.payload.sig"),
+    ],
+)
+async def test_every_basic_rejection_explains_the_username_convention(header):
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(header))
+    detail = excinfo.value.detail
+    assert "username" in detail
+    assert "password is ignored" in detail
+
+
+async def test_missing_authorization_header_is_rejected():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(None))
+    assert excinfo.value.status_code == 401
+
+
+async def test_unknown_scheme_is_rejected():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth("Digest deadbeef"))
+    assert excinfo.value.status_code == 401
+
+
+async def test_basic_auth_yields_a_fully_populated_user_info(monkeypatch):
+    """Basic auth is not a second-class path for the native /api/v1 routes.
+
+    `security` resolves the token *before* `validate_token` runs, so the JWT is
+    decoded and the TDEI/DB lookups happen exactly as they do for a Bearer
+    caller. Every authenticated route -- not just the OSM proxy -- therefore
+    sees a fully populated UserInfo.
+    """
+    pg_id = "pg-1"
+    payload = {"sub": USER_ID, "jti": "j1", "preferred_username": "alice"}
+    decoded_tokens = []
+
+    def _decode(token):
+        decoded_tokens.append(token)
+        return payload
+
+    monkeypatch.setattr(sec, "validate_and_decode_token", _decode)
+    monkeypatch.setattr(
+        sec,
+        "_tdei_client",
+        _FakeTdeiClient(
+            _FakeResp(
+                200,
+                [
+                    {
+                        "tdei_project_group_id": pg_id,
+                        "project_group_name": "PG One",
+                        "roles": ["poc"],
+                    }
+                ],
+            )
+        ),
+    )
+    task = fakes.FakeSession(fakes.mappings({"tdeiProjectGroupId": pg_id, "id": 5}))
+    osm = fakes.FakeSession(fakes.mappings({"workspace_id": 5, "role": "lead"}))
+
+    creds = await sec.security(_request_with_auth(_basic("the.jwt.here")))
+    assert creds is not None
+    info = await sec.validate_token(
+        creds, cast(AsyncSession, osm), cast(AsyncSession, task)
+    )
+
+    # The username field was what got JWT-decoded.
+    assert decoded_tokens == ["the.jwt.here"]
+    # ...and nothing about the resulting UserInfo is degraded.
+    assert info.credentials == "the.jwt.here"
+    assert info.user_uuid == UUID(USER_ID)
+    assert info.user_name == "alice"
+    assert info.getProjectGroupIds() == [pg_id]
+    assert info.accessibleWorkspaceIds == {pg_id: [5]}
+    assert info.osmWorkspaceRoles == {5: ["lead"]}
+    assert info.isWorkspaceLead(5) is True
+
+
+# --- Basic is scoped to the proxied OSM surface ----------------------------
+#
+# `validate_token` is one shared dependency, so accepting Basic anywhere would
+# accept it everywhere -- including the Lead-gated /api/v1 admin endpoints.
+# Scoped by path, which our routing decides, rather than by User-Agent, which
+# the client chooses and can forge.
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/workspaces",
+        "/api/v1/workspaces/1",
+        "/api/v1/users/me",
+    ],
+)
+async def test_basic_is_rejected_on_native_api_paths(path):
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("a.valid.jwt"), path=path))
+    assert excinfo.value.status_code == 401
+    # Says why, rather than a bare "Not authenticated".
+    assert "Basic" in excinfo.value.detail
+    assert excinfo.value.headers is not None
+    assert excinfo.value.headers["WWW-Authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/0.6/map",
+        "/api/0.6/changeset/create",
+        "/workspace/1/api/0.6/map",
+        "/api/capabilities.json",
+    ],
+)
+async def test_basic_is_accepted_on_proxied_osm_paths(path):
+    creds = await sec.security(_request_with_auth(_basic("a.valid.jwt"), path=path))
+    assert creds is not None
+    assert creds.credentials == "a.valid.jwt"
+
+
+async def test_bearer_is_accepted_on_native_api_paths():
+    # The scoping restricts Basic only; Bearer works everywhere as before.
+    creds = await sec.security(
+        _request_with_auth("Bearer a.valid.jwt", path="/api/v1/workspaces")
+    )
+    assert creds is not None
+    assert creds.credentials == "a.valid.jwt"

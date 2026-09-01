@@ -306,3 +306,26 @@ async def test_path_prefix_is_stripped_before_changeset_create_detection(
     assert mock_osm.last_request is not None
     assert mock_osm.last_request.url.path == "/api/0.6/changeset/create"
     assert b'k="review_requested"' in mock_osm.last_request.content
+
+
+async def test_authorization_sent_upstream_is_always_bearer(client, login, mock_osm):
+    """osm-rails/doorkeeper has no Basic path, so the proxy must normalize.
+
+    The token comes from the validated `UserInfo`, so a caller who
+    authenticated with Basic still reaches osm-rails as Bearer.
+    """
+    user = factories.make_user_info(accessible_workspace_ids={"pg": [1]})
+    user.credentials = "jwt-from-basic-auth"
+    login(user)
+
+    response = await client.get(
+        "/api/0.6/map",
+        # A client-supplied Basic header must not survive to the upstream.
+        headers={"X-Workspace": "1", "Authorization": "Basic aWdub3JlZDo="},
+    )
+
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers.get_list("Authorization") == [
+        "Bearer jwt-from-basic-auth"
+    ]

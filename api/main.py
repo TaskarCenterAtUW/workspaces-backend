@@ -142,6 +142,7 @@ def get_workspace_repository(
 # @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
 # @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error
 # @test: Any request with a missing X-Workspace header that does not match the TENANT_BYPASSES returns a 400 Bad Request error
+# @test: The Authorization header sent upstream is always `Bearer <token>`, including when the caller authenticated with HTTP Basic, and replaces any client-supplied copy
 # @test: A `/workspace/{id}/...` path prefix selects the workspace without an X-Workspace header, is authorized the same way, and is stripped from the path proxied upstream
 # @test: A `/workspace/{id}/...` prefix whose id disagrees with an X-Workspace header returns a 400 Bad Request error
 # @test: A `/workspace/{id}/...` prefix on a workspace the user cannot access returns a 403 Forbidden error
@@ -338,11 +339,12 @@ async def catch_all(
     req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
-        # X-Workspace is re-emitted below from the resolved id, which may have
-        # come from the path prefix instead of a header. Drop any client copy
-        # so the proxied request carries exactly one, and lighttpd/cgimap and
-        # osm-rails see the same workspace this route authorized.
-        if k.lower() not in STRIP_REQUEST_HEADERS and k.lower() != "x-workspace"
+        # X-Workspace and Authorization are both re-emitted below from the
+        # values this route resolved, so drop any client copy: the proxied
+        # request must carry exactly one of each, and lighttpd/cgimap and
+        # osm-rails must see the same workspace and token this route authorized.
+        if k.lower() not in STRIP_REQUEST_HEADERS
+        and k.lower() not in ("x-workspace", "authorization")
     ] + [
         (b"Host", client.base_url.host.encode()),
         (b"X-Real-IP", client_host.encode()),
@@ -352,6 +354,15 @@ async def catch_all(
     ]
     if workspace_id is not None:
         req_headers.append((b"X-Workspace", str(workspace_id).encode()))
+    # Always Bearer upstream: osm-rails/doorkeeper has no Basic path, so a
+    # caller's Basic credentials (accepted by TDEIHTTPBearer) must be
+    # normalized here or the token bridge's work is wasted. `current_user`
+    # already carries the validated token, so this needs no second auth
+    # dependency. For a caller who already sent Bearer it reproduces the
+    # original header byte for byte.
+    req_headers.append(
+        (b"Authorization", f"Bearer {current_user.credentials}".encode())
+    )
 
     # For changeset creation, inject review_requested tag for contributors:
     request_content: object = request.stream()
