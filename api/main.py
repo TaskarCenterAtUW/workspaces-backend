@@ -142,6 +142,7 @@ def get_workspace_repository(
 # @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
 # @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error
 # @test: Any request with a missing X-Workspace header that does not match the TENANT_BYPASSES returns a 400 Bad Request error
+# @test: An empty or whitespace-only X-Workspace header is a malformed value and returns 400, not 403
 # @test: The Authorization header sent upstream is always `Bearer <token>`, including when the caller authenticated with HTTP Basic, and replaces any client-supplied copy
 # @test: A `/workspace/{id}/...` path prefix selects the workspace without an X-Workspace header, is authorized the same way, and is stripped from the path proxied upstream
 # @test: A `/workspace/{id}/...` prefix whose id disagrees with an X-Workspace header returns a 400 Bad Request error
@@ -295,7 +296,10 @@ async def catch_all(
     header_workspace = request.headers.get("X-Workspace")
     if header_workspace is not None:
         try:
-            workspace_id = int(header_workspace or "-1")
+            # Parsed directly: an empty value is a malformed header, so it
+            # raises here for the documented 400. (It used to fall back to
+            # "-1", which no user can access, surfacing as a misleading 403.)
+            workspace_id = int(header_workspace)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

@@ -329,3 +329,26 @@ async def test_authorization_sent_upstream_is_always_bearer(client, login, mock_
     assert mock_osm.last_request.headers.get_list("Authorization") == [
         "Bearer jwt-from-basic-auth"
     ]
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+async def test_empty_workspace_header_returns_400(client, login, mock_osm, value):
+    """An empty value is malformed, not "a workspace you cannot reach".
+
+    It previously fell back to "-1", which no user can access, so a blank
+    header surfaced as a misleading 403 instead of the documented 400.
+    """
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/api/0.6/map", headers={"X-Workspace": value})
+    assert response.status_code == 400
+    assert "valid integer" in response.json()["detail"]
+    assert mock_osm.last_request is None
+
+
+async def test_valid_workspace_header_still_proxies(client, login, mock_osm):
+    # Guard the "preserve existing handling for valid IDs" half of the change.
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get("/api/0.6/map", headers={"X-Workspace": "1"})
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers["X-Workspace"] == "1"
