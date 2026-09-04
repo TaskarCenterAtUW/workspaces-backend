@@ -334,6 +334,7 @@ async def catch_all(
             # Body was not consumed; fall back to buffered bytes to avoid
             # double-read issues after the workspace fetch above.
             request_content = await request.body()
+
     if request.method == "GET":
         # No content to send for GET requests
         rp_req = client.build_request(request.method, url, headers=req_headers)
@@ -341,6 +342,7 @@ async def catch_all(
         rp_req = client.build_request(
             request.method, url, headers=req_headers, content=request_content
         )
+
     try:
         rp_resp = await client.send(rp_req, stream=True)
     except httpx.TimeoutException:
