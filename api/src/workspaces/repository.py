@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,6 +18,7 @@ from api.src.workspaces.schemas import (
     WorkspaceImagery,
     WorkspaceLongQuest,
     WorkspacePatch,
+    WorkspaceType,
 )
 
 
@@ -29,10 +30,14 @@ class WorkspaceRepository:
     async def create(
         self, current_user: UserInfo, workspace_data: WorkspaceCreate
     ) -> Workspace:
+        importStatus = "NA"
+        if workspace_data.isTDEIDataset():
+            importStatus = "in-progress"
         workspace = Workspace(
             **workspace_data.model_dump(),
             createdBy=current_user.user_uuid,  # type: ignore[reportArgumentType]
             createdByName=current_user.user_name,
+            importStatus=importStatus,
         )
 
         if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():

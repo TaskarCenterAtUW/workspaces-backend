@@ -1,8 +1,10 @@
+import json
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Self
 from uuid import UUID
 
+from fastapi import Form
 from geoalchemy2 import Geometry
 from pydantic import model_validator
 from sqlalchemy import JSON as SAJson
@@ -139,6 +141,43 @@ class WorkspaceCreate(SQLModel):
     tdeiServiceId: Optional[UUID] = None
     tdeiMetadata: Optional[Any] = None
 
+    def isTDEIDataset(self) -> bool:
+        return self.tdeiRecordId is not None and self.tdeiProjectGroupId is not None
+
+    def isTDEIOSWDataset(self) -> bool:
+        return self.type == WorkspaceType.OSW and self.isTDEIDataset()
+
+    def isTDEIPathwaysDataset(self) -> bool:
+        return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
+
+
+class WorkspaceCreateWithForm(WorkspaceCreate):
+    """Fields the client may supply when creating a workspace via form"""
+
+    def isTDEIDataset(self) -> bool:
+        return self.tdeiProjectGroupId is not None
+
+    def isTDEIOSWDataset(self) -> bool:
+        return self.type == WorkspaceType.OSW and self.isTDEIDataset()
+
+    def isTDEIPathwaysDataset(self) -> bool:
+        return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
+
+    @classmethod
+    def as_form(
+        cls,
+        type: WorkspaceType = Form(...),
+        title: str = Form(...),
+        tdeiProjectGroupId: UUID = Form(...),
+        description: Optional[str] = Form(None),
+    ) -> "WorkspaceCreateWithForm":
+        return cls(
+            type=type,
+            title=title,
+            description=description,
+            tdeiProjectGroupId=tdeiProjectGroupId,
+        )
+
 
 class WorkspacePatch(SQLModel):
     """Fields the client may supply when updating a workspace"""
@@ -216,14 +255,18 @@ class WorkspaceResponse(SQLModel):
     createdAt: datetime
     createdBy: UUID
     createdByName: str
+    updatedAt: datetime
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
     autoFlagReview: bool = False
     role: str
+    projectsCount: int = 0
+    membersCount: int = 0
     # Included in single-workspace GET for mobile app consumption. TODO: remove
     # this when the app fetches these from dedicated endpoints:
     longFormQuestDef: Optional[Any] = None
     imageryListDef: Optional[Any] = None
+    importStatus: Optional[str] = None
 
     # @test: Test that this class properly serializes the workspace data for API responses, including the effective role for the user making the request
     # @test: Test that the values are populated in this class match the expected values from the database and that the relationships are correctly serialized
@@ -236,6 +279,8 @@ class WorkspaceResponse(SQLModel):
         *,
         imagery_list_def: Any = None,
         long_form_quest_def: Any = None,
+        projects_count: int = 0,
+        members_count: int = 0,
     ) -> Self:
         assert workspace.id is not None  # persisted workspace always has an id
         return cls(
@@ -250,12 +295,16 @@ class WorkspaceResponse(SQLModel):
             createdAt=workspace.createdAt,
             createdBy=workspace.createdBy,
             createdByName=workspace.createdByName,
+            updatedAt=workspace.updatedAt or workspace.createdAt,
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
             autoFlagReview=workspace.autoFlagReview,
             role=user.effective_role(workspace.id),
+            projectsCount=projects_count,
+            membersCount=members_count,
             imageryListDef=imagery_list_def,
             longFormQuestDef=long_form_quest_def,
+            importStatus=workspace.importStatus,
         )
 
 
@@ -285,6 +334,14 @@ class Workspace(SQLModel, table=True):
     createdAt: datetime = Field(sa_column=Column(nullable=False, default=datetime.now))
     createdBy: UUID
     createdByName: str
+
+    # Nullable so that adding this column never requires a data backfill: rows
+    # written before this column existed simply read back as None, and
+    # WorkspaceResponse.from_workspace falls back to createdAt for those.
+    updatedAt: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(nullable=True, default=datetime.now, onupdate=datetime.now),
+    )
 
     geometry: Optional[Any] = Field(
         default=None, sa_column=Column(Geometry("MULTIPOLYGON", srid=4326))
@@ -319,4 +376,9 @@ class Workspace(SQLModel, table=True):
             "lazy": "joined",
             "cascade": "all, delete-orphan",
         }
+    )
+
+    importStatus: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Unicode, nullable=True),
     )

@@ -50,6 +50,14 @@ class LastMapper(WireModel):
     user_name: Optional[str] = None
 
 
+class TaskFeedbackResponse(WireModel):
+    reason_category: Optional[FeedbackReason] = None
+    notes: str
+    created_at: datetime
+    created_by_user_id: UUID
+    created_by_user_name: Optional[str] = None
+
+
 class TaskResponse(WireModel):
     id: int
     task_number: int
@@ -58,6 +66,7 @@ class TaskResponse(WireModel):
     area_sqkm: float
     lock: Optional[TaskLockSummary] = None
     last_mapper: Optional[LastMapper] = None
+    feedback: Optional[list[TaskFeedbackResponse]] = None
     created_at: datetime
     updated_at: datetime
 

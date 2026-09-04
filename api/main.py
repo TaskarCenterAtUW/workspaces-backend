@@ -30,6 +30,7 @@ from api.src.tasking.projects.routes import router as tasking_projects_router
 from api.src.tasking.tasks.routes import router as tasking_tasks_router
 from api.src.teams.routes import router as teams_router
 from api.src.users.routes import router as users_router
+from api.src.workspaces.jobs.routes import router as jobs_router
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
@@ -108,6 +109,7 @@ app.add_middleware(
 app.include_router(osm_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(tasking_projects_router, prefix="/api/v1")
 app.include_router(tasking_me_router, prefix="/api/v1")
@@ -316,10 +318,11 @@ async def catch_all(
     ):
         workspace = await repository.getById(current_user, workspace_id)
 
-        if (
-            workspace.autoFlagReview
-            and current_user.effective_role(workspace_id) == "contributor"
-        ):
+        # if (
+        #     workspace.autoFlagReview
+        #     and current_user.effective_role(workspace_id) == "contributor"
+        # ):
+        if True:
             logger.info("Injecting review request tag")
             body = await request.body()
             root = ET.fromstring(body)

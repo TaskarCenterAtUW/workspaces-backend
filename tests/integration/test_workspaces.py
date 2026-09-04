@@ -18,6 +18,7 @@ import pytest
 
 import api.src.workspaces.routes as ws_routes
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.jobs.schemas import Job
 from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceLongQuest
 from tests.support import factories, fakes
 
@@ -52,13 +53,20 @@ def evictions(monkeypatch):
 # === GET /mine =============================================================
 
 
-async def test_list_my_workspaces(client, login, task_session):
+async def test_list_my_workspaces(client, login, task_session, osm_session):
     login()
     task_session.queue(
         fakes.rows(
             factories.make_workspace(id=1, title="One"),
             factories.make_workspace(id=2, title="Two"),
-        )
+        ),
+    )
+    # tasking_projects and user_workspace_roles both live in the OSM DB, so
+    # both batched counts are queued on osm_session, in the order the route
+    # calls them: projects counts, then member counts.
+    osm_session.queue(
+        fakes.rows((1, 4), (2, 2)),  # get_projects_counts
+        fakes.rows((1, 3), (2, 1)),  # get_member_counts
     )
 
     response = await client.get(f"{API}/mine")
@@ -67,6 +75,11 @@ async def test_list_my_workspaces(client, login, task_session):
     body = response.json()
     assert [w["id"] for w in body] == [1, 2]
     assert body[0]["role"] == "contributor"
+    assert body[0]["projectsCount"] == 4
+    assert body[0]["membersCount"] == 3
+    assert body[1]["projectsCount"] == 2
+    assert body[1]["membersCount"] == 1
+    assert "updatedAt" in body[0]
 
 
 async def test_list_my_workspaces_empty(client, login, task_session):
@@ -86,14 +99,18 @@ async def test_list_my_workspaces_unexpected_error_500(
     assert response.status_code == 500
 
 
-async def test_list_matches_get_by_id(client, login, task_session):
+async def test_list_matches_get_by_id(client, login, task_session, osm_session):
     # The same workspace serialized via /mine and via /{id} agree on shared fields.
     login(
         factories.make_user_info(osm_workspace_roles={1: [WorkspaceUserRoleType.LEAD]})
     )
     task_session.queue(
-        fakes.rows(factories.make_workspace(id=1, title="Shared")),
-        fakes.rows(factories.make_workspace(id=1, title="Shared")),
+        fakes.rows(factories.make_workspace(id=1, title="Shared")),  # /mine getAll
+        fakes.rows(factories.make_workspace(id=1, title="Shared")),  # /1 getById
+    )
+    osm_session.queue(
+        fakes.rows((1, 0)),  # get_projects_counts for /mine
+        fakes.rows((1, 0)),  # get_member_counts for /mine
     )
 
     listed = (await client.get(f"{API}/mine")).json()[0]
@@ -168,9 +185,50 @@ async def test_get_bbox_no_nodes_404(client, login, task_session, osm_session):
 # === POST "" create ========================================================
 
 
-async def test_create_workspace(client, login, task_session, osm_session, evictions):
+async def test_create_workspace(
+    client, app, login, task_session, osm_session, evictions, monkeypatch
+):
+    class _FakeMessenger:
+        def send_message(self, _message):
+            return None
+
+    class _FakeJobsRepository:
+        async def create(self, _current_user, job_data):
+            return Job(
+                id=1,
+                job_type=job_data.job_type,
+                status=job_data.status,
+                request=job_data.request,
+                created_at=datetime(2026, 1, 1),
+                updated_at=datetime(2026, 1, 1),
+                current_task=job_data.current_task,
+                current_task_status=job_data.current_task_status,
+                response=job_data.response,
+                workspace_id=job_data.workspace_id,
+            )
+
+        async def update(self, _current_user, job_id, job_data, **_kwargs):
+            return Job(
+                id=job_id,
+                job_type="workspace-import",
+                status="requested",
+                request=job_data.request if job_data.request is not None else {},
+                created_at=datetime(2026, 1, 1),
+                updated_at=datetime(2026, 1, 1),
+                current_task=None,
+                current_task_status=None,
+                response=None,
+                workspace_id=1,
+            )
+
+    monkeypatch.setattr(ws_routes, "Messenger", _FakeMessenger)
+    app.dependency_overrides[ws_routes.get_jobs_repository] = _FakeJobsRepository
+
     login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
-    osm_session.queue(fakes.scalar(1))  # assign_member_role: user exists
+    osm_session.queue(
+        fakes.scalar(1),  # assign_member_role: user exists
+        fakes.affected(1),  # assign_member_role: role upsert execute
+    )
 
     response = await client.post(
         f"{API}",
@@ -178,11 +236,14 @@ async def test_create_workspace(client, login, task_session, osm_session, evicti
             "type": "osw",
             "title": "Fresh",
             "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": "33333333-3333-3333-3333-333333333333",
+            "tdeiServiceId": "44444444-4444-4444-4444-444444444444",
         },
     )
 
     assert response.status_code == 201
     assert response.json()["workspaceId"] is not None
+    assert response.json()["importJobId"] is not None
     assert task_session.commits == 1  # workspace insert
     assert osm_session.commits == 1  # role insert
     assert evictions == [UUID(factories.DEFAULT_USER_ID)]  # creator's cache evicted
