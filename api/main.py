@@ -16,7 +16,7 @@ from api.core import config
 from api.core.config import settings
 from api.core.database import get_task_session
 from api.core.json_schema import close_json_schema_client, init_json_schema_client
-from api.core.logging import get_logger, setup_logging
+from api.core.logging import get_logger, setup_logging, shutdown_logging
 from api.core.security import (
     UserInfo,
     close_tdei_client,
@@ -87,6 +87,7 @@ async def lifespan(_app: FastAPI):
     _osm_client = None
     await close_tdei_client()
     await close_json_schema_client()
+    shutdown_logging()
 
 
 app = FastAPI(

@@ -36,6 +36,9 @@ dependencies = [
     "cachetools",
     "shapely>=2.1.2",
     "azure-servicebus>=7.14.3",
+    "opentelemetry-sdk>=1.44.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+    "opentelemetry-instrumentation-logging>=0.65b0",
 ]
 
 [project.optional-dependencies]
