@@ -103,43 +103,49 @@ uv run black api tests && uv run isort api tests
 ```
 ## Deployment architecture
 
-The deployed system is defined by [`docker-compose.az.yml`](docker-compose.az.yml). It runs the
-**application tier** as four containers; the **data tier** (Postgres/PostGIS) is external, managed
-Azure Database for PostgreSQL, not part of this compose file.
+The deployed system runs the **application tier** as five containers; the **data tier**
+(Postgres/PostGIS) is external, managed Azure Database for PostgreSQL.
 
-When deployed by `workspaces-stack` this model also holds. 
+> **Note on compose files.** The production environment is currently provisioned **manually on
+> Azure**. Neither the `workspaces-stack` compose files nor
+> [`docs/old/docker-compose.az.yml`](docs/old/docker-compose.az.yml) (retired to `docs/old/` for
+> exactly this reason) describe what is running — they are historical intent only. Where this
+> document says "deployed", it means verified against the live host — see
+> [What is actually deployed at the OSM edge](#what-is-actually-deployed-at-the-osm-edge).
 
 ```
                     client  (TDEI/Keycloak JWT)
                        │
                        ▼ :8000
         ┌──────────────────────────────────────┐
-        │          workspaces-backend           │  this repo — FastAPI front door.
-        │   authn/authz + OSM reverse proxy     │  Serves /api/v1/*, proxies the rest.
-        └───┬──────────────────────────────┬────┘
+        │          workspaces-backend          │  this repo — FastAPI front door.
+        │   authn/authz + OSM reverse proxy    │  Serves /api/v1/*, proxies the rest.
+        └───┬──────────────────────────────┬───┘  Also serves the public OSM host.
      WS_OSM_HOST                   TASK_DATABASE_URL
-   (→ osm-rails)                   OSM_DATABASE_URL
+   (→ osm-web)                     OSM_DATABASE_URL
             │                              │
             ▼                              │
      ┌──────────────┐                      │
-     │  osm-rails   │  OSM website (Rails); the single OSM entry point.
-     │  :3000       │  Serves the API/UI and fronts cgimap for the
-     └──────┬───────┘  performance-critical /api/0.6 calls.
-            │ (internal)                   │
-            ▼                              │
-     ┌──────────────┐                      │
-     │  osm-cgimap  │  C-accelerated /api/0.6 (map, changeset bulk)
-     │  :8000       │                      │
-     └──────────────┘                      │
+     │   osm-web    │  lighttpd. THE dispatcher: rewrites the heavy
+     │   :80        │  /api/0.6 paths to cgimap over FastCGI and
+     └──┬────────┬──┘  proxies everything else to rails. See docs/deploy/
+        │        │                         │
+        ▼        ▼                         │
+ ┌────────────┐ ┌──────────────┐           │
+ │ osm-rails  │ │  osm-cgimap  │  C-accelerated /api/0.6
+ │ :3000      │ │  :8000       │  (map, changeset bulk)
+ └────────────┘ └──────────────┘           │
+   OSM website (Rails);                    │
+   API + web UI                            │
                                            │
      osm-rails-worker  (rake jobs:work)    │  background jobs
             │                              │
             │  backend, rails, cgimap, worker all connect to ▼
    ┌─────────────────────────────────────────────────────────────────┐
-   │  data tier — Azure Postgres (external, PostGIS)                   │
-   │  opensidewalks-${ENV}.postgres.database.azure.com:5432            │
-   │    • workspaces-tasks-${ENV}   TASK db  (alembic_task; backend)   │
-   │    • workspaces-osm-${ENV}     OSM db   (alembic_osm; all four)   │
+   │  data tier — Azure Postgres (external, PostGIS)                  │
+   │  opensidewalks-${ENV}.postgres.database.azure.com:5432           │
+   │    • workspaces-tasks-${ENV}   TASK db  (alembic_task; backend)  │
+   │    • workspaces-osm-${ENV}     OSM db   (alembic_osm; all four)  │
    └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -148,9 +154,42 @@ When deployed by `workspaces-stack` this model also holds.
 | Service | Image | Role |
 |---|---|---|
 | `workspaces-backend` | `workspaces-backend-v2:${ENV}` | This repo. The only host-exposed service (`8000:8000`). Validates the TDEI/Keycloak JWT, enforces workspace authorization, serves `/api/v1/*`, and proxies everything else to the OSM tier. Connects to **both** databases. |
-| `osm-rails` | `workspaces-osm-rails-v2:${ENV}` | The OpenStreetMap website (Rails) — the **single OSM entry point** the backend proxies to (`WS_OSM_HOST`). Serves the OSM API/UI and fronts cgimap for the heavy `/api/0.6` calls. Connects to the OSM db. |
-| `osm-cgimap` | `workspaces-osm-cgimap-v2:${ENV}` | C++ reimplementation of the performance-critical OSM `0.6` calls (map queries, changeset upload/download), sitting behind `osm-rails`. Tuned here for large imports (`CGIMAP_MAX_*`). Connects to the OSM db. |
+| `osm-web` | `workspaces-osm-web:${ENV}` | **lighttpd.** The single OSM entry point the backend proxies to (`WS_OSM_HOST`, default `http://osm-web`). Owns the rails-vs-cgimap split: a fixed set of heavy `/api/0.6` paths is rewritten to `dispatch.map` and passed to cgimap over FastCGI; everything else is proxied to rails. Config vendored at [`docs/deploy/lighttpd.conf`](docs/deploy/lighttpd.conf). Holds no DB connection. |
+| `osm-rails` | `workspaces-osm-rails-v2:${ENV}` | The OpenStreetMap website (Rails). Serves the OSM API and web UI. Reached only *via* `osm-web` — it does **not** front cgimap. Connects to the OSM db. |
+| `osm-cgimap` | `workspaces-osm-cgimap-v2:${ENV}` | C++ reimplementation of the performance-critical OSM `0.6` calls (map queries, changeset upload/download). Sits behind **`osm-web`** (FastCGI on :8000), not behind rails. Tuned here for large imports (`CGIMAP_MAX_*`). Connects to the OSM db. |
 | `osm-rails-worker` | `workspaces-osm-rails-v2:${ENV}` | Background job runner (`rake jobs:work`) for the Rails app. Connects to the OSM db. |
+
+### What is actually deployed at the OSM edge
+
+The `osm-web` container runs **lighttpd**, not nginx. Verified against the live public OSM host,
+which returns the upstream's `Server` header alongside the backend's own:
+
+```
+$ curl -sSI https://osm.workspaces.sidewalks.washington.edu/api/capabilities.json
+Server: uvicorn            <- this backend
+Server: lighttpd/1.4.64    <- osm-web
+```
+
+That config is vendored here as [`docs/deploy/lighttpd.conf`](docs/deploy/lighttpd.conf), copied
+from `workspaces-stack`. **Two traps for the next reader:**
+
+1. The upstream file's own header says *"We don't use lighttpd anymore. Nginx replaced lighttpd."*
+   That is not true of the deployed environment — lighttpd is what answers in production. A sibling
+   `nginx.conf` exists in `workspaces-stack` and is the intended successor, but it is not deployed.
+2. The two configs are **not** equivalent. Only `nginx.conf` implements the `/workspace/{id}/` path
+   prefix, the `x_workspace` query parameter, and Basic-auth TDEI tokens — so none of those work
+   today, at any layer.
+
+Also note the public OSM host resolves to **this backend**, not to `osm-web`: `/health` and `/docs`
+answer there. Every OSM request therefore passes through `validate_token`, the `X-Workspace` gate,
+and the CORS middleware in `api/main.py` before reaching lighttpd. One consequence: the Rails web UI
+is unreachable through the proxy (`GET /login` returns `401 {"detail":"Not authenticated"}`), because
+`catch_all` requires a Bearer token and an `X-Workspace` header for everything outside
+`TENANT_BYPASSES`.
+
+Deploying `nginx.conf` as-is would **not** by itself enable the three features in trap 2: the backend
+rejects those requests (400 for a missing `X-Workspace`, 401 for a non-Bearer scheme) before they
+ever reach `osm-web`. Enabling them requires changes in `api/main.py` too.
 
 ### Two databases
 
@@ -176,7 +215,7 @@ environments — see the Branch Index below.
 ### What the proxy must provide for osm-rails / osm-web
 
 This backend is the **only entry point** to the OSM tier (osm-rails + cgimap,
-behind `osm-web`): in the deployment, the public OSM host routes to this
+behind `osm-web`, which runs lighttpd): in the deployment, the public OSM host routes to this
 container, which proxies `/api/0.6/*` to `WS_OSM_HOST` (default
 `http://osm-web`). For the OSM services to work, the proxy must uphold the
 following contract. `CLAUDE.md` has the full rationale.

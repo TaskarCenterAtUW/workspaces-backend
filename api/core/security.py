@@ -1,3 +1,4 @@
+import base64
 import secrets
 import time
 from enum import StrEnum
@@ -5,8 +6,9 @@ from uuid import UUID
 
 import cachetools
 import httpx
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -162,7 +164,138 @@ def evict_user_from_cache(auth_uid: UUID) -> None:
     _user_info_cache.pop(auth_uid, None)
 
 
-security = HTTPBearer()
+# Every Basic-auth rejection repeats this, because the field placement is the
+# thing callers get wrong and a bare "Not authenticated" gives them nothing to
+# act on.
+_BASIC_USAGE_HINT = (
+    "Supply the TDEI token as the HTTP Basic *username*; the password is "
+    'ignored. For example: `curl -u "$TDEI_TOKEN:" ...`, or a URL of the form '
+    "https://$TDEI_TOKEN@<host>/..."
+)
+
+
+def _basic_auth_error(reason: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=f"{reason} {_BASIC_USAGE_HINT}",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _looks_like_jwt(value: str) -> bool:
+    """Rough JWT shape test: three dot-separated parts, header/payload non-empty.
+
+    Used *only* to phrase a better error message. It never accepts anything
+    `validate_and_decode_token` would reject, and never rejects on its own --
+    see the swapped-credentials branch in `_token_from_basic`.
+    """
+    parts = value.split(".")
+    return len(parts) >= 3 and bool(parts[0]) and bool(parts[1])
+
+
+def _token_from_basic(param: str) -> str:
+    """Pull the TDEI token out of HTTP Basic credentials, or raise 401.
+
+    Mirrors nginx's `map $http_authorization { ~^Basic $remote_user; }`: the
+    token is the **username** field. That is also what URI userinfo
+    (`https://<token>@osm.example/...`) becomes once a client encodes it, which
+    is how third-party OSM editors are expected to pass it. The password field
+    is ignored.
+
+    Raises `HTTPException` 401 with a reason specific enough to fix, rather
+    than a bare "Not authenticated".
+    """
+    try:
+        decoded = base64.b64decode(param).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        raise _basic_auth_error("The HTTP Basic credentials are not valid base64.")
+
+    username, _, password = decoded.partition(":")
+
+    if not username:
+        if password:
+            raise _basic_auth_error(
+                "The HTTP Basic credentials carry a password but no username."
+            )
+        raise _basic_auth_error("The HTTP Basic credentials carry no username.")
+
+    # The common mistake: token typed into the password box, account name into
+    # the username box. Only fires when the password is clearly a JWT and the
+    # username clearly is not, so a non-JWT username still falls through to the
+    # normal token validation (and its normal error) rather than being second
+    # guessed here.
+    if not _looks_like_jwt(username) and _looks_like_jwt(password):
+        raise _basic_auth_error(
+            "The HTTP Basic username is not a TDEI token, but the password "
+            "looks like one -- the two appear to be swapped."
+        )
+
+    return username
+
+
+# Native FastAPI routes (workspaces, users, teams, tasking-*) are all mounted
+# under this prefix; everything else falls through to the OSM proxy catch-all.
+# Basic auth is an OSM-protocol affordance for third-party editors, so it is
+# refused here: this API's own surface -- including the Lead-gated admin
+# endpoints -- stays Bearer-only. Path-based because the path is decided by our
+# routing, unlike a User-Agent, which the client picks and can forge.
+BEARER_ONLY_PATH_PREFIXES = ("/api/v1/",)
+
+
+# @test: A `Bearer <token>` Authorization header is accepted and yields that token
+# @test: A `Basic <base64>` Authorization header yields the username field as the token, ignoring the password
+# @test: URI userinfo (`https://<token>@host/`) works, since clients encode it as Basic
+# @test: A Basic header whose payload is not valid base64, or which carries an empty username, is rejected with 401 naming the specific problem
+# @test: Basic credentials with a JWT in the password and a non-JWT username are rejected with a 401 saying the fields look swapped
+# @test: Every Basic-auth rejection tells the caller the token belongs in the username field
+# @test: A missing Authorization header, or any other scheme (e.g. Digest), is rejected with 401
+# @test: Basic credentials on a BEARER_ONLY_PATH_PREFIXES path are rejected with 401 even when the token is valid
+# @test: Bearer credentials are accepted on every path, including the Bearer-only prefixes
+class TDEIHTTPBearer(HTTPBearer):
+    """Accept the TDEI token as `Bearer <token>`, or as Basic on OSM paths.
+
+    osm-rails/doorkeeper only understands Bearer, so Basic credentials are
+    normalized to Bearer here; the OSM proxy re-emits the returned token as
+    `Authorization: Bearer <token>` upstream (see `catch_all` in `api/main.py`).
+
+    Basic support exists because third-party OSM editors commonly cannot set a
+    custom Authorization scheme. It was specified in the `workspaces-stack`
+    nginx.conf, which is not deployed -- the deployed `osm-web` runs lighttpd
+    and does no token mapping, so this layer has to own it. See
+    `docs/deploy/lighttpd.conf`.
+
+    Because `validate_token` is a single shared dependency, accepting Basic
+    would otherwise expose it on *every* authenticated route. It is therefore
+    scoped to the proxied OSM surface via `BEARER_ONLY_PATH_PREFIXES`.
+    """
+
+    async def __call__(  # type: ignore[override]
+        self, request: Request
+    ) -> HTTPAuthorizationCredentials | None:
+        scheme, param = get_authorization_scheme_param(
+            request.headers.get("Authorization")
+        )
+        if scheme.lower() != "basic":
+            # Bearer (and every rejection path) keeps FastAPI's own behavior.
+            return await super().__call__(request)
+
+        if request.url.path.startswith(BEARER_ONLY_PATH_PREFIXES):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "HTTP Basic authentication is not accepted on this endpoint. "
+                    "Use `Authorization: Bearer <token>`."
+                ),
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Raises 401 with an actionable reason if the credentials are unusable.
+        token = _token_from_basic(param)
+        # Presented as Bearer so everything downstream sees one shape.
+        return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+
+security = TDEIHTTPBearer()
 
 
 # @test: Test that this matches what is described in CLAUDE.md and that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
