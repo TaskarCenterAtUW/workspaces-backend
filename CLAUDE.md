@@ -118,20 +118,47 @@ audited here.
 
 ## The OSM proxy layer: routing, auth, and user provisioning
 
-This service is a reverse proxy in front of the OSM website (`osm-rails`) and
-cgimap. The non-obvious parts, learned the hard way:
+This service is a reverse proxy in front of `osm-web`, which in turn fronts the
+OSM website (`osm-rails`) and cgimap. The non-obvious parts, learned the hard
+way:
 
-### Deployment routing (workspaces-stack)
+### Deployment routing
 
-In `workspaces-stack`, the **api container (this backend) serves the public OSM
-host** (`osm.workspaces-<env>...`) alongside the API hosts — its traefik router
-rule is `Host(new-api) || Host(api) || Host(osm)`, and the `osm-web` /
-`osm-log-proxy` routers are commented out. So **every OSM call the frontend
-makes routes through this backend**: `validate_token`, the `X-Workspace` gate,
-and the CORS middleware all apply. The backend then proxies `/api/0.6/*` to
-`WS_OSM_HOST` (config default `http://osm-web` — the internal service, *not* the
-public domain). `osm-web`'s nginx splits traffic: changeset read/write subpaths
-to cgimap, everything else to osm-rails.
+**The compose files are not the deployed system.** Production is currently
+provisioned **by hand on Azure**, so the `workspaces-stack` compose files and
+`docs/old/docker-compose.az.yml` (retired to `docs/old/` for this reason)
+describe intent, not reality. Do not infer routing from them — they disagree
+with the live system (e.g. at
+`workspaces-stack@main` the api container's traefik rule is only
+`Host(${WS_NEW_API_HOST})` and `osm-web` has its own router, which is *not* how
+production behaves). Verify against the live host instead.
+
+The **api container (this backend) serves the public OSM host**
+(`osm.workspaces...`) alongside the API hosts. Verified empirically: `/health`
+and `/docs` answer there with `Server: uvicorn`. So **every OSM call the
+frontend makes routes through this backend**: `validate_token`, the
+`X-Workspace` gate, and the CORS middleware all apply.
+
+The backend then proxies to `WS_OSM_HOST` (config default `http://osm-web` — the
+internal service, *not* the public domain; the deployment does not override it).
+
+**`osm-web` runs lighttpd, not nginx.** A response from the OSM host carries two
+`Server` headers — `uvicorn` (this backend) and `lighttpd/1.4.64` (osm-web) —
+because the proxy forwards the upstream's `Server`/`Date` rather than stripping
+them. lighttpd owns the rails-vs-cgimap split: a fixed set of heavy `/api/0.6`
+paths (map, node/way/relation reads and history, `/full`, changeset
+show/create/close/upload/download, bulk `nodes|ways|relations`) is rewritten to
+`dispatch.map` and handed to cgimap over FastCGI; everything else is proxied to
+osm-rails. The config is vendored at `docs/deploy/lighttpd.conf`; see the README
+section "What is actually deployed at the OSM edge".
+
+**Trap:** `workspaces-stack` also contains an `osm-web/nginx.conf` whose own
+header claims it replaced lighttpd. It is **not deployed**, and the two configs
+are not equivalent — only nginx.conf implements the `/workspace/{id}/` path
+prefix, the `x_workspace` query parameter, and Basic-auth TDEI tokens. Those
+features are live nowhere. Deploying nginx.conf alone would not enable them
+either: `catch_all` returns 400 for a missing `X-Workspace` and `HTTPBearer`
+rejects a non-Bearer scheme, both before the request reaches `osm-web`.
 
 The frontend (`services/osm.ts`) calls the OSM host directly with
 `credentials: 'include'` + a Bearer TDEI token. Because it's *credentialed*
