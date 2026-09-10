@@ -123,6 +123,60 @@ async def test_list_matches_get_by_id(client, login, task_session, osm_session):
 # === GET /{id} =============================================================
 
 
+async def test_check_workspace_name_available(client, login, task_session):
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    task_session.queue(fakes.empty())
+
+    response = await client.post(
+        f"{API}/check",
+        json={
+            "title": "Fresh",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"available": True}
+
+
+async def test_check_workspace_name_unavailable(client, login, task_session):
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    task_session.queue(fakes.rows(1))
+
+    response = await client.post(
+        f"{API}/check",
+        json={
+            "title": "Existing",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"available": False}
+
+
+async def test_check_workspace_name_in_unauthorized_group_403(client, login):
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+
+    response = await client.post(
+        f"{API}/check",
+        json={
+            "title": "Forbidden",
+            "tdeiProjectGroupId": "99999999-9999-9999-9999-999999999999",
+        },
+    )
+
+    assert response.status_code == 403
+
+
+async def test_check_workspace_name_invalid_body_422(client, login):
+    login()
+
+    response = await client.post(f"{API}/check", json={"title": "Missing group"})
+
+    assert response.status_code == 422
+
+
 async def test_get_workspace_by_id(client, login, task_session):
     login()
     task_session.queue(fakes.rows(factories.make_workspace(id=7, title="Lucky")))

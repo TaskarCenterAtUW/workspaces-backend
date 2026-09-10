@@ -151,6 +151,19 @@ class WorkspaceCreate(SQLModel):
         return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
 
 
+class WorkspaceNameCheck(SQLModel):
+    """Fields used to check workspace-name availability within a project group."""
+
+    title: str
+    tdeiProjectGroupId: UUID
+
+
+class WorkspaceNameCheckResponse(SQLModel):
+    """Availability result for a workspace name within a project group."""
+
+    available: bool
+
+
 class WorkspaceCreateWithForm(WorkspaceCreate):
     """Fields the client may supply when creating a workspace via form"""
 

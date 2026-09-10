@@ -17,6 +17,7 @@ from api.src.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceImagery,
     WorkspaceLongQuest,
+    WorkspaceNameCheck,
     WorkspacePatch,
     WorkspaceType,
 )
@@ -75,6 +76,27 @@ class WorkspaceRepository:
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def is_name_available(
+        self, current_user: UserInfo, workspace_name_check: WorkspaceNameCheck
+    ) -> bool:
+        if (
+            str(workspace_name_check.tdeiProjectGroupId)
+            not in current_user.getProjectGroupIds()
+        ):
+            raise ForbiddenException(
+                "User does not have permissions to check workspace names in that "
+                "project group."
+            )
+
+        query = select(Workspace).where(
+            (
+                Workspace.title == workspace_name_check.title
+            )  # pyright: ignore[reportArgumentType]
+            & (Workspace.tdeiProjectGroupId == workspace_name_check.tdeiProjectGroupId)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none() is None
 
     async def update(
         self,
