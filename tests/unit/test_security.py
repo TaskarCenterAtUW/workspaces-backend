@@ -557,6 +557,7 @@ async def test_missing_credentials_on_a_prefixed_osm_path_challenge_basic():
         await sec.security(_request_with_auth(None, path="/workspace/7/api/0.6/map"))
 
     assert excinfo.value.status_code == 401
+    assert excinfo.value.headers is not None
     assert excinfo.value.headers["WWW-Authenticate"].startswith("Basic")
 
 
@@ -572,9 +573,12 @@ async def test_missing_credentials_on_native_api_paths_still_challenge_bearer():
 
 async def test_unusable_basic_credentials_are_rechallenged_with_basic():
     with pytest.raises(HTTPException) as excinfo:
-        await sec.security(_request_with_auth("Basic !!!not-base64!!!", path="/api/0.6/map"))
+        await sec.security(
+            _request_with_auth("Basic !!!not-base64!!!", path="/api/0.6/map")
+        )
 
     assert excinfo.value.status_code == 401
+    assert excinfo.value.headers is not None
     assert excinfo.value.headers["WWW-Authenticate"].startswith("Basic")
 
 
