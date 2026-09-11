@@ -70,6 +70,8 @@ def make_workspace(
     created_by_name: str = "Test User",
     **extra,
 ) -> Workspace:
+    extra.setdefault("createdAt", datetime(2026, 1, 1))
+    extra.setdefault("updatedAt", datetime(2026, 1, 1))
     return Workspace(
         id=id,
         title=title,
@@ -77,7 +79,6 @@ def make_workspace(
         tdeiProjectGroupId=UUID(tdei_project_group_id),
         createdBy=UUID(created_by),
         createdByName=created_by_name,
-        createdAt=datetime(2026, 1, 1),
         **extra,
     )
 
