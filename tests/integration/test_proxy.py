@@ -55,6 +55,29 @@ async def test_capabilities_proxies_without_auth(client, mock_osm):
     assert mock_osm.last_request.url.path == "/api/capabilities.json"
 
 
+# OSM editors fetch capabilities before anything else and do so anonymously, under whatever server
+# URL they are configured with -- which for this proxy includes the /workspace/{id}/ prefix.
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/capabilities",
+        "/api/capabilities.json",
+        "/api/0.6/capabilities",
+        "/workspace/7/api/capabilities",
+        "/workspace/7/api/capabilities.json",
+        "/workspace/7/api/0.6/capabilities",
+    ],
+)
+async def test_capabilities_needs_no_auth_under_every_spelling(client, mock_osm, path):
+    response = await client.get(path)
+
+    assert response.status_code == 200
+    # The workspace prefix is stripped before proxying; upstream only ever sees the OSM path.
+    assert mock_osm.last_request.url.path == path.replace("/workspace/7", "")
+
+
 # --- auth / tenant gating --------------------------------------------------
 
 
