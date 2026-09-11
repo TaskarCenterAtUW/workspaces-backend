@@ -42,6 +42,8 @@ from api.src.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceCreateWithForm,
     WorkspaceImagery,
+    WorkspaceNameCheck,
+    WorkspaceNameCheckResponse,
     WorkspacePatch,
     WorkspaceResponse,
 )
@@ -136,6 +138,25 @@ async def get_my_workspaces(
         return responses
     except Exception as e:
         logger.error(f"Failed to fetch workspaces: {str(e)}")
+        raise
+
+
+# @test: Test that this endpoint returns available when the name is unused in the project group
+# @test: Test that this endpoint returns unavailable when the name is already used in the project group
+# @test: Test that this endpoint returns 403 when the user cannot access the project group
+@router.post("/check", response_model=WorkspaceNameCheckResponse)
+async def check_workspace_name(
+    workspace_name_check: WorkspaceNameCheck,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceNameCheckResponse:
+    try:
+        available = await repository_ws.is_name_available(
+            current_user, workspace_name_check
+        )
+        return WorkspaceNameCheckResponse(available=available)
+    except Exception as e:
+        logger.error(f"Failed to check workspace name: {str(e)}")
         raise
 
 
