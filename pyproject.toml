@@ -35,6 +35,7 @@ dependencies = [
     "sqlmodel>=0.0.8",
     "cachetools",
     "shapely>=2.1.2",
+    "azure-servicebus>=7.14.3",
 ]
 
 [project.optional-dependencies]

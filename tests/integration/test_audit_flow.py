@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -52,7 +54,7 @@ async def _open_project_with_tasks(client, workspace_id, contributor):
     r = await client.post(
         API.format(wid=workspace_id),
         json={
-            "name": f"audit-{id(client)}",
+            "name": f"audit-{uuid.uuid4().hex}",
             "review_required": False,
             "role_assignments": [
                 {"user_id": str(contributor.user_uuid), "role": "contributor"},

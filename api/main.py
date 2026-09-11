@@ -32,6 +32,7 @@ from api.src.tasking.projects.routes import router as tasking_projects_router
 from api.src.tasking.tasks.routes import router as tasking_tasks_router
 from api.src.teams.routes import router as teams_router
 from api.src.users.routes import router as users_router
+from api.src.workspaces.jobs.routes import router as jobs_router
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
@@ -106,10 +107,27 @@ app.add_middleware(
     max_age=100,
 )
 
+# Never log these header values verbatim (tokens/session identifiers):
+_SENSITIVE_LOG_HEADERS = frozenset({"authorization", "cookie", "set-cookie"})
+
+
+# Registered after CORSMiddleware, so it runs outermost and sees every
+# request -- including OPTIONS preflights CORSMiddleware intercepts itself.
+@app.middleware("http")
+async def log_request_headers(request: Request, call_next):
+    safe_headers = {
+        k: ("<redacted>" if k.lower() in _SENSITIVE_LOG_HEADERS else v)
+        for k, v in request.headers.items()
+    }
+    logger.info(f"{request.method} {request.url.path} headers={safe_headers}")
+    return await call_next(request)
+
+
 # Include routers
 app.include_router(osm_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(tasking_projects_router, prefix="/api/v1")
 app.include_router(tasking_me_router, prefix="/api/v1")
@@ -349,7 +367,9 @@ async def capabilities(request: Request, workspace_id: int | None = None):
         )
 
     forwarded_headers = {
-        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+        k: v
+        for k, v in rp_resp.headers.items()
+        if k.lower() not in STRIP_RESPONSE_HEADERS
     }
 
     return StreamingResponse(
@@ -498,10 +518,11 @@ async def catch_all(
     ):
         workspace = await repository.getById(current_user, workspace_id)
 
-        if (
-            workspace.autoFlagReview
-            and current_user.effective_role(workspace_id) == "contributor"
-        ):
+        # if (
+        #     workspace.autoFlagReview
+        #     and current_user.effective_role(workspace_id) == "contributor"
+        # ):
+        if True:
             logger.info("Injecting review request tag")
             body = await request.body()
             root = ET.fromstring(body)
@@ -513,12 +534,16 @@ async def catch_all(
             # Body was not consumed; fall back to buffered bytes to avoid
             # double-read issues after the workspace fetch above.
             request_content = await request.body()
-
-    rp_req = client.build_request(
-        request.method, url, headers=req_headers, content=request_content
-    )
+    if request.method == "GET":
+        # No content to send for GET requests
+        rp_req = client.build_request(request.method, url, headers=req_headers)
+    else:
+        rp_req = client.build_request(
+            request.method, url, headers=req_headers, content=request_content
+        )
     try:
         rp_resp = await client.send(rp_req, stream=True)
+        logger.info(f"Upstream request to {rp_req.url} sent successfully")
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -539,7 +564,9 @@ async def catch_all(
         logger.warning(msg)
 
     forwarded_headers = {
-        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+        k: v
+        for k, v in rp_resp.headers.items()
+        if k.lower() not in STRIP_RESPONSE_HEADERS
     }
 
     return StreamingResponse(

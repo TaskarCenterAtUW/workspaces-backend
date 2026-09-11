@@ -13,7 +13,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.exceptions import ForbiddenException, NotFoundException
 from api.src.workspaces.repository import WorkspaceRepository
-from api.src.workspaces.schemas import WorkspaceCreate, WorkspaceType
+from api.src.workspaces.schemas import (
+    WorkspaceCreate,
+    WorkspaceNameCheck,
+    WorkspaceType,
+)
 from tests.support import factories, fakes
 
 
@@ -85,6 +89,45 @@ async def test_create_in_unauthorized_group_raises(user):
             ),
         )
     assert session.commits == 0
+
+
+async def test_name_is_available_when_not_found(user):
+    session = fakes.FakeSession(fakes.empty())
+
+    available = await _repo(session).is_name_available(
+        user,
+        WorkspaceNameCheck(
+            title="Brand New", tdeiProjectGroupId=UUID(factories.DEFAULT_PG_ID)
+        ),
+    )
+
+    assert available is True
+
+
+async def test_name_is_unavailable_when_found(user):
+    session = fakes.FakeSession(fakes.rows(1))
+
+    available = await _repo(session).is_name_available(
+        user,
+        WorkspaceNameCheck(
+            title="Existing", tdeiProjectGroupId=UUID(factories.DEFAULT_PG_ID)
+        ),
+    )
+
+    assert available is False
+
+
+async def test_name_check_in_unauthorized_group_raises(user):
+    session = fakes.FakeSession()
+
+    with pytest.raises(ForbiddenException):
+        await _repo(session).is_name_available(
+            user,
+            WorkspaceNameCheck(
+                title="Forbidden",
+                tdeiProjectGroupId=UUID("99999999-9999-9999-9999-999999999999"),
+            ),
+        )
 
 
 async def test_delete_missing_raises_not_found(user):
