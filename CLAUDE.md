@@ -1,7 +1,9 @@
 # CLAUDE.md
 
 Guidance for working in this repo. Focused on the test infrastructure and
-conventions established for it; see `README.md` for app setup.
+conventions established for it; see `README.md` for app setup, and `AGENTS.md`
+for the mechanics of finishing a change (always run `./scripts/ci.sh` — passing
+tests alone are not a green build).
 
 ## Permission Structure
 
