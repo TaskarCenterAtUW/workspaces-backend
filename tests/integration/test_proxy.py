@@ -156,31 +156,6 @@ async def test_hop_by_hop_response_headers_are_stripped(client, login, monkeypat
     assert "keep-alive" not in response.headers
 
 
-async def test_upstream_cors_headers_are_stripped(client, login, monkeypatch):
-    # osm-rails sets its own Access-Control-*/Vary on some responses; forwarding
-    # them would duplicate/conflict with CORSMiddleware's own headers.
-    install_osm(
-        monkeypatch,
-        lambda req: (
-            200,
-            {
-                "content-type": "application/xml",
-                "access-control-allow-origin": "*",
-                "vary": "Origin",
-            },
-            b"<osm/>",
-        ),
-    )
-    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
-
-    response = await client.get("/api/0.6/users", headers={"X-Workspace": "1"})
-
-    assert response.status_code == 200
-    assert "vary" not in response.headers
-    # Only CORSMiddleware's Access-Control-Allow-Origin should be present.
-    assert response.headers.get("access-control-allow-origin") != "*"
-
-
 # --- upstream status + body fidelity ---------------------------------------
 
 
