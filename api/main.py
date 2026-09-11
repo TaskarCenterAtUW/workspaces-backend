@@ -1,7 +1,9 @@
 import os
 import re
 import sys
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from typing import NamedTuple
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -154,19 +156,24 @@ def get_workspace_repository(
 # @test: Any headers defined in STRIP_REQUEST_HEADERS are not forwarded to the OSM service
 # @test: Any headers defined in HOP_BY_HOP_HEADERS are not forwarded to the client
 # @test: /api/capabilities.json is proxied to the OSM service without requiring authentication
+# @test: Every capabilities spelling (with and without a /workspace/{id}/ prefix) is served without authentication and forwards that same spelling upstream, prefix stripped
+# @test: A capabilities path whose workspace id is not a non-negative integer returns 422 and is never proxied
+# @test: The unauthenticated capabilities route forwards neither Authorization nor X-Workspace upstream, even when the client supplies them
 # @test: Any request to the OSM service that returns a 4xx or 5xx status code is logged to Sentry with the correct message and the correct status code is returned to the client
-# @test: Any request that matches the RegEx in TENANT_BYPASSES is allowed to proceed without an X-Workspace header,
-#       and any request that does not match the Regex in TENANT_BYPASSES and does not have an X-Workspace header returns a 400 Bad Request error
+# @test: Any request that matches a TENANTLESS_ENDPOINTS pattern/method proceeds without an X-Workspace header *only* if its authorize rule passes,
+#       and any request that matches none of them and has no X-Workspace header returns a 400 Bad Request error
+# @test: PUT/DELETE /api/0.6/workspaces/{id} requires isWorkspaceLead on that id, returning 403 otherwise (it creates/drops the OSM schema)
+# @test: PUT /api/0.6/user/{auth_uid} is allowed only when auth_uid is the caller's own JWT sub, returning 403 otherwise
 # @test: Only the methods defined in the @app.api_route decorator are allowed to be proxied to the OSM service, and any other methods return a 405 Method Not Allowed error
 # @test: Any request with an X-Workspace header that does not match the user's accessible workspaces returns a 403 Forbidden error
-# @test: Any request with a missing X-Workspace header that does not match the TENANT_BYPASSES returns a 400 Bad Request error
+# @test: Any request with a missing X-Workspace header that matches no TENANTLESS_ENDPOINTS entry returns a 400 Bad Request error
 # @test: An empty or whitespace-only X-Workspace header is a malformed value and returns 400, not 403
 # @test: The Authorization header sent upstream is always `Bearer <token>`, including when the caller authenticated with HTTP Basic, and replaces any client-supplied copy
 # @test: A `/workspace/{id}/...` path prefix selects the workspace without an X-Workspace header, is authorized the same way, and is stripped from the path proxied upstream
 # @test: A `/workspace/{id}/...` prefix whose id disagrees with an X-Workspace header returns a 400 Bad Request error
 # @test: A `/workspace/{id}/...` prefix on a workspace the user cannot access returns a 403 Forbidden error
 # @test: The X-Workspace header sent upstream carries the resolved workspace id, replacing any client-supplied copy, and is absent when no workspace applies
-# @test: A `/workspace/{id}/...` prefix is stripped before TENANT_BYPASSES and changeset-create detection, so both match the underlying path
+# @test: A `/workspace/{id}/...` prefix is stripped before the TENANTLESS_ENDPOINTS match and changeset-create detection, so both match the underlying path
 # @test: All the values for Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Host, and X-Forwarded-Proto headers are correctly set when proxied to the OSM service
 # @test: The response from the OSM service is correctly streamed back to the client with the correct status code and headers, and the response body is not modified in any way
 
@@ -217,13 +224,63 @@ STRIP_RESPONSE_HEADERS = HOP_BY_HOP_HEADERS | {
     "access-control-max-age",
 }
 
-# Paths that do not require X-Workspace header, scoped by HTTP method. Each
-# entry is a tuple of: (compiled regex, set of allowed methods).
-TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
-    # Creating/deleting a workspace (no tenant context applies):
-    (re.compile(r"^/api/0\.6/workspaces/\d+$"), {"PUT", "DELETE"}),
-    # Provisioning users during authentication:
-    (re.compile(r"^/api/0\.6/user/[^/]+$"), {"PUT"}),
+
+class TenantlessEndpoint(NamedTuple):
+    """A proxied path that carries no tenant schema, plus its own auth rule."""
+
+    pattern: re.Pattern[str]
+    methods: set[str]
+    # (caller, path match) -> may this caller perform this operation?
+    authorize: Callable[["UserInfo", "re.Match[str]"], bool]
+    denial: str
+
+
+def _may_manage_workspace_schema(user: "UserInfo", match: "re.Match[str]") -> bool:
+    """Creating or dropping a workspace's OSM schema is a lead-level action.
+
+    Mirrors the native `DELETE /api/v1/workspaces/{id}` gate. Safe for create:
+    `create_workspace` assigns the creator LEAD and evicts their cache before
+    returning the id the client then PUTs here, so the role is in place.
+    """
+    return user.isWorkspaceLead(int(match.group(1)))
+
+
+def _is_provisioning_self(user: "UserInfo", match: "re.Match[str]") -> bool:
+    """A caller may provision only their own OSM user row.
+
+    The OSM `auth_uid` *is* the JWT `sub`, and the frontend only ever calls this
+    with its own subject. Without the check, any authenticated user could
+    overwrite another user's email and display_name, since rails
+    `UsersController` sets `skip_authorization_check :only => [:provision]`.
+    """
+    return match.group(1) == str(user.user_uuid)
+
+
+# Paths that cannot require an `X-Workspace` header, because no tenant schema
+# applies: cgimap/rails resolve the header to `SET search_path TO
+# "workspace-<id>"`, which has nothing to point at while a schema is being
+# created or dropped, or when the row is global (`users` lives in `public`).
+#
+# They are NOT unauthorized. The resource id is in the path, so each entry
+# carries its own rule. Downstream cannot be relied on for this: rails'
+# `WorkspacesController` has `before_action :authorize` commented out plus
+# `skip_authorization_check` (with a TODO pointing back at this service), and
+# `UsersController#provision` skips it too.
+TENANTLESS_ENDPOINTS: list[TenantlessEndpoint] = [
+    # Creating/dropping a workspace's schema (`Apartment::Tenant.create/drop`).
+    TenantlessEndpoint(
+        re.compile(r"^/api/0\.6/workspaces/(\d+)$"),
+        {"PUT", "DELETE"},
+        _may_manage_workspace_schema,
+        "You must be a workspace lead to create or delete this workspace",
+    ),
+    # Provisioning the caller's own user row during authentication.
+    TenantlessEndpoint(
+        re.compile(r"^/api/0\.6/user/([^/]+)$"),
+        {"PUT"},
+        _is_provisioning_self,
+        "You may only provision your own user",
+    ),
 ]
 
 # Changeset create path — buffered for potential tag injection
@@ -264,7 +321,12 @@ async def capabilities(request: Request, workspace_id: int | None = None):
     req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
+        # This route is deliberately unauthenticated, so it validates neither a
+        # token nor a workspace. Drop both rather than relaying them upstream
+        # unchecked: the manifest is global public metadata, so neither changes
+        # the response, and `catch_all` only ever forwards values it authorized.
         if k.lower() not in STRIP_REQUEST_HEADERS
+        and k.lower() not in ("authorization", "x-workspace")
     ] + [
         (b"Host", client.base_url.host.encode()),
         (b"X-Real-IP", client_host.encode()),
@@ -275,8 +337,17 @@ async def capabilities(request: Request, workspace_id: int | None = None):
 
     # Forward whichever spelling was asked for, minus any workspace prefix, rather than a fixed path.
     proxied_path = request.url.path
-    prefix_match = _WORKSPACE_PREFIX_RE.match(proxied_path)
-    if prefix_match is not None:
+    if proxied_path.startswith("/workspace/"):
+        # The route's `int` annotation accepts negatives, which `_WORKSPACE_PREFIX_RE`
+        # (`\d+`) does not. Without this, a path like /workspace/-1/api/capabilities
+        # went upstream with the prefix intact and came back 500 -- on an endpoint
+        # anyone can call. Refuse it the way FastAPI refuses a non-integer id.
+        prefix_match = _WORKSPACE_PREFIX_RE.match(proxied_path)
+        if prefix_match is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Workspace id in the path must be a non-negative integer",
+            )
         proxied_path = prefix_match.group(2)
 
     url = httpx.URL(path=proxied_path)
@@ -323,7 +394,7 @@ async def catch_all(
     """
 
     # Resolve the `/workspace/{id}/...` prefix first, so everything below --
-    # the /api/v1/ guard, TENANT_BYPASSES, changeset-create detection, and the
+    # the /api/v1/ guard, TENANTLESS_ENDPOINTS, changeset-create detection, and the
     # URL actually proxied -- all operate on the normalized path.
     prefix_workspace_id: int | None = None
     proxied_path = request.url.path
@@ -381,13 +452,29 @@ async def catch_all(
                 detail="You do not have access to this workspace",
             )
     else:
-        if not any(
-            p.fullmatch(proxied_path) and request.method in methods
-            for p, methods in TENANT_BYPASSES
-        ):
+        # No tenant header. The path may still be a tenantless endpoint -- but
+        # those authorize against the id in the path rather than skipping the
+        # check entirely.
+        matched: tuple[TenantlessEndpoint, re.Match[str]] | None = None
+        for endpoint in TENANTLESS_ENDPOINTS:
+            if request.method not in endpoint.methods:
+                continue
+            path_match = endpoint.pattern.fullmatch(proxied_path)
+            if path_match is not None:
+                matched = (endpoint, path_match)
+                break
+
+        if matched is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No X-Workspace header supplied",
+            )
+
+        endpoint, path_match = matched
+        if not endpoint.authorize(current_user, path_match):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=endpoint.denial,
             )
 
     url = httpx.URL(path=proxied_path.strip(), query=request.url.query.encode("utf-8"))
@@ -431,11 +518,10 @@ async def catch_all(
     ):
         workspace = await repository.getById(current_user, workspace_id)
 
-        # if (
-        #     workspace.autoFlagReview
-        #     and current_user.effective_role(workspace_id) == "contributor"
-        # ):
-        if True:
+        if (
+            workspace.autoFlagReview
+            and current_user.effective_role(workspace_id) == "contributor"
+        ):
             logger.info("Injecting review request tag")
             body = await request.body()
             root = ET.fromstring(body)
