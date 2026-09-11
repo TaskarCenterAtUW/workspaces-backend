@@ -167,6 +167,9 @@ def evict_user_from_cache(auth_uid: UUID) -> None:
 # Every Basic-auth rejection repeats this, because the field placement is the
 # thing callers get wrong and a bare "Not authenticated" gives them nothing to
 # act on.
+# Advertised in the Basic challenge on the proxied OSM surface.
+OSM_BASIC_REALM = "TDEI Workspaces"
+
 _BASIC_USAGE_HINT = (
     "Supply the TDEI token as the HTTP Basic *username*; the password is "
     'ignored. For example: `curl -u "$TDEI_TOKEN:" ...`, or a URL of the form '
@@ -178,7 +181,9 @@ def _basic_auth_error(reason: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=f"{reason} {_BASIC_USAGE_HINT}",
-        headers={"WWW-Authenticate": "Bearer"},
+        # Challenge with the scheme the caller was using, so a client that only speaks Basic can
+        # correct itself and retry.
+        headers={"WWW-Authenticate": f'Basic realm="{OSM_BASIC_REALM}"'},
     )
 
 
@@ -275,11 +280,25 @@ class TDEIHTTPBearer(HTTPBearer):
         scheme, param = get_authorization_scheme_param(
             request.headers.get("Authorization")
         )
+        basic_allowed = not request.url.path.startswith(BEARER_ONLY_PATH_PREFIXES)
+
         if scheme.lower() != "basic":
+            # No credentials at all, on a path where Basic is the accepted scheme: answer with a
+            # Basic challenge. HTTPBearer answers `WWW-Authenticate: Bearer`, which a client that
+            # only speaks Basic -- JOSM and other OSM editors -- cannot act on: it never sends its
+            # credentials and reports that it could not reach the server. The /api/v1 surface is
+            # unaffected, since Basic is not accepted there.
+            if not scheme and basic_allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Not authenticated",
+                    headers={"WWW-Authenticate": f'Basic realm="{OSM_BASIC_REALM}"'},
+                )
+
             # Bearer (and every rejection path) keeps FastAPI's own behavior.
             return await super().__call__(request)
 
-        if request.url.path.startswith(BEARER_ONLY_PATH_PREFIXES):
+        if not basic_allowed:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=(
