@@ -538,6 +538,46 @@ async def test_basic_is_accepted_on_proxied_osm_paths(path):
     assert creds.credentials == "a.valid.jwt"
 
 
+# A client that only speaks Basic never sends credentials until it has been challenged, so the
+# challenge has to name a scheme it can act on. JOSM reports "failed to initialize communication"
+# against a Bearer challenge and never gets as far as sending its token.
+
+
+async def test_missing_credentials_on_an_osm_path_challenge_basic():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(None, path="/api/0.6/map"))
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.headers is not None
+    assert excinfo.value.headers["WWW-Authenticate"].startswith("Basic")
+
+
+async def test_missing_credentials_on_a_prefixed_osm_path_challenge_basic():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(None, path="/workspace/7/api/0.6/map"))
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.headers["WWW-Authenticate"].startswith("Basic")
+
+
+async def test_missing_credentials_on_native_api_paths_still_challenge_bearer():
+    # The /api/v1 surface does not accept Basic, so it must not invite it either.
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(None, path="/api/v1/workspaces"))
+
+    assert excinfo.value.status_code in (401, 403)
+    headers = excinfo.value.headers or {}
+    assert not str(headers.get("WWW-Authenticate", "")).startswith("Basic")
+
+
+async def test_unusable_basic_credentials_are_rechallenged_with_basic():
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth("Basic !!!not-base64!!!", path="/api/0.6/map"))
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.headers["WWW-Authenticate"].startswith("Basic")
+
+
 async def test_bearer_is_accepted_on_native_api_paths():
     # The scoping restricts Basic only; Bearer works everywhere as before.
     creds = await sec.security(

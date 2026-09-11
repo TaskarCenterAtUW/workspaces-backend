@@ -209,9 +209,23 @@ _CHANGESET_CREATE_RE = re.compile(r"^/api/0\.6/changeset/create$")
 _WORKSPACE_PREFIX_RE = re.compile(r"^/workspace/(\d+)(/.*)$")
 
 
+# OSM clients ask for capabilities before anything else, and do so anonymously -- JOSM will not send
+# credentials until it has been challenged, and it cannot act on the Bearer challenge the rest of this
+# surface answers with. Serve every spelling they use, with or without the /workspace/{id}/ prefix.
+# These are declared above the catch-all so they match first and never reach validate_token.
+@app.get("/api/capabilities")
 @app.get("/api/capabilities.json")
-async def capabilities(request: Request):
-    """Proxy OSM capabilities manifest without requiring authentication."""
+@app.get("/api/0.6/capabilities")
+@app.get("/workspace/{workspace_id}/api/capabilities")
+@app.get("/workspace/{workspace_id}/api/capabilities.json")
+@app.get("/workspace/{workspace_id}/api/0.6/capabilities")
+async def capabilities(request: Request, workspace_id: int | None = None):
+    """Proxy the OSM capabilities manifest without requiring authentication.
+
+    The manifest is public metadata and carries nothing workspace-specific, so the
+    `/workspace/{id}/` prefix is accepted only because clients are configured with it as their
+    server URL; it is stripped and otherwise ignored.
+    """
 
     client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
@@ -227,7 +241,13 @@ async def capabilities(request: Request):
         (b"X-Forwarded-Proto", request.url.scheme.encode()),
     ]
 
-    url = httpx.URL(path="/api/capabilities.json")
+    # Forward whichever spelling was asked for, minus any workspace prefix, rather than a fixed path.
+    proxied_path = request.url.path
+    prefix_match = _WORKSPACE_PREFIX_RE.match(proxied_path)
+    if prefix_match is not None:
+        proxied_path = prefix_match.group(2)
+
+    url = httpx.URL(path=proxied_path)
     rp_req = client.build_request("GET", url, headers=req_headers)
 
     try:
