@@ -33,6 +33,11 @@ class Settings(BaseSettings):
 
     DEBUG: bool = False
 
+    # OpenTelemetry logging is enabled only when a collector endpoint is set.
+    # The standard logging configuration remains available for local runs.
+    OTEL_SERVICE_NAME: str = "workspaces-backend"
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: str = ""
+
     # used for validation
     LONGFORM_SCHEMA_URL: str = (
         "https://raw.githubusercontent.com/TaskarCenterAtUW/asr-quests/refs/heads/main/schema/schema.json"
