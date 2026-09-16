@@ -9,15 +9,20 @@ Covers the @test comments in api/main.py:
   header, but still authorize against the id in the path
 - only the decorator's methods are proxied (others -> 405)
 - X-Workspace not in the user's accessible workspaces -> 403
+- a workspace id in the HTTP Basic username selects the workspace
 - missing X-Workspace and no bypass -> 400
 - Host / X-Real-IP / X-Forwarded-* are set correctly upstream
 - the response is streamed back unmodified with its status and headers
 """
 
+from base64 import b64encode
+
 import httpx
 import pytest
+from fastapi import Request
 
 import api.main
+from api.core.security import security, validate_token
 from api.src.users.schemas import WorkspaceUserRoleType
 from tests.support import factories, fakes
 from tests.support.http import StreamingMockTransport
@@ -550,3 +555,144 @@ async def test_unmatched_tenantless_path_still_returns_400(client, login, mock_o
     response = await client.get("/api/0.6/map")
     assert response.status_code == 400
     assert "X-Workspace" in response.json()["detail"]
+
+
+# --- Workspace id in the HTTP Basic username --------------------------------
+#
+# JOSM cannot hold a ~1.4KB TDEI token in its username field, and cannot be
+# pointed at a URL carrying a `/workspace/{id}/` prefix either. So Basic is
+# specified the one way: token in the password, workspace id in the username.
+# `catch_all` reads the id off `request.state`, where `TDEIHTTPBearer` left it.
+
+
+def _basic(username: str, password: str) -> str:
+    return "Basic " + b64encode(f"{username}:{password}".encode()).decode()
+
+
+# Shape-valid but never validated: `login_through_basic` supplies the principal.
+_A_JWT = "head.payload.sig"
+
+
+@pytest.fixture
+def login_through_basic(app):
+    """Authenticate with a fake principal, but through the real Basic parsing.
+
+    `login` replaces `validate_token` outright, so credentials never reach
+    `TDEIHTTPBearer` -- which is exactly where the workspace id in the Basic
+    username is read. This keeps the fake user while still running the real
+    scheme, so the id lands on `request.state` the way it does in production.
+    """
+
+    def _login(user_info=None):
+        user_info = user_info or factories.make_user_info()
+
+        async def _validate(request: Request):
+            await security(request)
+            return user_info
+
+        app.dependency_overrides[validate_token] = _validate
+        return user_info
+
+    return _login
+
+
+async def test_basic_username_workspace_selects_workspace(
+    client, login_through_basic, mock_osm
+):
+    user = login_through_basic(
+        factories.make_user_info(accessible_workspace_ids={"pg": [1]})
+    )
+    response = await client.get(
+        "/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    # No prefix to strip, and the id re-emitted as the tenant header.
+    assert mock_osm.last_request.url.path == "/api/0.6/map"
+    assert mock_osm.last_request.headers["X-Workspace"] == "1"
+    # Normalized to Bearer; the Basic header must not survive upstream.
+    assert mock_osm.last_request.headers.get_list("Authorization") == [
+        f"Bearer {user.credentials}"
+    ]
+
+
+async def test_basic_username_workspace_without_access_returns_403(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={}))
+    response = await client.get(
+        "/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 403
+    assert mock_osm.last_request is None
+
+
+async def test_basic_username_workspace_matching_prefix_is_accepted(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers.get_list("X-Workspace") == ["1"]
+
+
+async def test_basic_username_workspace_conflicting_with_prefix_returns_400(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(
+        factories.make_user_info(accessible_workspace_ids={"pg": [1, 2]})
+    )
+    response = await client.get(
+        "/workspace/2/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 400
+    assert "mismatch" in response.json()["detail"].lower()
+    # Refused before proxying, like the prefix/header conflict above.
+    assert mock_osm.last_request is None
+
+
+async def test_basic_username_workspace_conflicting_with_header_returns_400(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(
+        factories.make_user_info(accessible_workspace_ids={"pg": [1, 2]})
+    )
+    response = await client.get(
+        "/api/0.6/map",
+        headers={"Authorization": _basic("1", _A_JWT), "X-Workspace": "2"},
+    )
+    assert response.status_code == 400
+    assert "mismatch" in response.json()["detail"].lower()
+    assert mock_osm.last_request is None
+
+
+async def test_basic_token_in_the_username_is_refused(
+    client, login_through_basic, mock_osm
+):
+    """The retired placement, refused at the credentials rather than later.
+
+    It used to authenticate and then fail further along with "No X-Workspace
+    header supplied", which says nothing about what actually changed.
+    """
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/api/0.6/map", headers={"Authorization": _basic(_A_JWT, "")}
+    )
+    assert response.status_code == 401
+    assert "not the username" in response.json()["detail"]
+    assert mock_osm.last_request is None
+
+
+async def test_basic_token_in_the_username_is_refused_even_with_a_prefix(
+    client, login_through_basic, mock_osm
+):
+    """Naming the workspace in the path does not revive the old placement."""
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"Authorization": _basic(_A_JWT, "")}
+    )
+    assert response.status_code == 401
+    assert mock_osm.last_request is None

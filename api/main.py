@@ -172,6 +172,10 @@ def get_workspace_repository(
 # @test: A `/workspace/{id}/...` path prefix selects the workspace without an X-Workspace header, is authorized the same way, and is stripped from the path proxied upstream
 # @test: A `/workspace/{id}/...` prefix whose id disagrees with an X-Workspace header returns a 400 Bad Request error
 # @test: A `/workspace/{id}/...` prefix on a workspace the user cannot access returns a 403 Forbidden error
+# @test: A workspace id in the HTTP Basic username selects the workspace with no path prefix and no X-Workspace header, is authorized the same way, and is not forwarded upstream as a credential
+# @test: A workspace id in the HTTP Basic username that disagrees with a path prefix or an X-Workspace header returns a 400 Bad Request error
+# @test: A workspace id in the HTTP Basic username that agrees with a path prefix or an X-Workspace header is accepted
+# @test: A workspace id in the HTTP Basic username on a workspace the user cannot access returns a 403 Forbidden error
 # @test: The X-Workspace header sent upstream carries the resolved workspace id, replacing any client-supplied copy, and is absent when no workspace applies
 # @test: A `/workspace/{id}/...` prefix is stripped before the TENANTLESS_ENDPOINTS match and changeset-create detection, so both match the underlying path
 # @test: All the values for Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Host, and X-Forwarded-Proto headers are correctly set when proxied to the OSM service
@@ -444,6 +448,26 @@ async def catch_all(
             )
     elif prefix_workspace_id is not None:
         workspace_id = prefix_workspace_id
+
+    # Third source: the workspace id in the HTTP Basic username, set by
+    # `TDEIHTTPBearer` when the caller put its token in the password instead.
+    # It exists for editors that cannot carry a 1.4KB token in a username
+    # field, which are the same editors that cannot be pointed at a URL with a
+    # workspace-specific prefix -- so this is usually the *only* source.
+    basic_workspace_id = getattr(request.state, "basic_workspace_id", None)
+    if basic_workspace_id is not None:
+        # Same reasoning as the prefix/header check above: two sources that
+        # disagree is a client bug, not something to resolve by precedence.
+        if workspace_id is not None and workspace_id != basic_workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Workspace mismatch: the request path or X-Workspace header "
+                    f"says {workspace_id}, the HTTP Basic username says "
+                    f"{basic_workspace_id}"
+                ),
+            )
+        workspace_id = basic_workspace_id
 
     if workspace_id is not None:
         if not current_user.isWorkspaceContributor(workspace_id):
