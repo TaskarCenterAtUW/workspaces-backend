@@ -125,7 +125,7 @@ async def test_list_matches_get_by_id(client, login, task_session, osm_session):
 
 async def test_check_workspace_name_available(client, login, task_session):
     login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
-    task_session.queue(fakes.empty())
+    task_session.queue(fakes.scalar(0))
 
     response = await client.post(
         f"{API}/check",
@@ -141,7 +141,7 @@ async def test_check_workspace_name_available(client, login, task_session):
 
 async def test_check_workspace_name_unavailable(client, login, task_session):
     login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
-    task_session.queue(fakes.rows(1))
+    task_session.queue(fakes.scalar(1))
 
     response = await client.post(
         f"{API}/check",

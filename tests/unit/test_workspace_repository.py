@@ -92,7 +92,7 @@ async def test_create_in_unauthorized_group_raises(user):
 
 
 async def test_name_is_available_when_not_found(user):
-    session = fakes.FakeSession(fakes.empty())
+    session = fakes.FakeSession(fakes.scalar(0))
 
     available = await _repo(session).is_name_available(
         user,
@@ -105,7 +105,7 @@ async def test_name_is_available_when_not_found(user):
 
 
 async def test_name_is_unavailable_when_found(user):
-    session = fakes.FakeSession(fakes.rows(1))
+    session = fakes.FakeSession(fakes.scalar(1))
 
     available = await _repo(session).is_name_available(
         user,
