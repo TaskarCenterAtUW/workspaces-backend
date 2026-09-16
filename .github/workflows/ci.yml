@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ develop, main ]
   pull_request:
-    branches: [ develop ]
+    branches: [ develop, main ]
 
 # Cancel any in-progress run for the same branch/PR when a newer commit lands.
 concurrency:
@@ -40,3 +40,26 @@ jobs:
     # so a single red step still lists all failures.
     - name: Run CI checks
       run: ./scripts/ci.sh --integration
+
+    # Renders the test tally + per-file coverage table onto the run's summary
+    # page (and this step's log), mirroring the frontend repo's summary. The
+    # script reads reports/junit-*.xml and .coverage, both written by the step
+    # above. `always()` so a red run still reports what it managed to collect;
+    # the script degrades to omitting a section rather than failing, so it never
+    # turns a green build red.
+    - name: Publish test & coverage summary
+      if: always()
+      run: uv run python scripts/ci-summary.py
+
+    - name: Build HTML coverage report
+      if: always()
+      run: uv run coverage html || true
+
+    - name: Upload HTML coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-html-py${{ matrix.python-version }}
+        path: htmlcov/
+        if-no-files-found: ignore
+        retention-days: 14
