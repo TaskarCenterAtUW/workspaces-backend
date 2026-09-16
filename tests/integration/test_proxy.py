@@ -560,9 +560,9 @@ async def test_unmatched_tenantless_path_still_returns_400(client, login, mock_o
 # --- Workspace id in the HTTP Basic username --------------------------------
 #
 # JOSM cannot hold a ~1.4KB TDEI token in its username field, and cannot be
-# pointed at a URL carrying a `/workspace/{id}/` prefix either. So it puts the
-# token in the password and the workspace id in the username, and `catch_all`
-# reads the id off `request.state` where `TDEIHTTPBearer` left it.
+# pointed at a URL carrying a `/workspace/{id}/` prefix either. So Basic is
+# specified the one way: token in the password, workspace id in the username.
+# `catch_all` reads the id off `request.state`, where `TDEIHTTPBearer` left it.
 
 
 def _basic(username: str, password: str) -> str:
@@ -669,13 +669,30 @@ async def test_basic_username_workspace_conflicting_with_header_returns_400(
     assert mock_osm.last_request is None
 
 
-async def test_basic_token_in_username_still_needs_a_prefix_or_header(
+async def test_basic_token_in_the_username_is_refused(
     client, login_through_basic, mock_osm
 ):
-    """The original spelling is unchanged: it names no workspace by itself."""
+    """The retired placement, refused at the credentials rather than later.
+
+    It used to authenticate and then fail further along with "No X-Workspace
+    header supplied", which says nothing about what actually changed.
+    """
     login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
     response = await client.get(
         "/api/0.6/map", headers={"Authorization": _basic(_A_JWT, "")}
     )
-    assert response.status_code == 400
+    assert response.status_code == 401
+    assert "not the username" in response.json()["detail"]
+    assert mock_osm.last_request is None
+
+
+async def test_basic_token_in_the_username_is_refused_even_with_a_prefix(
+    client, login_through_basic, mock_osm
+):
+    """Naming the workspace in the path does not revive the old placement."""
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"Authorization": _basic(_A_JWT, "")}
+    )
+    assert response.status_code == 401
     assert mock_osm.last_request is None
