@@ -52,10 +52,14 @@ run "Install the project"            uv sync --all-extras
 run "Check imports with isort"       uv run isort --check-only --diff .
 run "Check code formatting (black)"  uv run black --check .
 run "Type-check with pyright"        uvx pyright --pythonpath .venv/bin/python api tests
-run "Run tests"                      uv run pytest tests
+run "Run tests"                      uv run pytest tests --junitxml=reports/junit-unit.xml
 
+# --cov-append so this run adds to the coverage data from "Run tests" instead
+# of erasing it; otherwise the final .coverage would describe only the
+# integration subset. Coverage is a union of executed lines, so the tests that
+# run in both passes are simply counted once.
 if [[ "${integration}" == 1 ]]; then
-  run "Run integration tests"        uv run pytest tests -m integration
+  run "Run integration tests"        uv run pytest tests -m integration --cov-append --junitxml=reports/junit-integration.xml
 fi
 
 summary_and_exit

@@ -151,6 +151,19 @@ class WorkspaceCreate(SQLModel):
         return self.type == WorkspaceType.PATHWAYS and self.isTDEIDataset()
 
 
+class WorkspaceNameCheck(SQLModel):
+    """Fields used to check workspace-name availability within a project group."""
+
+    title: str
+    tdeiProjectGroupId: UUID
+
+
+class WorkspaceNameCheckResponse(SQLModel):
+    """Availability result for a workspace name within a project group."""
+
+    available: bool
+
+
 class WorkspaceCreateWithForm(WorkspaceCreate):
     """Fields the client may supply when creating a workspace via form"""
 
@@ -186,6 +199,7 @@ class WorkspacePatch(SQLModel):
     description: Optional[str] = None
     externalAppAccess: Optional[ExternalAppsDefinitionType] = None
     autoFlagReview: Optional[bool] = None
+    overrideConflicts: Optional[bool] = None
 
 
 class QuestSettingsPatch(SQLModel):
@@ -259,6 +273,7 @@ class WorkspaceResponse(SQLModel):
     externalAppAccess: ExternalAppsDefinitionType
     kartaViewToken: Optional[str] = None
     autoFlagReview: bool = False
+    overrideConflicts: bool = False
     role: str
     projectsCount: int = 0
     membersCount: int = 0
@@ -299,6 +314,7 @@ class WorkspaceResponse(SQLModel):
             externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
             autoFlagReview=workspace.autoFlagReview,
+            overrideConflicts=workspace.overrideConflicts,
             role=user.effective_role(workspace.id),
             projectsCount=projects_count,
             membersCount=members_count,
@@ -381,4 +397,9 @@ class Workspace(SQLModel, table=True):
     importStatus: Optional[str] = Field(
         default=None,
         sa_column=Column(Unicode, nullable=True),
+    )
+
+    overrideConflicts: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=True, server_default="false"),
     )
