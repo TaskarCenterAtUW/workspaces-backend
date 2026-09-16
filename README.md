@@ -185,7 +185,7 @@ answer there. Every OSM request therefore passes through `validate_token`, the `
 and the CORS middleware in `api/main.py` before reaching lighttpd. One consequence: the Rails web UI
 is unreachable through the proxy (`GET /login` returns `401 {"detail":"Not authenticated"}`), because
 `catch_all` requires a Bearer token and an `X-Workspace` header for everything outside
-`TENANT_BYPASSES`.
+`TENANTLESS_ENDPOINTS`.
 
 Deploying `nginx.conf` as-is would **not** by itself enable the three features in trap 2: the backend
 rejects those requests (400 for a missing `X-Workspace`, 401 for a non-Bearer scheme) before they
@@ -241,9 +241,13 @@ following contract. `CLAUDE.md` has the full rationale.
 3. **Carry workspace tenancy.** Workspace-scoped OSM requests must include an
    `X-Workspace: <id>` header. The proxy authorizes it against the caller's
    workspaces and forwards it (it is *not* stripped) so cgimap/osm-rails scope to
-   the `workspace-<id>` schema. A few paths are exempt (`TENANT_BYPASSES` in
-   `api/main.py`): workspace create/delete (`PUT`/`DELETE /api/0.6/workspaces/{id}`)
-   and user provisioning during sign-in (`PUT /api/0.6/user/{uid}`).
+   the `workspace-<id>` schema. A few paths carry no tenant schema and so cannot
+   require the header (`TENANTLESS_ENDPOINTS` in `api/main.py`): workspace
+   create/delete (`PUT`/`DELETE /api/0.6/workspaces/{id}`) and user provisioning
+   during sign-in (`PUT /api/0.6/user/{uid}`). These are **not** unauthorized —
+   each authorizes against the id in the path instead (lead on the workspace;
+   self for user provisioning), because rails has authorization explicitly
+   disabled on both targets.
 
 4. **Set the proxy headers.** The proxy rewrites `Host` to the OSM host and sets
    `X-Real-IP` / `X-Forwarded-For` / `-Host` / `-Proto`, while stripping

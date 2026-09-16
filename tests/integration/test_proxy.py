@@ -5,18 +5,25 @@ Covers the @test comments in api/main.py:
 - HOP_BY_HOP_HEADERS are not forwarded back to the client
 - /api/capabilities.json is proxied without auth
 - 4xx/5xx upstream responses are logged to Sentry and the status is preserved
-- TENANT_BYPASSES allow specific paths/methods without an X-Workspace header
+- TENANTLESS_ENDPOINTS allow specific paths/methods without an X-Workspace
+  header, but still authorize against the id in the path
 - only the decorator's methods are proxied (others -> 405)
 - X-Workspace not in the user's accessible workspaces -> 403
+- a workspace id in the HTTP Basic username selects the workspace
 - missing X-Workspace and no bypass -> 400
 - Host / X-Real-IP / X-Forwarded-* are set correctly upstream
 - the response is streamed back unmodified with its status and headers
 """
 
+from base64 import b64encode
+
 import httpx
 import pytest
+from fastapi import Request
 
 import api.main
+from api.core.security import security, validate_token
+from api.src.users.schemas import WorkspaceUserRoleType
 from tests.support import factories, fakes
 from tests.support.http import StreamingMockTransport
 
@@ -108,11 +115,17 @@ async def test_contributor_request_is_proxied(client, login, mock_osm):
     assert b"osm version" in response.content
 
 
-async def test_tenant_bypass_allows_workspace_put_without_header(
+async def test_tenantless_workspace_put_allowed_for_lead_without_header(
     client, login, mock_osm
 ):
-    # PUT /api/0.6/workspaces/{id} is in TENANT_BYPASSES -> no X-Workspace needed.
-    login(factories.make_user_info())
+    # PUT /api/0.6/workspaces/{id} needs no X-Workspace (the schema is being
+    # created, so there is nothing to SET search_path to) but still requires
+    # lead on that id.
+    login(
+        factories.make_user_info(
+            osm_workspace_roles={123: [WorkspaceUserRoleType.LEAD]}
+        )
+    )
     response = await client.put("/api/0.6/workspaces/123")
     assert response.status_code == 200
     assert mock_osm.last_request is not None
@@ -304,11 +317,15 @@ async def test_client_supplied_workspace_header_is_replaced_upstream(
     assert mock_osm.last_request.headers.get_list("X-Workspace") == ["7"]
 
 
-async def test_no_workspace_header_sent_upstream_for_bypass_paths(
+async def test_no_workspace_header_sent_upstream_for_tenantless_paths(
     client, login, mock_osm
 ):
-    # TENANT_BYPASSES paths carry no workspace, so none should be invented.
-    login(factories.make_user_info())
+    # Tenantless paths carry no workspace, so none should be invented.
+    login(
+        factories.make_user_info(
+            osm_workspace_roles={123: [WorkspaceUserRoleType.LEAD]}
+        )
+    )
     response = await client.put("/api/0.6/workspaces/123")
     assert response.status_code == 200
     assert mock_osm.last_request is not None
@@ -400,3 +417,282 @@ async def test_valid_workspace_header_still_proxies(client, login, mock_osm):
     assert response.status_code == 200
     assert mock_osm.last_request is not None
     assert mock_osm.last_request.headers["X-Workspace"] == "1"
+
+
+# --- capabilities: unauthenticated, but relays nothing it did not validate ---
+
+
+@pytest.mark.parametrize(
+    "path,expected_upstream",
+    [
+        ("/api/capabilities", "/api/capabilities"),
+        ("/api/capabilities.json", "/api/capabilities.json"),
+        ("/api/0.6/capabilities", "/api/0.6/capabilities"),
+        ("/workspace/7/api/capabilities", "/api/capabilities"),
+        ("/workspace/7/api/capabilities.json", "/api/capabilities.json"),
+        ("/workspace/7/api/0.6/capabilities", "/api/0.6/capabilities"),
+    ],
+)
+async def test_capabilities_spellings_proxy_unauthenticated(
+    client, mock_osm, path, expected_upstream
+):
+    # No login(): these routes are declared above the catch-all and never reach
+    # validate_token, because OSM editors fetch capabilities before authenticating.
+    response = await client.get(path)
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.url.path == expected_upstream
+
+
+@pytest.mark.parametrize("bad", ["-1", "-99"])
+async def test_capabilities_rejects_negative_workspace_id(client, mock_osm, bad):
+    """The route's `int` accepts negatives; the strip regex (\\d+) does not.
+
+    Previously the prefix survived and a malformed path was proxied, which came
+    back 500 from an endpoint anyone can reach.
+    """
+    response = await client.get(f"/workspace/{bad}/api/capabilities")
+    assert response.status_code == 422
+    assert mock_osm.last_request is None
+
+
+async def test_capabilities_does_not_relay_client_credentials(client, mock_osm):
+    # Unauthenticated route: it validates no token and no workspace, so it must
+    # forward neither rather than passing them upstream unchecked.
+    response = await client.get(
+        "/api/capabilities.json",
+        headers={"Authorization": "Bearer not-validated", "X-Workspace": "99"},
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert "Authorization" not in mock_osm.last_request.headers
+    assert "X-Workspace" not in mock_osm.last_request.headers
+
+
+# --- tenantless endpoints authorize against the id in the path --------------
+#
+# These carry no tenant schema, so they cannot require an X-Workspace header.
+# That is NOT the same as requiring nothing: rails has authorization explicitly
+# disabled on both targets (`WorkspacesController` comments out
+# `before_action :authorize` and calls `skip_authorization_check`;
+# `UsersController` sets `skip_authorization_check :only => [:provision]`), so
+# this proxy is the only thing standing in front of them.
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+async def test_workspace_schema_management_requires_lead(
+    client, login, mock_osm, method
+):
+    """PUT creates the OSM schema, DELETE drops it. Both are lead-only.
+
+    Without this, any authenticated TDEI user could call
+    `DELETE /api/0.6/workspaces/{id}` and have rails run
+    `Apartment::Tenant.drop("workspace-{id}")` on any workspace.
+    """
+    # A contributor on the workspace, but not a lead.
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [123]}))
+
+    response = await getattr(client, method)("/api/0.6/workspaces/123")
+
+    assert response.status_code == 403
+    assert "lead" in response.json()["detail"].lower()
+    assert mock_osm.last_request is None, "must not reach the OSM service"
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+async def test_workspace_schema_management_checks_the_id_in_the_path(
+    client, login, mock_osm, method
+):
+    # Lead on 1 confers nothing on 999 -- the id authorized is the one in the path.
+    login(
+        factories.make_user_info(osm_workspace_roles={1: [WorkspaceUserRoleType.LEAD]})
+    )
+
+    response = await getattr(client, method)("/api/0.6/workspaces/999")
+
+    assert response.status_code == 403
+    assert mock_osm.last_request is None
+
+
+async def test_poc_may_manage_workspace_schema(client, login, mock_osm):
+    # POC on the owning project group satisfies isWorkspaceLead.
+    login(
+        factories.make_user_info(
+            project_group_ids=["pg"],
+            accessible_workspace_ids={"pg": [123]},
+            poc_group_ids=("pg",),
+        )
+    )
+    response = await client.delete("/api/0.6/workspaces/123")
+    assert response.status_code == 200
+
+
+async def test_user_provisioning_is_limited_to_self(client, login, mock_osm):
+    """`users#provision` upserts email/display_name for the given auth_uid.
+
+    Unrestricted, any authenticated user could overwrite another user's OSM
+    identity. The OSM auth_uid is the JWT sub, and the frontend only ever calls
+    this with its own subject.
+    """
+    user = login(factories.make_user_info())
+
+    ok = await client.put(f"/api/0.6/user/{user.user_uuid}")
+    assert ok.status_code == 200
+
+    mock_osm.last_request = None
+    someone_else = await client.put(
+        "/api/0.6/user/11111111-1111-1111-1111-111111111111"
+    )
+    assert someone_else.status_code == 403
+    assert "your own" in someone_else.json()["detail"].lower()
+    assert mock_osm.last_request is None
+
+
+async def test_unmatched_tenantless_path_still_returns_400(client, login, mock_osm):
+    # A path that matches no entry keeps the original "no header" error, rather
+    # than falling into an authorization check it was never subject to.
+    login(factories.make_user_info())
+    response = await client.get("/api/0.6/map")
+    assert response.status_code == 400
+    assert "X-Workspace" in response.json()["detail"]
+
+
+# --- Workspace id in the HTTP Basic username --------------------------------
+#
+# JOSM cannot hold a ~1.4KB TDEI token in its username field, and cannot be
+# pointed at a URL carrying a `/workspace/{id}/` prefix either. So Basic is
+# specified the one way: token in the password, workspace id in the username.
+# `catch_all` reads the id off `request.state`, where `TDEIHTTPBearer` left it.
+
+
+def _basic(username: str, password: str) -> str:
+    return "Basic " + b64encode(f"{username}:{password}".encode()).decode()
+
+
+# Shape-valid but never validated: `login_through_basic` supplies the principal.
+_A_JWT = "head.payload.sig"
+
+
+@pytest.fixture
+def login_through_basic(app):
+    """Authenticate with a fake principal, but through the real Basic parsing.
+
+    `login` replaces `validate_token` outright, so credentials never reach
+    `TDEIHTTPBearer` -- which is exactly where the workspace id in the Basic
+    username is read. This keeps the fake user while still running the real
+    scheme, so the id lands on `request.state` the way it does in production.
+    """
+
+    def _login(user_info=None):
+        user_info = user_info or factories.make_user_info()
+
+        async def _validate(request: Request):
+            await security(request)
+            return user_info
+
+        app.dependency_overrides[validate_token] = _validate
+        return user_info
+
+    return _login
+
+
+async def test_basic_username_workspace_selects_workspace(
+    client, login_through_basic, mock_osm
+):
+    user = login_through_basic(
+        factories.make_user_info(accessible_workspace_ids={"pg": [1]})
+    )
+    response = await client.get(
+        "/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    # No prefix to strip, and the id re-emitted as the tenant header.
+    assert mock_osm.last_request.url.path == "/api/0.6/map"
+    assert mock_osm.last_request.headers["X-Workspace"] == "1"
+    # Normalized to Bearer; the Basic header must not survive upstream.
+    assert mock_osm.last_request.headers.get_list("Authorization") == [
+        f"Bearer {user.credentials}"
+    ]
+
+
+async def test_basic_username_workspace_without_access_returns_403(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={}))
+    response = await client.get(
+        "/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 403
+    assert mock_osm.last_request is None
+
+
+async def test_basic_username_workspace_matching_prefix_is_accepted(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers.get_list("X-Workspace") == ["1"]
+
+
+async def test_basic_username_workspace_conflicting_with_prefix_returns_400(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(
+        factories.make_user_info(accessible_workspace_ids={"pg": [1, 2]})
+    )
+    response = await client.get(
+        "/workspace/2/api/0.6/map", headers={"Authorization": _basic("1", _A_JWT)}
+    )
+    assert response.status_code == 400
+    assert "mismatch" in response.json()["detail"].lower()
+    # Refused before proxying, like the prefix/header conflict above.
+    assert mock_osm.last_request is None
+
+
+async def test_basic_username_workspace_conflicting_with_header_returns_400(
+    client, login_through_basic, mock_osm
+):
+    login_through_basic(
+        factories.make_user_info(accessible_workspace_ids={"pg": [1, 2]})
+    )
+    response = await client.get(
+        "/api/0.6/map",
+        headers={"Authorization": _basic("1", _A_JWT), "X-Workspace": "2"},
+    )
+    assert response.status_code == 400
+    assert "mismatch" in response.json()["detail"].lower()
+    assert mock_osm.last_request is None
+
+
+async def test_basic_token_in_the_username_is_refused(
+    client, login_through_basic, mock_osm
+):
+    """The retired placement, refused at the credentials rather than later.
+
+    It used to authenticate and then fail further along with "No X-Workspace
+    header supplied", which says nothing about what actually changed.
+    """
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/api/0.6/map", headers={"Authorization": _basic(_A_JWT, "")}
+    )
+    assert response.status_code == 401
+    assert "not the username" in response.json()["detail"]
+    assert mock_osm.last_request is None
+
+
+async def test_basic_token_in_the_username_is_refused_even_with_a_prefix(
+    client, login_through_basic, mock_osm
+):
+    """Naming the workspace in the path does not revive the old placement."""
+    login_through_basic(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/workspace/1/api/0.6/map", headers={"Authorization": _basic(_A_JWT, "")}
+    )
+    assert response.status_code == 401
+    assert mock_osm.last_request is None

@@ -338,10 +338,16 @@ def test_evict_user_from_cache_removes_entry():
 # --- TDEIHTTPBearer: Bearer or Basic ---------------------------------------
 #
 # Third-party OSM editors commonly cannot set a custom Authorization scheme, so
-# the TDEI token is also accepted in the username field of HTTP Basic (which is
-# what URI userinfo, `https://<token>@host/`, encodes to). Specified in the
-# workspaces-stack nginx.conf, which is not deployed -- the deployed osm-web
-# runs lighttpd and does no token mapping, so this layer owns it.
+# the TDEI token is also accepted over HTTP Basic: workspace id as the username,
+# token as the password. Specified in the workspaces-stack nginx.conf, which is
+# not deployed -- the deployed osm-web runs lighttpd and does no token mapping,
+# so this layer owns it.
+#
+# A TDEI token is ~1.4KB. JOSM will not carry that in its username field: it
+# stores the value truncated and echoes it back in its error dialogs. The
+# workspace id is four digits, and the password field has no such trouble -- and
+# a username that names the workspace means the editor can be pointed at the
+# bare `/api` URL, which is the other thing JOSM cannot be made to vary.
 
 
 def _request_with_auth(value: str | None, path: str = "/api/0.6/map"):
@@ -364,28 +370,95 @@ async def test_bearer_token_is_accepted():
     assert creds.credentials == "abc.def.ghi"
 
 
-async def test_basic_username_is_used_as_the_token():
-    creds = await sec.security(_request_with_auth(_basic("abc.def.ghi")))
+# Shape-valid but never decoded: these tests stop at the credential parsing.
+_A_JWT = "head.payload.sig"
+
+
+async def _creds_and_workspace(header: str, path: str = "/api/0.6/map"):
+    """Return the credentials and the workspace id stashed on the request."""
+    request = _request_with_auth(header, path=path)
+    creds = await sec.security(request)
+    return creds, getattr(request.state, "basic_workspace_id", None)
+
+
+async def test_basic_password_is_the_token_and_username_is_the_workspace():
+    creds, workspace_id = await _creds_and_workspace(_basic("2366", _A_JWT))
     assert creds is not None
-    assert creds.credentials == "abc.def.ghi"
+    assert creds.credentials == _A_JWT
     # Normalized so everything downstream sees a single shape.
     assert creds.scheme == "Bearer"
+    assert workspace_id == 2366
 
 
-async def test_basic_password_is_ignored():
-    # Mirrors nginx's `$remote_user`: the token is the username field only.
-    creds = await sec.security(_request_with_auth(_basic("the-token", "ignored")))
+@pytest.mark.parametrize(
+    "username",
+    [
+        "2366",
+        "workspace2366",
+        "workspace/2366",
+        "workspace-2366",
+        "workspace_2366",
+        "WORKSPACE/2366",
+    ],
+)
+async def test_workspace_id_username_spellings(username):
+    """A field labelled "username" invites a word, so accept the obvious ones."""
+    creds, workspace_id = await _creds_and_workspace(_basic(username, _A_JWT))
     assert creds is not None
-    assert creds.credentials == "the-token"
+    assert creds.credentials == _A_JWT
+    assert workspace_id == 2366
+
+
+async def test_bearer_leaves_no_basic_workspace_id_behind():
+    """Only Basic names a workspace this way; Bearer must not appear to."""
+    _, workspace_id = await _creds_and_workspace("Bearer abc.def.ghi")
+    assert workspace_id is None
+
+
+async def test_basic_with_a_token_in_the_username_says_where_it_moved():
+    """The retired placement. It was deployed, so the 401 has to be specific.
+
+    A caller who followed the old convention otherwise sees only that their
+    known-good token stopped working.
+    """
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("abc.def.ghi")))
+    assert excinfo.value.status_code == 401
+    assert "password" in excinfo.value.detail
+    assert "not the username" in excinfo.value.detail
+
+
+async def test_basic_with_a_token_in_the_username_is_refused_whatever_the_password():
+    """Not a fallback: the old form cannot be revived by filling in a password."""
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("abc.def.ghi", _A_JWT)))
+    assert excinfo.value.status_code == 401
+    assert "not the username" in excinfo.value.detail
+
+
+async def test_basic_with_a_username_that_is_not_a_workspace_id_is_rejected():
+    """The classic mistake: account name typed into the username box."""
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("alice", _A_JWT)))
+    assert excinfo.value.status_code == 401
+    # Quotes the username back, so the caller can see what was read.
+    assert "alice" in excinfo.value.detail
+    assert "workspace id" in excinfo.value.detail
 
 
 async def test_basic_with_empty_username_is_rejected():
     with pytest.raises(HTTPException) as excinfo:
-        await sec.security(_request_with_auth(_basic("", "the-token")))
+        await sec.security(_request_with_auth(_basic("", _A_JWT)))
     assert excinfo.value.status_code == 401
-    # Names the specific problem, and where the token belongs.
-    assert "password but no username" in excinfo.value.detail
-    assert "username" in excinfo.value.detail
+    assert "no username" in excinfo.value.detail
+
+
+async def test_basic_with_no_password_is_rejected():
+    """A workspace id alone is a claim, not a credential."""
+    with pytest.raises(HTTPException) as excinfo:
+        await sec.security(_request_with_auth(_basic("2366", "")))
+    assert excinfo.value.status_code == 401
+    assert "no password" in excinfo.value.detail
 
 
 async def test_basic_with_undecodable_payload_is_rejected():
@@ -395,23 +468,17 @@ async def test_basic_with_undecodable_payload_is_rejected():
     assert "base64" in excinfo.value.detail
 
 
-async def test_basic_with_swapped_fields_says_so():
-    """The likely mistake: token in the password box, account name as username."""
-    with pytest.raises(HTTPException) as excinfo:
-        await sec.security(_request_with_auth(_basic("alice", "head.payload.sig")))
-    assert excinfo.value.status_code == 401
-    assert "swapped" in excinfo.value.detail
+async def test_a_non_jwt_password_is_not_second_guessed():
+    """Only the username is validated here.
 
-
-async def test_non_jwt_username_is_not_second_guessed():
-    """Only a JWT-shaped password triggers the swap hint.
-
-    Otherwise the username is passed through and fails (or not) in the normal
-    token validation, so this heuristic never rejects on its own.
+    Whatever is in the password is passed through and fails (or not) in the
+    normal token validation, so this parsing never rejects on the token's
+    shape.
     """
-    creds = await sec.security(_request_with_auth(_basic("not-a-jwt", "hunter2")))
+    creds, workspace_id = await _creds_and_workspace(_basic("2366", "not-a-jwt"))
     assert creds is not None
     assert creds.credentials == "not-a-jwt"
+    assert workspace_id == 2366
 
 
 @pytest.mark.parametrize(
@@ -421,14 +488,18 @@ async def test_non_jwt_username_is_not_second_guessed():
         _basic("", ""),
         _basic("", "the-token"),
         _basic("alice", "head.payload.sig"),
+        _basic("abc.def.ghi"),
+        _basic("2366", ""),
     ],
 )
-async def test_every_basic_rejection_explains_the_username_convention(header):
+async def test_every_basic_rejection_explains_the_convention(header):
     with pytest.raises(HTTPException) as excinfo:
         await sec.security(_request_with_auth(header))
     detail = excinfo.value.detail
+    # Which field holds what is the whole of what a caller can get wrong.
+    assert "workspace id" in detail
     assert "username" in detail
-    assert "password is ignored" in detail
+    assert "password" in detail
 
 
 async def test_missing_authorization_header_is_rejected():
@@ -479,7 +550,7 @@ async def test_basic_auth_yields_a_fully_populated_user_info(monkeypatch):
     task = fakes.FakeSession(fakes.mappings({"tdeiProjectGroupId": pg_id, "id": 5}))
     osm = fakes.FakeSession(fakes.mappings({"workspace_id": 5, "role": "lead"}))
 
-    creds = await sec.security(_request_with_auth(_basic("the.jwt.here")))
+    creds = await sec.security(_request_with_auth(_basic("1", "the.jwt.here")))
     assert creds is not None
     info = await sec.validate_token(
         creds, cast(AsyncSession, osm), cast(AsyncSession, task)
@@ -515,7 +586,7 @@ async def test_basic_auth_yields_a_fully_populated_user_info(monkeypatch):
 )
 async def test_basic_is_rejected_on_native_api_paths(path):
     with pytest.raises(HTTPException) as excinfo:
-        await sec.security(_request_with_auth(_basic("a.valid.jwt"), path=path))
+        await sec.security(_request_with_auth(_basic("1", "a.valid.jwt"), path=path))
     assert excinfo.value.status_code == 401
     # Says why, rather than a bare "Not authenticated".
     assert "Basic" in excinfo.value.detail
@@ -533,7 +604,9 @@ async def test_basic_is_rejected_on_native_api_paths(path):
     ],
 )
 async def test_basic_is_accepted_on_proxied_osm_paths(path):
-    creds = await sec.security(_request_with_auth(_basic("a.valid.jwt"), path=path))
+    creds = await sec.security(
+        _request_with_auth(_basic("1", "a.valid.jwt"), path=path)
+    )
     assert creds is not None
     assert creds.credentials == "a.valid.jwt"
 
