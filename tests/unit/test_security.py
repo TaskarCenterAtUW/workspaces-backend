@@ -395,23 +395,98 @@ async def test_basic_with_undecodable_payload_is_rejected():
     assert "base64" in excinfo.value.detail
 
 
-async def test_basic_with_swapped_fields_says_so():
-    """The likely mistake: token in the password box, account name as username."""
+async def test_basic_with_a_jwt_password_and_a_meaningless_username_says_so():
+    """A JWT password is a supported placement -- but only alongside a workspace id.
+
+    The likely mistake it still catches: token in the password box, account
+    name typed into the username box.
+    """
     with pytest.raises(HTTPException) as excinfo:
         await sec.security(_request_with_auth(_basic("alice", "head.payload.sig")))
     assert excinfo.value.status_code == 401
-    assert "swapped" in excinfo.value.detail
+    # Quotes the username back, so the caller can see what was read.
+    assert "alice" in excinfo.value.detail
+    assert "workspace id" in excinfo.value.detail
 
 
 async def test_non_jwt_username_is_not_second_guessed():
-    """Only a JWT-shaped password triggers the swap hint.
+    """A username that names nothing is passed through as the token.
 
-    Otherwise the username is passed through and fails (or not) in the normal
-    token validation, so this heuristic never rejects on its own.
+    It then fails (or not) in the normal token validation, so this parsing
+    never rejects on its own.
     """
     creds = await sec.security(_request_with_auth(_basic("not-a-jwt", "hunter2")))
     assert creds is not None
     assert creds.credentials == "not-a-jwt"
+
+
+# --- Workspace id in the username, token in the password -------------------
+#
+# A TDEI token is ~1.4KB. JOSM will not carry that in its username field: it
+# stores the value truncated and echoes it back in its error dialogs. The
+# workspace id is four digits, and the password field has no such trouble, so
+# this spelling lets an editor be pointed at the bare `/api` URL with nothing
+# workspace-specific in it. See `catch_all` for how the id is then used.
+
+_A_JWT = "head.payload.sig"
+
+
+async def _creds_and_workspace(header: str, path: str = "/api/0.6/map"):
+    """Return the credentials and the workspace id stashed on the request."""
+    request = _request_with_auth(header, path=path)
+    creds = await sec.security(request)
+    return creds, getattr(request.state, "basic_workspace_id", None)
+
+
+async def test_workspace_id_username_yields_the_password_as_the_token():
+    creds, workspace_id = await _creds_and_workspace(_basic("2366", _A_JWT))
+    assert creds is not None
+    assert creds.credentials == _A_JWT
+    assert creds.scheme == "Bearer"
+    assert workspace_id == 2366
+
+
+@pytest.mark.parametrize(
+    "username",
+    [
+        "2366",
+        "workspace2366",
+        "workspace/2366",
+        "workspace-2366",
+        "workspace_2366",
+        "WORKSPACE/2366",
+    ],
+)
+async def test_workspace_id_username_spellings(username):
+    """A field labelled "username" invites a word, so accept the obvious ones."""
+    creds, workspace_id = await _creds_and_workspace(_basic(username, _A_JWT))
+    assert creds is not None
+    assert creds.credentials == _A_JWT
+    assert workspace_id == 2366
+
+
+async def test_a_jwt_username_wins_over_a_jwt_password():
+    """The original spelling keeps working whatever is in the password.
+
+    It is also the only one URI userinfo can produce, so it cannot be made to
+    depend on the password field.
+    """
+    creds, workspace_id = await _creds_and_workspace(_basic("abc.def.ghi", _A_JWT))
+    assert creds is not None
+    assert creds.credentials == "abc.def.ghi"
+    # Nothing named a workspace, so the proxy falls back to prefix/header.
+    assert workspace_id is None
+
+
+async def test_token_in_the_username_selects_no_workspace():
+    _, workspace_id = await _creds_and_workspace(_basic("abc.def.ghi"))
+    assert workspace_id is None
+
+
+async def test_bearer_leaves_no_basic_workspace_id_behind():
+    """Only Basic can name a workspace this way; Bearer must not appear to."""
+    _, workspace_id = await _creds_and_workspace("Bearer abc.def.ghi")
+    assert workspace_id is None
 
 
 @pytest.mark.parametrize(
@@ -427,8 +502,10 @@ async def test_every_basic_rejection_explains_the_username_convention(header):
     with pytest.raises(HTTPException) as excinfo:
         await sec.security(_request_with_auth(header))
     detail = excinfo.value.detail
+    # Both supported placements, since a caller who got one wrong may want the other.
     assert "username" in detail
-    assert "password is ignored" in detail
+    assert "password" in detail
+    assert "workspace id" in detail
 
 
 async def test_missing_authorization_header_is_rejected():

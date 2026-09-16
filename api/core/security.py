@@ -1,4 +1,5 @@
 import base64
+import re
 import secrets
 import time
 from enum import StrEnum
@@ -171,9 +172,11 @@ def evict_user_from_cache(auth_uid: UUID) -> None:
 OSM_BASIC_REALM = "TDEI Workspaces"
 
 _BASIC_USAGE_HINT = (
-    "Supply the TDEI token as the HTTP Basic *username*; the password is "
-    'ignored. For example: `curl -u "$TDEI_TOKEN:" ...`, or a URL of the form '
-    "https://$TDEI_TOKEN@<host>/..."
+    "Supply the TDEI token as the HTTP Basic *username*, leaving the password "
+    'empty -- `curl -u "$TDEI_TOKEN:" ...`, or a URL of the form '
+    "https://$TDEI_TOKEN@<host>/... -- or, if your client cannot hold a token "
+    "that long in its username field, put the workspace id in the username and "
+    'the token in the password: `curl -u "2366:$TDEI_TOKEN" ...`.'
 )
 
 
@@ -187,6 +190,13 @@ def _basic_auth_error(reason: str) -> HTTPException:
     )
 
 
+# Accepted spellings for a workspace id in the Basic username field. The bare
+# integer is what the id actually is; the `workspace` forms are there because a
+# field labelled "username" invites a word, and all four are unambiguous against
+# a JWT (which always contains dots).
+_BASIC_WORKSPACE_RE = re.compile(r"^(?:workspace[/_-]?)?(\d+)$", re.IGNORECASE)
+
+
 def _looks_like_jwt(value: str) -> bool:
     """Rough JWT shape test: three dot-separated parts, header/payload non-empty.
 
@@ -198,14 +208,26 @@ def _looks_like_jwt(value: str) -> bool:
     return len(parts) >= 3 and bool(parts[0]) and bool(parts[1])
 
 
-def _token_from_basic(param: str) -> str:
-    """Pull the TDEI token out of HTTP Basic credentials, or raise 401.
+def _token_from_basic(param: str) -> tuple[str, int | None]:
+    """Pull the TDEI token, and any workspace id, out of HTTP Basic credentials.
 
-    Mirrors nginx's `map $http_authorization { ~^Basic $remote_user; }`: the
-    token is the **username** field. That is also what URI userinfo
-    (`https://<token>@osm.example/...`) becomes once a client encodes it, which
-    is how third-party OSM editors are expected to pass it. The password field
-    is ignored.
+    Two placements are accepted, because OSM editors differ in what they can
+    carry:
+
+    * **Token in the username**, password empty. Mirrors nginx's
+      `map $http_authorization { ~^Basic $remote_user; }`, and is what URI
+      userinfo (`https://<token>@osm.example/...`) becomes once a client encodes
+      it. The workspace then comes from the `/workspace/{id}/` path prefix or
+      the `X-Workspace` header, as usual.
+    * **Workspace id in the username, token in the password.** A TDEI token is
+      ~1.4KB, and JOSM will not carry that in its username field -- it stores
+      the value truncated, and echoes it back in its error dialogs. The
+      workspace id is four digits and the password field has no such trouble,
+      so this spelling lets an editor be configured against the bare
+      `/api` URL with nothing workspace-specific in it.
+
+    Returns the token and, for the second form, the workspace id it names;
+    `None` when the credentials do not select a workspace.
 
     Raises `HTTPException` 401 with a reason specific enough to fix, rather
     than a bare "Not authenticated".
@@ -224,18 +246,25 @@ def _token_from_basic(param: str) -> str:
             )
         raise _basic_auth_error("The HTTP Basic credentials carry no username.")
 
-    # The common mistake: token typed into the password box, account name into
-    # the username box. Only fires when the password is clearly a JWT and the
-    # username clearly is not, so a non-JWT username still falls through to the
-    # normal token validation (and its normal error) rather than being second
-    # guessed here.
-    if not _looks_like_jwt(username) and _looks_like_jwt(password):
-        raise _basic_auth_error(
-            "The HTTP Basic username is not a TDEI token, but the password "
-            "looks like one -- the two appear to be swapped."
-        )
+    # Token in the username: the original spelling, and the only one that can
+    # be produced by URI userinfo. Checked first so it keeps working regardless
+    # of what is in the password.
+    if _looks_like_jwt(username):
+        return username, None
 
-    return username
+    # Token in the password. The username must then name the workspace --
+    # anything else is the classic mistake of typing the account name into the
+    # username box, and saying so is more use than a generic auth failure.
+    if _looks_like_jwt(password):
+        workspace_match = _BASIC_WORKSPACE_RE.match(username)
+        if workspace_match is None:
+            raise _basic_auth_error(
+                "The HTTP Basic password looks like a TDEI token, but the "
+                f"username ({username!r}) is neither a token nor a workspace id."
+            )
+        return password, int(workspace_match.group(1))
+
+    return username, None
 
 
 # Native FastAPI routes (workspaces, users, teams, tasking-*) are all mounted
@@ -248,10 +277,13 @@ BEARER_ONLY_PATH_PREFIXES = ("/api/v1/",)
 
 
 # @test: A `Bearer <token>` Authorization header is accepted and yields that token
-# @test: A `Basic <base64>` Authorization header yields the username field as the token, ignoring the password
+# @test: A `Basic <base64>` Authorization header yields the username field as the token when that username is a JWT, ignoring the password
 # @test: URI userinfo (`https://<token>@host/`) works, since clients encode it as Basic
 # @test: A Basic header whose payload is not valid base64, or which carries an empty username, is rejected with 401 naming the specific problem
-# @test: Basic credentials with a JWT in the password and a non-JWT username are rejected with a 401 saying the fields look swapped
+# @test: Basic credentials with a workspace id in the username and a JWT in the password yield that token and workspace id
+# @test: The workspace id in the Basic username is accepted bare and as workspace/2366, workspace-2366 and workspace_2366, case-insensitively
+# @test: Basic credentials with a JWT in the password and a username that is neither a JWT nor a workspace id are rejected with a 401 naming the username
+# @test: A JWT username wins over a JWT password, and selects no workspace
 # @test: Every Basic-auth rejection tells the caller the token belongs in the username field
 # @test: A missing Authorization header, or any other scheme (e.g. Digest), is rejected with 401
 # @test: Basic credentials on a BEARER_ONLY_PATH_PREFIXES path are rejected with 401 even when the token is valid
@@ -309,7 +341,11 @@ class TDEIHTTPBearer(HTTPBearer):
             )
 
         # Raises 401 with an actionable reason if the credentials are unusable.
-        token = _token_from_basic(param)
+        token, basic_workspace_id = _token_from_basic(param)
+        # The proxy resolves the workspace from several places and has no access
+        # to the credentials, so hand it over here rather than re-parsing the
+        # header there. Always set, so a stale value cannot survive a request.
+        request.state.basic_workspace_id = basic_workspace_id
         # Presented as Bearer so everything downstream sees one shape.
         return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
