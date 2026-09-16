@@ -65,35 +65,29 @@ class JobRepository:
         ignore_permissions: bool = False,
     ) -> Job:
         if ignore_permissions:
-            query = (
-                update(Job)
-                .where(Job.id == job_id)  # pyright: ignore[reportArgumentType]
-                .values(**job_data.model_dump(exclude_unset=True))
-            )
-            result = await self.session.execute(query)
-            if result.rowcount != 1:  # type: ignore[attr-defined]
-                raise NotFoundException(f"Update failed for job id {job_id}")
+            existing_job = await self.session.get(Job, job_id)
+            if not existing_job:
+                raise NotFoundException(f"Job with id {job_id} not found")
+            # Proceed with the update since the job exists
+            for key, value in job_data.model_dump(exclude_unset=True).items():
+                setattr(existing_job, key, value)  # Ignore if attribute does not exist
             await self.session.commit()
-            return await self._getJobById(job_id)
+            await self.session.refresh(existing_job)
+            return existing_job
         else:
             accessible_workspace_ids = self._accessible_workspace_ids(current_user)
-
-            query = (
-                update(Job)
-                .where(
-                    (Job.id == job_id)
-                    & (Job.workspace_id.in_(accessible_workspace_ids))  # type: ignore[attr-defined]
+            # Check if the job exists and is accessible
+            existing_job = await self.session.get(Job, job_id)
+            if not existing_job or existing_job.workspace_id not in accessible_workspace_ids:  # type: ignore[attr-defined]
+                raise NotFoundException(
+                    f"Job with id {job_id} not found or not accessible"
                 )
-                .values(**job_data.model_dump(exclude_unset=True))
-            )
-
-            result = await self.session.execute(query)
-
-            if result.rowcount != 1:  # type: ignore[attr-defined]
-                raise NotFoundException(f"Update failed for job id {job_id}")
-
+            # Proceed with the update since the job exists and is accessible
+            for key, value in job_data.model_dump(exclude_unset=True).items():
+                setattr(existing_job, key, value)  # Ignore if attribute does not exist
             await self.session.commit()
-            return await self._getJobById(job_id)
+            await self.session.refresh(existing_job)
+            return existing_job
 
     async def delete(self, current_user: UserInfo, job_id: int) -> None:
         accessible_workspace_ids = self._accessible_workspace_ids(current_user)

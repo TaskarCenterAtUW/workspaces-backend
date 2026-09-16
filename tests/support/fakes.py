@@ -95,12 +95,15 @@ class FakeSession:
     """Drop-in async stand-in for a SQLModel ``AsyncSession``.
 
     Queue results with :meth:`queue` (or pass them to the constructor); each
-    ``execute`` / ``exec`` call pops the next one. ``commit`` / ``add`` /
-    ``rollback`` / ``refresh`` are recorded so tests can assert on writes.
+    ``execute`` / ``exec`` call pops the next one. ``get()`` (session.get)
+    draws from a separate queue -- pass ``get_results=[...]`` or use
+    :meth:`queue_get`. ``commit`` / ``add`` / ``rollback`` / ``refresh`` are
+    recorded so tests can assert on writes.
     """
 
-    def __init__(self, *responses):
+    def __init__(self, *responses, get_results=None):
         self._responses = deque(responses)
+        self._get_results = deque(get_results) if get_results else deque()
         self.added = []
         self.commits = 0
         self.rollbacks = 0
@@ -110,6 +113,11 @@ class FakeSession:
     def queue(self, *responses):
         """Append results to the response queue. Returns self for chaining."""
         self._responses.extend(responses)
+        return self
+
+    def queue_get(self, *results):
+        """Append results consumed by ``get()`` (session.get(Model, pk))."""
+        self._get_results.extend(results)
         return self
 
     def _next(self):
@@ -138,6 +146,12 @@ class FakeSession:
 
     async def exec(self, statement, *args, **kwargs):
         return self._raise_if_exc(self._next())
+
+    async def get(self, entity, ident, *args, **kwargs):
+        """Mimics ``AsyncSession.get(Model, pk)`` -- pop the next queued object/None."""
+        if self._get_results:
+            return self._raise_if_exc(self._get_results.popleft())
+        return None
 
     async def scalar(self, statement, *args, **kwargs):
         result = self._raise_if_exc(self._next())
