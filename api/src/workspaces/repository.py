@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -89,14 +89,23 @@ class WorkspaceRepository:
                 "project group."
             )
 
-        query = select(Workspace).where(
-            (
-                Workspace.title == workspace_name_check.title
-            )  # pyright: ignore[reportArgumentType]
-            & (Workspace.tdeiProjectGroupId == workspace_name_check.tdeiProjectGroupId)
+        query = (
+            select(func.count())
+            .select_from(Workspace)
+            .where(
+                (
+                    Workspace.title == workspace_name_check.title
+                )  # pyright: ignore[reportArgumentType]
+                & (
+                    Workspace.tdeiProjectGroupId
+                    == workspace_name_check.tdeiProjectGroupId
+                )
+            )
         )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none() is None
+        result_count = await self.session.scalar(query)
+
+        # If at least one workspace exists with the same title, the name is not available.
+        return result_count == 0
 
     async def update(
         self,
