@@ -169,6 +169,8 @@ def get_workspace_repository(
 # @test: Any request with a missing X-Workspace header that matches no TENANTLESS_ENDPOINTS entry returns a 400 Bad Request error
 # @test: An empty or whitespace-only X-Workspace header is a malformed value and returns 400, not 403
 # @test: The Authorization header sent upstream is always `Bearer <token>`, including when the caller authenticated with HTTP Basic, and replaces any client-supplied copy
+# @test: A caller that accepts deflate has exactly one Accept-Encoding upstream, set to "deflate", and the response's Content-Encoding reaches the client unchanged
+# @test: A caller that cannot accept deflate has its own Accept-Encoding forwarded, unmodified and un-duplicated
 # @test: A `/workspace/{id}/...` path prefix selects the workspace without an X-Workspace header, is authorized the same way, and is stripped from the path proxied upstream
 # @test: A `/workspace/{id}/...` prefix whose id disagrees with an X-Workspace header returns a 400 Bad Request error
 # @test: A `/workspace/{id}/...` prefix on a workspace the user cannot access returns a 403 Forbidden error
@@ -203,6 +205,69 @@ HOP_BY_HOP_HEADERS = frozenset(
         "upgrade",
     ]
 )
+
+# Asked of the OSM gateway in place of the caller's own Accept-Encoding, where
+# the caller can accept it.
+#
+# This is a mitigation, not a fix, for AB#4307. The FastCGI connection between
+# the gateway (lighttpd) and osm-cgimap loses data in flight: cgimap logs the
+# request "Completed ... returning 25127467 bytes" while lighttpd, 6ms later,
+# logs "unexpected end-of-file (perhaps the fastcgi process died)". Neither
+# process fails, so the client receives HTTP 200, a cleanly terminated chunked
+# stream, and a truncated document. Consumers then report corrupt OSM XML from
+# somewhere well downstream.
+#
+# The loss scales with how many bytes are outstanding when the connection
+# closes. On a 25MB changeset download, measured against the gateway directly:
+#
+#     identity (25.1MB on the wire)   6/6 truncated
+#     br       (~1.2MB)               3/10 truncated
+#     deflate  (1.4MB)                0/18 truncated
+#
+# Asking for deflate makes the window small enough to miss. It does not close
+# it, and it does nothing for a caller that cannot accept deflate -- which is
+# why this is scoped rather than unconditional. Remove it once the gateway is
+# fixed; a comment in AB#4307 has the full diagnosis.
+_UPSTREAM_ACCEPT_ENCODING = b"deflate"
+
+
+# @test: A caller whose Accept-Encoding allows deflate has it replaced with exactly "deflate" upstream
+# @test: A caller that cannot accept deflate (identity, absent, or deflate;q=0) has its Accept-Encoding forwarded untouched
+def _accepts_deflate(accept_encoding: str | None) -> bool:
+    """Whether a caller's Accept-Encoding permits a deflate-coded response.
+
+    An absent header means "any coding is acceptable" under RFC 9110, but in
+    practice a caller that sends none is usually one that does not decode
+    content codings at all. Treated as a no, so this never hands anyone a body
+    it cannot read.
+    """
+    if not accept_encoding:
+        return False
+
+    for element in accept_encoding.split(","):
+        token, _, params = element.strip().partition(";")
+
+        if token.strip().lower() not in ("deflate", "*"):
+            continue
+
+        # "deflate;q=0" is the one way a caller can name a coding while refusing
+        # it, so a match is not enough on its own.
+        quality = 1.0
+
+        for param in params.split(";"):
+            name, _, value = param.partition("=")
+
+            if name.strip().lower() == "q":
+                try:
+                    quality = float(value.strip())
+                except ValueError:
+                    quality = 0.0
+
+        if quality > 0:
+            return True
+
+    return False
+
 
 # Do not forward spoofed reverse-proxy informational headers:
 STRIP_REQUEST_HEADERS = HOP_BY_HOP_HEADERS | {
@@ -505,15 +570,23 @@ async def catch_all(
 
     client = _require_osm_client()
     client_host = request.client.host if request.client else "unknown"
+    # See _UPSTREAM_ACCEPT_ENCODING: ask the gateway for deflate where the caller
+    # can read it, because the uncompressed response is the one that arrives
+    # truncated.
+    force_deflate = _accepts_deflate(request.headers.get("Accept-Encoding"))
+
+    # All re-emitted below from the values this route resolved, so any client
+    # copy is dropped: the proxied request must carry exactly one of each, and
+    # lighttpd/cgimap and osm-rails must see the same workspace and token this
+    # route authorized.
+    replaced_headers = ("x-workspace", "authorization") + (
+        ("accept-encoding",) if force_deflate else ()
+    )
+
     req_headers = [
         (k.encode(), v.encode())
         for k, v in request.headers.items()
-        # X-Workspace and Authorization are both re-emitted below from the
-        # values this route resolved, so drop any client copy: the proxied
-        # request must carry exactly one of each, and lighttpd/cgimap and
-        # osm-rails must see the same workspace and token this route authorized.
-        if k.lower() not in STRIP_REQUEST_HEADERS
-        and k.lower() not in ("x-workspace", "authorization")
+        if k.lower() not in STRIP_REQUEST_HEADERS and k.lower() not in replaced_headers
     ] + [
         (b"Host", client.base_url.host.encode()),
         (b"X-Real-IP", client_host.encode()),
@@ -532,6 +605,9 @@ async def catch_all(
     req_headers.append(
         (b"Authorization", f"Bearer {current_user.credentials}".encode())
     )
+
+    if force_deflate:
+        req_headers.append((b"Accept-Encoding", _UPSTREAM_ACCEPT_ENCODING))
 
     # For changeset creation, inject review_requested tag for contributors:
     request_content: object = request.stream()
