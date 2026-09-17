@@ -696,3 +696,78 @@ async def test_basic_token_in_the_username_is_refused_even_with_a_prefix(
     )
     assert response.status_code == 401
     assert mock_osm.last_request is None
+
+
+# --- Accept-Encoding forced to deflate upstream -----------------------------
+#
+# Mitigation for AB#4307: the gateway's FastCGI connection to cgimap loses data
+# in flight, and the loss scales with bytes outstanding at close, so a 25MB
+# uncompressed response truncated 6/6 times where the 1.4MB deflate one never
+# did. Scoped to callers who can read deflate -- nobody gets a coding they did
+# not ask for.
+
+
+@pytest.mark.parametrize(
+    "accept_encoding",
+    ["deflate", "gzip, deflate, br", "*", "br;q=1.0, deflate;q=0.5", "DEFLATE"],
+)
+async def test_accept_encoding_replaced_with_deflate(
+    client, login, mock_osm, accept_encoding
+):
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/api/0.6/map",
+        headers={"X-Workspace": "1", "Accept-Encoding": accept_encoding},
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    # Exactly one, so the caller's own value cannot ride along beside it.
+    assert mock_osm.last_request.headers.get_list("Accept-Encoding") == ["deflate"]
+
+
+@pytest.mark.parametrize(
+    "accept_encoding",
+    ["identity", "gzip", "deflate;q=0", "gzip, deflate;q=0"],
+)
+async def test_accept_encoding_left_alone_when_deflate_unacceptable(
+    client, login, mock_osm, accept_encoding
+):
+    """A caller that cannot read deflate keeps the bug rather than a broken body."""
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+    response = await client.get(
+        "/api/0.6/map",
+        headers={"X-Workspace": "1", "Accept-Encoding": accept_encoding},
+    )
+    assert response.status_code == 200
+    assert mock_osm.last_request is not None
+    assert mock_osm.last_request.headers.get_list("Accept-Encoding") == [
+        accept_encoding
+    ]
+
+
+# The absent-header case (RFC 9110 says it means "anything goes", but a caller
+# that sends none usually cannot decode a coding, so it is refused) is covered in
+# tests/unit/test_proxy_headers.py. It cannot be expressed here: httpx always
+# sends an Accept-Encoding of its own, so a request carrying none never reaches
+# the app through this client.
+
+
+async def test_upstream_content_encoding_reaches_the_client(client, login, monkeypatch):
+    """The response is proxied still-coded, so the header describing it has to
+    survive -- strip it and the client gets bytes it cannot decode."""
+    install_osm(
+        monkeypatch,
+        lambda req: (
+            200,
+            {"content-type": "text/xml", "content-encoding": "deflate"},
+            b"\x78\x9c",
+        ),
+    )
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+
+    response = await client.get(
+        "/api/0.6/map", headers={"X-Workspace": "1", "Accept-Encoding": "deflate"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("content-encoding") == "deflate"
