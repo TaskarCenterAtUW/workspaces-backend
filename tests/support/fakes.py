@@ -80,6 +80,9 @@ class FakeResult:
             raise NoResultFound("FakeResult.scalar_one() expected exactly one row")
         return self._rows[0]
 
+    def scalar(self):
+        return self.value
+
     def mappings(self):
         return _Mappings(self._mappings)
 
@@ -98,12 +101,15 @@ class FakeSession:
     ``execute`` / ``exec`` call pops the next one. ``get()`` (session.get)
     draws from a separate queue -- pass ``get_results=[...]`` or use
     :meth:`queue_get`. ``commit`` / ``add`` / ``rollback`` / ``refresh`` are
-    recorded so tests can assert on writes.
+    recorded so tests can assert on writes. Pass ``record_statements=True``
+    when a test also needs to inspect SQL issued through ``execute``.
     """
 
-    def __init__(self, *responses, get_results=None):
+    def __init__(self, *responses, get_results=None, record_statements=False):
         self._responses = deque(responses)
         self._get_results = deque(get_results) if get_results else deque()
+        self._record_statements = record_statements
+        self.statements: list[str] = []
         self.added = []
         self.commits = 0
         self.rollbacks = 0
@@ -140,6 +146,8 @@ class FakeSession:
         return item
 
     async def execute(self, statement, *args, **kwargs):
+        if self._record_statements:
+            self.statements.append(str(statement))
         if self._is_session_setup(statement):
             return FakeResult(rows=[])
         return self._raise_if_exc(self._next())
@@ -202,7 +210,7 @@ def mappings(*dict_rows):
 
 
 def scalar(value):
-    """A result for ``session.scalar(...)`` (e.g. an EXISTS check)."""
+    """A scalar result for ``execute(...)`` or ``session.scalar(...)``."""
     return FakeResult(value=value)
 
 
