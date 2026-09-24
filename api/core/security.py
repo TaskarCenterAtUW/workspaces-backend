@@ -661,9 +661,7 @@ async def _bridge_token_to_osm(
             session, auth_uid=str(user_uuid), email=email, display_name=user_name
         )
         if user_id is None:
-            logger.warning(
-                "OSM token bridge: no OSM user id; token not mirrored"
-            )
+            logger.warning("OSM token bridge: no OSM user id; token not mirrored")
             return
 
         expires_in = max(0, exp - int(time.time())) if exp else None
