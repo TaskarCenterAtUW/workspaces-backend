@@ -559,7 +559,17 @@ async def _ensure_osm_user(
             {"auth_uid": auth_uid},
         )
     ).first()
-    return row[0] if row else None
+    if row is None:
+        # The INSERT above conflicts on auth_uid alone, so a pre-existing row
+        # under a different auth_provider inserts nothing and matches nothing
+        # here -- silently, which is why this is worth a line.
+        logger.warning(
+            "No OSM users row for auth_uid %s with auth_provider 'TDEI'; "
+            "the token bridge cannot continue",
+            auth_uid,
+        )
+        return None
+    return row[0]
 
 
 async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
@@ -573,6 +583,11 @@ async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
         display_name=settings.WS_OSM_SYSTEM_USER_DISPLAY_NAME,
     )
     if owner_id is None:
+        logger.warning(
+            "Could not resolve the OSM system user (auth_uid %s), so the "
+            "doorkeeper application could not be resolved either",
+            settings.WS_OSM_SYSTEM_USER_AUTH_UID,
+        )
         return None
     await session.execute(
         text(
@@ -599,7 +614,13 @@ async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
             {"uid": settings.WS_OSM_OAUTH_CLIENT_UID},
         )
     ).first()
-    return row[0] if row else None
+    if row is None:
+        logger.warning(
+            "No oauth_applications row for uid %s even after upserting it",
+            settings.WS_OSM_OAUTH_CLIENT_UID,
+        )
+        return None
+    return row[0]
 
 
 async def _bridge_token_to_osm(
@@ -626,16 +647,21 @@ async def _bridge_token_to_osm(
     the proxied OSM calls would 401 until the row exists.
     """
     if not settings.WS_OSM_TOKEN_BRIDGE_ENABLED:
+        logger.info("OSM token bridge is disabled; token not mirrored")
         return
 
     try:
         app_id = await _ensure_osm_oauth_application(session)
         if app_id is None:
+            logger.warning(
+                "OSM token bridge: no doorkeeper application id; token not mirrored"
+            )
             return
         user_id = await _ensure_osm_user(
             session, auth_uid=str(user_uuid), email=email, display_name=user_name
         )
         if user_id is None:
+            logger.warning("OSM token bridge: no OSM user id; token not mirrored")
             return
 
         expires_in = max(0, exp - int(time.time())) if exp else None
@@ -664,6 +690,10 @@ async def _bridge_token_to_osm(
             },
         )
         await session.commit()
+        logger.info(
+            "Mirrored TDEI token into OSM oauth_access_tokens for OSM user id %s",
+            user_id,
+        )
     except Exception as e:
         # Never fail auth on a bridge error; the OSM row just won't exist yet.
         logger.warning(
