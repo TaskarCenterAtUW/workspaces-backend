@@ -6,9 +6,24 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from api.core.config import settings
 
-# Create async engine
-task_engine = create_async_engine(settings.TASK_DATABASE_URL, echo=False, future=True)
-osm_engine = create_async_engine(settings.OSM_DATABASE_URL, echo=False, future=True)
+# Create async engine.
+#
+# A pooled connection can die without the client noticing -- an Azure failover
+# or maintenance event, or a network path that drops an idle socket. The server
+# does not time these out itself (idle_in_transaction_session_timeout is 0), so
+# nothing surfaces a dead connection until a statement fails on it, by which
+# point it has already been handed to a request. pre_ping spends one cheap
+# round-trip per checkout to reconnect transparently instead, and recycling caps
+# how long any one connection is kept regardless.
+ENGINE_OPTIONS = {
+    "echo": False,
+    "future": True,
+    "pool_pre_ping": True,
+    "pool_recycle": 1800,
+}
+
+task_engine = create_async_engine(settings.TASK_DATABASE_URL, **ENGINE_OPTIONS)
+osm_engine = create_async_engine(settings.OSM_DATABASE_URL, **ENGINE_OPTIONS)
 
 # Create async session factory
 async_task_session = sessionmaker(
