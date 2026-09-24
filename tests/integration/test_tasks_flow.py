@@ -102,6 +102,34 @@ async def _create_open_project(
 
 
 # ---------------------------------------------------------------------------
+# Activation role requirement.
+# ---------------------------------------------------------------------------
+
+
+class TestActivationRoles:
+    async def test_creator_auto_lead_satisfies_activation_requirement(
+        self, client, as_lead, seeded_workspace_id
+    ):
+        """The creator's auto-LEAD allocation is sufficient for activation."""
+        r = await client.post(
+            API.format(wid=seeded_workspace_id),
+            json={"name": "lead-only-activation", "aoi": AOI_UNIT_SQUARE},
+        )
+        assert r.status_code == 201, r.text
+        pid = r.json()["id"]
+
+        r = await client.post(
+            f"{API.format(wid=seeded_workspace_id)}/{pid}/tasks/save",
+            json={"source": "import", "feature_collection": _fc(TASK_A)},
+        )
+        assert r.status_code == 201, r.text
+
+        r = await client.post(f"{API.format(wid=seeded_workspace_id)}/{pid}/activate")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "open"
+
+
+# ---------------------------------------------------------------------------
 # Workflow 0 — Server-side grid generation.
 # ---------------------------------------------------------------------------
 

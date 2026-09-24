@@ -782,14 +782,16 @@ class TaskingProjectRepository:
                 detail="Project must have at least one task",
             )
 
-        # Activation requires at least one explicit contributor or
-        # validator allocation (creator's auto-LEAD does not count).
+        # @test: A project Lead satisfies the activation role requirement.
+        # Activation requires at least one allocation with mapping or
+        # validation permissions; Lead has both.
         from sqlalchemy import text
 
         worker_q = await self.session.execute(
             text(
                 "SELECT 1 FROM tasking_project_roles "
-                "WHERE project_id = :pid AND role IN ('contributor', 'validator') "
+                "WHERE project_id = :pid "
+                "AND role IN ('lead', 'contributor', 'validator') "
                 "LIMIT 1"
             ),
             {"pid": project.id},
@@ -797,7 +799,10 @@ class TaskingProjectRepository:
         if worker_q.scalar() is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="At least one contributor or validator must be allocated to the project",
+                detail=(
+                    "At least one lead, contributor, or validator must be "
+                    "allocated to the project"
+                ),
             )
 
         await self.session.execute(
