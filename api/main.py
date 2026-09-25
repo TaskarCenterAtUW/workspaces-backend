@@ -14,7 +14,7 @@ from starlette.background import BackgroundTask
 
 from api.core import config
 from api.core.config import settings
-from api.core.database import get_task_session
+from api.core.database import get_osm_session, get_task_session
 from api.core.json_schema import close_json_schema_client, init_json_schema_client
 from api.core.logging import get_logger, setup_logging
 from api.core.security import (
@@ -23,6 +23,7 @@ from api.core.security import (
     init_tdei_client,
     validate_token,
 )
+from api.src.osm.repository import OSMRepository
 from api.src.osm.routes import router as osm_router
 from api.src.tasking.audit.routes import router as tasking_audit_router
 from api.src.tasking.projects.routes import me_router as tasking_me_router
@@ -217,11 +218,14 @@ STRIP_RESPONSE_HEADERS = HOP_BY_HOP_HEADERS | {
     "access-control-max-age",
 }
 
+# Creating (PUT) or dropping (DELETE) a workspace's OSM schema.
+_WORKSPACE_SCHEMA_RE = re.compile(r"^/api/0\.6/workspaces/(\d+)$")
+
 # Paths that do not require X-Workspace header, scoped by HTTP method. Each
 # entry is a tuple of: (compiled regex, set of allowed methods).
 TENANT_BYPASSES: list[tuple[re.Pattern[str], set[str]]] = [
     # Creating/deleting a workspace (no tenant context applies):
-    (re.compile(r"^/api/0\.6/workspaces/\d+$"), {"PUT", "DELETE"}),
+    (_WORKSPACE_SCHEMA_RE, {"PUT", "DELETE"}),
     # Provisioning users during authentication:
     (re.compile(r"^/api/0\.6/user/[^/]+$"), {"PUT"}),
 ]
@@ -317,6 +321,7 @@ async def catch_all(
     request: Request,
     current_user: UserInfo = Depends(validate_token),
     repository: WorkspaceRepository = Depends(get_workspace_repository),
+    osm_session: AsyncSession = Depends(get_osm_session),
 ):
     """
     Catch-all route to proxy requests to the OSM service.
@@ -477,6 +482,24 @@ async def catch_all(
         )
         sentry_sdk.capture_message(msg)
         logger.warning(msg)
+
+    # Rails creates the workspace schema by cloning `public`, which includes
+    # this service's tables. Drop those copies, as Rails does for `users`, so
+    # nothing can resolve to them in place of `public`. A failure is reported
+    # rather than failing the create: the schema exists either way, and the
+    # copies only matter to a search_path that puts the workspace first.
+    if (
+        request.method == "PUT"
+        and rp_resp.status_code < 300
+        and (create_match := _WORKSPACE_SCHEMA_RE.fullmatch(proxied_path))
+    ):
+        try:
+            await OSMRepository(osm_session).dropServiceTableCopies(
+                int(create_match.group(1))
+            )
+        except Exception as e:  # noqa: BLE001
+            sentry_sdk.capture_exception(e)
+            logger.error(f"Could not drop table copies from new workspace: {e}")
 
     forwarded_headers = {
         k: v
