@@ -17,6 +17,8 @@ def test_defaults_loaded_when_env_unset():
     assert s.CORS_ORIGINS == ""
     assert s.DEBUG is False
     assert s.SENTRY_DSN == ""
+    assert s.OTEL_SERVICE_NAME == "workspaces-backend"
+    assert s.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == ""
     assert s.WS_OSM_HOST == "http://osm-web"
     assert s.TDEI_OIDC_REALM == "tdei"
     assert s.TASK_DATABASE_URL.startswith("postgresql+asyncpg://")
@@ -28,6 +30,11 @@ def test_env_vars_override_members(monkeypatch):
     monkeypatch.setenv("DEBUG", "true")
     monkeypatch.setenv("WS_OSM_HOST", "http://osm.example")
     monkeypatch.setenv("SENTRY_DSN", "https://sentry.example/123")
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "custom-workspaces-api")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "https://telemetry.example/v1/logs",
+    )
 
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
@@ -35,6 +42,8 @@ def test_env_vars_override_members(monkeypatch):
     assert s.DEBUG is True
     assert s.WS_OSM_HOST == "http://osm.example"
     assert s.SENTRY_DSN == "https://sentry.example/123"
+    assert s.OTEL_SERVICE_NAME == "custom-workspaces-api"
+    assert s.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://telemetry.example/v1/logs"
 
 
 def test_cors_origins_parsed_from_json_env(monkeypatch):
