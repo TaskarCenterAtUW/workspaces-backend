@@ -181,6 +181,46 @@ either alembic tree — the trees only FK to it, and integration tests stub it
 via raw SQL with `auth_provider='TDEI'` and `auth_uid = str(<JWT sub>)` (the OSM
 `auth_uid` **is** the token's `sub` claim).
 
+### Workspace schemas are clones of `public`: only ever `SET LOCAL search_path`
+
+Each workspace's OSM data lives in its own schema, `"workspace-<id>"`. osm-rails
+creates it with Apartment, whose `use_sql = true` mode **`pg_dump`s `public` and
+loads the result into the new schema**. So every table in `public` has a
+same-named copy in each workspace schema, and so does every table this service
+adds to `public`. That includes Rails' shared tables (`oauth_access_tokens`,
+`user_roles`, …) and, unless they are dropped, this service's own (`jobs`,
+`tasking_*`, `user_workspace_roles`, …). Rails drops only its `users` copy
+(`WorkspacesController#create`); the others are empty and never meant to be read.
+
+That makes the `search_path` dangerous. Anything unqualified resolves to the
+first match, so with `workspace-<id>` ahead of `public` a read or write
+silently hits the copy.
+
+* **Use `SET LOCAL`, never plain `SET`.** A plain `SET search_path` outlives the
+  transaction and stays on the pooled connection, so an unrelated later request
+  inherits it. Go through `OSMRepository._use_workspace_schema`, which scopes
+  it to the transaction. This leaked in production until 2026-09-25 and caused
+  two failures:
+  * **Creates returned 500** with `Could not refresh instance '<Job …>'`: the
+    insert reached `public.jobs`, and the refresh read the copy.
+  * **OSM writes returned 401 while reads worked.** The token bridge's
+    unqualified insert landed in a workspace copy of `oauth_access_tokens`,
+    which Rails never reads, and the validation cache stopped it retrying
+    until the token rotated. 444 tokens for 37 users were stranded this way.
+* **Recognising it:** a row that was "written" but can't be found, or the
+  bridge logging `Mirrored TDEI token…` while Rails still 401s. Look for the
+  row in `workspace-*` schemas, not just `public`.
+* **This service's copies are dropped** after a successful
+  `PUT /api/0.6/workspaces/{id}` (`catch_all` →
+  `OSMRepository.dropServiceTableCopies`, following Rails' `users` drop), and
+  migration `b7d4e2a9c1f0` removed the ones made before that. **Add any new
+  `public` table or enum type to `SERVICE_TABLES` / `SERVICE_ENUMS`** in
+  `api/src/osm/repository.py`, or new workspaces will carry copies of it.
+* **Gap:** workspaces created from TDEI or from a file get their schema from
+  `workspaces-importer`, which calls osm-rails through the gateway
+  (`osm.internal…`), not this proxy, so the drop does not run for them yet
+  (AB#4368).
+
 ### How OSM authenticates, and the TDEI token bridge
 
 * **osm-rails** authenticates API calls *only* via **doorkeeper OAuth2**: it
