@@ -10,18 +10,28 @@ class OSMRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def getWorkspaceBBox(
-        self,
-        workspace_id: int,
-    ):
+    async def _use_workspace_schema(self, workspace_id: int) -> None:
+        # SET LOCAL, not SET: a plain SET outlives the transaction and stays on
+        # the pooled connection, so whichever request gets that connection next
+        # resolves unqualified names against this workspace's schema. Workspace
+        # schemas cloned from `public` carry empty copies of this service's own
+        # tables (jobs, tasking_projects, ...), so a leaked path makes an insert
+        # into public.jobs unreadable to the refresh that follows it, and every
+        # workspace and tasking-project create fails with a 500.
+        #
         # Postgres does not support parameter binding for `SET search_path`, so
         # workspace_id is interpolated directly. The explicit int() cast guards
         # against SQL injection if this method is ever called from outside of a
         # FastAPI path handler (where the type annotation acts as a safeguard).
-        #
         await self.session.execute(
-            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
+            text(f"SET LOCAL search_path TO 'workspace-{int(workspace_id)}', public")
         )
+
+    async def getWorkspaceBBox(
+        self,
+        workspace_id: int,
+    ):
+        await self._use_workspace_schema(workspace_id)
 
         # OSM stores node latitude/longitude as integers scaled by 1e7
         # (100-nanodegree units), so divide by 1e7 to return decimal degrees.
@@ -39,9 +49,7 @@ class OSMRepository:
         return retVal
 
     async def getChangesetAdiff(self, workspace_id: int, changeset_id: int) -> list:
-        await self.session.execute(
-            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
-        )
+        await self._use_workspace_schema(workspace_id)
         result = await self.session.execute(
             text("SELECT * FROM osm_augmented_diff(:changeset_id)"),
             {"changeset_id": changeset_id},
@@ -67,9 +75,7 @@ class OSMRepository:
 
         reviewer_uuid = str(current_user.user_uuid)
 
-        await self.session.execute(
-            text(f"SET search_path TO 'workspace-{int(workspace_id)}', public")
-        )
+        await self._use_workspace_schema(workspace_id)
 
         await self.session.execute(
             text(
