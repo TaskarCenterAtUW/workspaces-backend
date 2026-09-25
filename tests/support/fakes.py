@@ -105,6 +105,7 @@ class FakeSession:
         self.commits = 0
         self.rollbacks = 0
         self.closed = False
+        self.setup_statements = []
         self._id_seq = count(1)
 
     def queue(self, *responses):
@@ -133,6 +134,7 @@ class FakeSession:
 
     async def execute(self, statement, *args, **kwargs):
         if self._is_session_setup(statement):
+            self.setup_statements.append(str(statement).strip())
             return FakeResult(rows=[])
         return self._raise_if_exc(self._next())
 
