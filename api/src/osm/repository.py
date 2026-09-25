@@ -4,6 +4,35 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from api.core.exceptions import ForbiddenException, NotFoundException
 from api.core.security import UserInfo
 
+# This service's own tables and enum types in the OSM database's `public`
+# schema. Rails creates each workspace schema by cloning `public` (Apartment's
+# use_sql pg_dump), so a new workspace schema starts with copies of these too.
+# Keep in step with the b7d4e2a9c1f0 migration, which removed the copies made
+# before they were dropped at creation.
+SERVICE_TABLES = [
+    "alembic_version",
+    "jobs",
+    "teams",
+    "team_user",
+    "user_workspace_roles",
+    "tasking_projects",
+    "tasking_tasks",
+    "tasking_project_roles",
+    "tasking_locks",
+    "tasking_changesets",
+    "tasking_feedback",
+    "tasking_audit_events",
+    "tasking_task_save_idempotency",
+]
+SERVICE_ENUMS = [
+    "workspace_role",
+    "tasking_project_status",
+    "tasking_task_boundary_type",
+    "tasking_task_status",
+    "tasking_lock_release_reason",
+    "tasking_feedback_reason",
+]
+
 
 class OSMRepository:
 
@@ -87,5 +116,23 @@ class OSMRepository:
             ),
             {"cs_id": changeset_id, "uid": reviewer_uuid},
         )
+
+        await self.session.commit()
+
+    async def dropServiceTableCopies(self, workspace_id: int) -> None:
+        """Drop the copies of this service's tables from a new workspace schema.
+
+        The same move Rails makes for `users` right after creating the schema:
+        a copy shadows the `public` table for anything whose search_path puts
+        the workspace schema first, and nothing is meant to read it.
+        """
+        schema = f'"workspace-{int(workspace_id)}"'
+
+        for table in SERVICE_TABLES:
+            await self.session.execute(
+                text(f"DROP TABLE IF EXISTS {schema}.{table} CASCADE")
+            )
+        for enum in SERVICE_ENUMS:
+            await self.session.execute(text(f"DROP TYPE IF EXISTS {schema}.{enum}"))
 
         await self.session.commit()
