@@ -771,3 +771,74 @@ async def test_upstream_content_encoding_reaches_the_client(client, login, monke
 
     assert response.status_code == 200
     assert response.headers.get("content-encoding") == "deflate"
+
+
+# --- copies of this service's tables in a new workspace schema --------------
+
+
+@pytest.fixture
+def drop_calls(monkeypatch):
+    """Records OSMRepository.dropServiceTableCopies calls instead of running them."""
+    calls: list[int] = []
+
+    async def record(self, workspace_id):
+        calls.append(workspace_id)
+
+    monkeypatch.setattr(
+        api.main.OSMRepository, "dropServiceTableCopies", record, raising=True
+    )
+    return calls
+
+
+def _lead_of_123():
+    return factories.make_user_info(
+        osm_workspace_roles={123: [WorkspaceUserRoleType.LEAD]}
+    )
+
+
+async def test_creating_a_workspace_schema_drops_the_table_copies(
+    client, login, mock_osm, drop_calls
+):
+    login(_lead_of_123())
+
+    response = await client.put("/api/0.6/workspaces/123")
+
+    assert response.status_code == 200
+    assert drop_calls == [123]
+
+
+async def test_failed_schema_create_drops_nothing(
+    client, login, monkeypatch, drop_calls
+):
+    login(_lead_of_123())
+    install_osm(monkeypatch, lambda req: (500, {}, b"boom"))
+
+    response = await client.put("/api/0.6/workspaces/123")
+
+    assert response.status_code == 500
+    assert drop_calls == []
+
+
+async def test_deleting_a_workspace_schema_drops_nothing(
+    client, login, mock_osm, drop_calls
+):
+    login(_lead_of_123())
+
+    response = await client.delete("/api/0.6/workspaces/123")
+
+    assert response.status_code == 200
+    assert drop_calls == []
+
+
+async def test_a_failed_drop_does_not_fail_the_create(
+    client, login, mock_osm, monkeypatch
+):
+    async def fail(self, workspace_id):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(api.main.OSMRepository, "dropServiceTableCopies", fail)
+    login(_lead_of_123())
+
+    response = await client.put("/api/0.6/workspaces/123")
+
+    assert response.status_code == 200
