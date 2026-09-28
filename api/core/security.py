@@ -76,10 +76,14 @@ def _log_rejected_token(token: str, reason: str) -> None:
     """Log why a bearer token got a 401, rate-limited per token."""
     key = hashlib.sha256(token.encode()).hexdigest()
     now = time.monotonic()
-    last, suppressed = _rejection_log.get(key, (0.0, 0))
+    # A token never logged before is logged now, whatever the clock reads:
+    # monotonic() counts from boot, so defaulting "last logged" to 0 silenced
+    # every refusal in a process's first minute on a freshly started host.
+    entry = _rejection_log.get(key)
+    suppressed = entry[1] if entry else 0
 
-    if now - last < _REJECTION_LOG_WINDOW_S:
-        _rejection_log[key] = (last, suppressed + 1)
+    if entry and now - entry[0] < _REJECTION_LOG_WINDOW_S:
+        _rejection_log[key] = (entry[0], suppressed + 1)
         return
 
     if len(_rejection_log) > 1000:  # a bound, not a cache: forget old tokens
