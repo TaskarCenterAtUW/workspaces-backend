@@ -313,6 +313,16 @@ async def test_a_token_refused_repeatedly_is_logged_once_a_minute(monkeypatch, c
     assert len(lines) == 2 and "refused 49 more times" in lines[1]
 
 
+async def test_the_first_refusal_is_logged_on_a_freshly_started_host(
+    monkeypatch, caplog
+):
+    # monotonic() counts from boot, so it reads under a minute on a new host.
+    monkeypatch.setattr(sec.time, "monotonic", lambda: 5.0)
+    monkeypatch.setattr(sec, "validate_and_decode_token", lambda _t: {"jti": "j"})
+    await _refuse("tok")
+    assert len(_rejections(caplog)) == 1
+
+
 async def test_missing_sub_is_logged(monkeypatch, caplog):
     monkeypatch.setattr(sec, "validate_and_decode_token", lambda _t: {"jti": "j"})
     await _refuse("tok")
