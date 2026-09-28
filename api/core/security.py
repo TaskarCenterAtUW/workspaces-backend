@@ -1,12 +1,15 @@
 import base64
+import hashlib
 import re
 import secrets
 import time
+from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import UUID
 
 import cachetools
 import httpx
+import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
@@ -26,9 +29,70 @@ from api.src.users.schemas import WorkspaceUserRoleType
 # @test: Test that the caching mechanism works correctly and evicts entries when roles change
 # @test: Test that when WS_OSM_TOKEN_BRIDGE_ENABLED, a validated token is mirrored into oauth_access_tokens with the doorkeeper application + system-owner user + caller user auto-provisioned and expires_in from the JWT exp; and is a no-op when disabled
 # @test: Test that re-presenting a token reactivates its OSM row (revoked_at cleared, expiry refreshed) and that a rotated (superseded) token is revoked, both gated on WS_OSM_TOKEN_BRIDGE_ENABLED
+# @test: Test that every 401 from validate_token logs why the token was refused and its exp/jti, never the token itself, and at most once a minute per token
 
 # Set up logger for this module
 logger = get_logger(__name__)
+
+# Tokens are refused silently otherwise, and a client that retries on 401 can
+# send the same bad token dozens of times a second (179,102 times in 44 minutes
+# for one browser tab on 2026-09-26), so each distinct token is logged at most
+# once per window, with a count of the repeats it stood for.
+_REJECTION_LOG_WINDOW_S = 60
+_rejection_log: dict[str, tuple[float, int]] = {}
+
+# Values a client sends when it has lost its token rather than holding a bad
+# one. Not secrets, and the most useful thing the log can show.
+_NON_TOKEN_VALUES = {"", "null", "undefined", "none", "false", "[object object]"}
+
+
+def _describe_token(token: str) -> str:
+    """Summarise a token for a log line without revealing it."""
+    if token.strip().lower() in _NON_TOKEN_VALUES:
+        return f"value {token!r}"
+    if token.count(".") != 2:
+        return f"not a JWT ({len(token)} chars)"
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+    except Exception:
+        return f"undecodable JWT ({len(token)} chars)"
+
+    def when(key: str) -> str:
+        value = claims.get(key)
+        if not isinstance(value, (int, float)):
+            return "-"
+        return datetime.fromtimestamp(value, timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+    return (
+        f"exp={when('exp')} iat={when('iat')} iss={claims.get('iss', '-')} "
+        f"azp={claims.get('azp', '-')} typ={claims.get('typ', '-')} "
+        f"sub={claims.get('sub', '-')} jti={claims.get('jti', '-')}"
+    )
+
+
+def _log_rejected_token(token: str, reason: str) -> None:
+    """Log why a bearer token got a 401, rate-limited per token."""
+    key = hashlib.sha256(token.encode()).hexdigest()
+    now = time.monotonic()
+    last, suppressed = _rejection_log.get(key, (0.0, 0))
+
+    if now - last < _REJECTION_LOG_WINDOW_S:
+        _rejection_log[key] = (last, suppressed + 1)
+        return
+
+    if len(_rejection_log) > 1000:  # a bound, not a cache: forget old tokens
+        _rejection_log.clear()
+    _rejection_log[key] = (now, 0)
+
+    repeats = (
+        f" (refused {suppressed} more times since last logged)" if suppressed else ""
+    )
+    logger.warning(
+        f"Rejected bearer token: {reason}; {_describe_token(token)}{repeats}"
+    )
+
 
 # TTL cache keyed by a user's OIDC subject. Evict entries when roles change. We
 # still validate the JWT signature and expiry on every request before reading a
@@ -477,16 +541,19 @@ async def validate_token(
 
     try:
         payload = validate_and_decode_token(token)
-    except Exception:
+    except Exception as e:
+        _log_rejected_token(token, f"{type(e).__name__}: {e}")
         raise credentials_exception
 
     user_id_str: str | None = payload.get("sub")
     if user_id_str is None:
+        _log_rejected_token(token, "no sub claim")
         raise credentials_exception
 
     try:
         user_uuid = UUID(user_id_str)
     except ValueError:
+        _log_rejected_token(token, "sub claim is not a UUID")
         raise credentials_exception from None
 
     # Cache keyed by user UUID. If the token rotated (new "jti") since we
@@ -781,6 +848,9 @@ async def _validate_token_uncached(
 
     # token is not valid or server unavailable
     if response.status_code != 200:
+        _log_rejected_token(
+            token, f"TDEI answered {response.status_code} for its project groups"
+        )
         raise credentials_exception
 
     try:
