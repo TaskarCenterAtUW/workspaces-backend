@@ -13,6 +13,7 @@ from typing import cast
 from uuid import UUID
 
 import httpx
+import jwt as pyjwt
 import pytest
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
@@ -227,6 +228,107 @@ async def test_tdei_bad_json_returns_401(monkeypatch):
             osm=fakes.FakeSession(),
         )
     assert exc.value.status_code == 401
+
+
+# --- validate_token: every 401 says why, without the token ------------------
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rejection_log():
+    sec._rejection_log.clear()
+    yield
+    sec._rejection_log.clear()
+
+
+def _jwt(**claims):
+    return pyjwt.encode(
+        claims, "test-secret-long-enough-for-hs256-keys", algorithm="HS256"
+    )
+
+
+async def _refuse(token):
+    with pytest.raises(HTTPException) as exc:
+        await sec.validate_token(
+            _creds(token),
+            cast(AsyncSession, fakes.FakeSession()),
+            cast(AsyncSession, fakes.FakeSession()),
+        )
+    assert exc.value.status_code == 401
+
+
+def _rejections(caplog):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if "Rejected bearer token" in r.getMessage()
+    ]
+
+
+async def test_a_refused_token_is_logged_with_its_reason_and_claims(
+    monkeypatch, caplog
+):
+    token = _jwt(
+        sub=USER_ID, jti="jti-123", exp=1790406000, iat=1790319600, iss="https://tdei"
+    )
+
+    def expired(_t):
+        raise pyjwt.ExpiredSignatureError("Signature has expired")
+
+    monkeypatch.setattr(sec, "validate_and_decode_token", expired)
+    await _refuse(token)
+
+    (line,) = _rejections(caplog)
+    assert "ExpiredSignatureError: Signature has expired" in line
+    assert "jti=jti-123" in line and "exp=2026-09-26T07:00:00Z" in line
+    assert token not in line
+
+
+async def test_a_lost_token_is_logged_as_the_value_the_client_sent(monkeypatch, caplog):
+    def undecodable(_t):
+        raise pyjwt.DecodeError("Not enough segments")
+
+    monkeypatch.setattr(sec, "validate_and_decode_token", undecodable)
+    await _refuse("null")
+
+    (line,) = _rejections(caplog)
+    assert "value 'null'" in line
+
+
+async def test_a_token_refused_repeatedly_is_logged_once_a_minute(monkeypatch, caplog):
+    def bad(_t):
+        raise pyjwt.InvalidSignatureError("Signature verification failed")
+
+    monkeypatch.setattr(sec, "validate_and_decode_token", bad)
+    clock = [1000.0]
+    monkeypatch.setattr(sec.time, "monotonic", lambda: clock[0])
+    token = _jwt(sub=USER_ID, jti="j")
+
+    for _ in range(50):
+        await _refuse(token)
+    assert len(_rejections(caplog)) == 1
+
+    clock[0] += sec._REJECTION_LOG_WINDOW_S
+    await _refuse(token)
+    lines = _rejections(caplog)
+    assert len(lines) == 2 and "refused 49 more times" in lines[1]
+
+
+async def test_missing_sub_is_logged(monkeypatch, caplog):
+    monkeypatch.setattr(sec, "validate_and_decode_token", lambda _t: {"jti": "j"})
+    await _refuse("tok")
+    assert "no sub claim" in _rejections(caplog)[0]
+
+
+async def test_tdei_refusal_is_logged(monkeypatch, caplog):
+    with pytest.raises(HTTPException):
+        await _run_validate(
+            monkeypatch,
+            payload={"sub": USER_ID, "jti": "j"},
+            tdei=_FakeTdeiClient(_FakeResp(403, None)),
+            task=fakes.FakeSession(),
+            osm=fakes.FakeSession(),
+        )
+    assert "TDEI answered 403" in _rejections(caplog)[0]
 
 
 async def test_uninitialized_tdei_client_returns_503(monkeypatch):
