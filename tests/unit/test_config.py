@@ -19,6 +19,7 @@ def test_defaults_loaded_when_env_unset():
     assert s.SENTRY_DSN == ""
     assert s.WS_OSM_HOST == "http://osm-web"
     assert s.TDEI_OIDC_REALM == "tdei"
+    assert s.WS_USER_INFO_CACHE_TTL_SECONDS == 1
     assert s.TASK_DATABASE_URL.startswith("postgresql+asyncpg://")
     assert s.OSM_DATABASE_URL.startswith("postgresql+asyncpg://")
 
@@ -28,6 +29,7 @@ def test_env_vars_override_members(monkeypatch):
     monkeypatch.setenv("DEBUG", "true")
     monkeypatch.setenv("WS_OSM_HOST", "http://osm.example")
     monkeypatch.setenv("SENTRY_DSN", "https://sentry.example/123")
+    monkeypatch.setenv("WS_USER_INFO_CACHE_TTL_SECONDS", "30")
 
     s = Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
@@ -35,6 +37,7 @@ def test_env_vars_override_members(monkeypatch):
     assert s.DEBUG is True
     assert s.WS_OSM_HOST == "http://osm.example"
     assert s.SENTRY_DSN == "https://sentry.example/123"
+    assert s.WS_USER_INFO_CACHE_TTL_SECONDS == 30
 
 
 def test_cors_origins_parsed_from_json_env(monkeypatch):

@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     TDEI_OIDC_URL: str = "https://account-dev.tdei.us/"
     TDEI_OIDC_REALM: str = "tdei"
 
+    # How long fetched TDEI project-group and workspace permissions remain
+    # cached. Keep this short because project-group assignments happen outside
+    # this service and therefore cannot explicitly evict the affected user.
+    WS_USER_INFO_CACHE_TTL_SECONDS: int = 1
+
     DEBUG: bool = False
 
     # used for validation

@@ -8,6 +8,7 @@ Covers the @test comments on the module / UserInfo / validate_token:
 - the user-info cache works and evicts on token rotation / explicit eviction
 """
 
+import asyncio
 from base64 import b64encode
 from typing import cast
 from uuid import UUID
@@ -432,6 +433,53 @@ async def test_cache_evicts_on_token_rotation(monkeypatch):
         osm=fakes.FakeSession(fakes.mappings()),
     )
     assert sec.TdeiProjectGroupRole.POINT_OF_CONTACT in info.projectGroups[0].tdeiRoles
+
+
+async def test_expired_cache_reloads_same_token_project_group_access(monkeypatch):
+    pg_id = "pg-1"
+    monkeypatch.setattr(
+        sec,
+        "_user_info_cache",
+        sec.cachetools.TTLCache(maxsize=1000, ttl=0.001),
+    )
+
+    await _run_validate(
+        monkeypatch,
+        payload={"sub": USER_ID, "jti": "same-token"},
+        tdei=_FakeTdeiClient(_FakeResp(200, [])),
+        task=fakes.FakeSession(fakes.mappings()),
+        osm=fakes.FakeSession(fakes.mappings()),
+    )
+    await asyncio.sleep(0.01)
+
+    monkeypatch.setattr(
+        sec,
+        "_tdei_client",
+        _FakeTdeiClient(
+            _FakeResp(
+                200,
+                [
+                    {
+                        "tdei_project_group_id": pg_id,
+                        "project_group_name": "New PG",
+                        "roles": ["poc"],
+                    }
+                ],
+            )
+        ),
+    )
+    task = fakes.FakeSession(fakes.mappings({"tdeiProjectGroupId": pg_id, "id": 5}))
+    refreshed = await _run_validate(
+        monkeypatch,
+        payload={"sub": USER_ID, "jti": "same-token"},
+        tdei=sec._tdei_client,
+        task=task,
+        osm=fakes.FakeSession(fakes.mappings()),
+    )
+
+    assert refreshed.getProjectGroupIds() == [pg_id]
+    assert refreshed.accessibleWorkspaceIds == {pg_id: [5]}
+    assert refreshed.isWorkspaceLead(5) is True
 
 
 def test_evict_user_from_cache_removes_entry():
