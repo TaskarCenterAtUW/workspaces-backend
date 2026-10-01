@@ -7,10 +7,13 @@ tasking_projects lives there (see CLAUDE.md).
 """
 
 from typing import cast
+from uuid import uuid4
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from api.core.security import UserInfo
 from api.src.tasking.projects.repository import TaskingProjectRepository
+from api.src.tasking.projects.schemas import TaskingProject
 from tests.support import fakes
 
 
@@ -42,3 +45,37 @@ async def test_get_projects_counts_omits_ids_with_no_projects():
 
     assert result == {1: 2}
     assert result.get(2, 0) == 0
+
+
+async def test_activate_accepts_project_lead_role():
+    project = TaskingProject(
+        id=7,
+        workspace_id=3,
+        name="Lead-owned project",
+        aoi=object(),
+        created_by=uuid4(),
+    )
+    session = fakes.FakeSession(
+        fakes.rows(project),
+        fakes.scalar(1),
+        fakes.scalar(1),
+        fakes.affected(1),
+        fakes.affected(1),
+        record_statements=True,
+    )
+    user = UserInfo()
+    user.user_uuid = project.created_by
+
+    await _repo(session).activate(3, 7, user)
+
+    role_query = next(
+        statement
+        for statement in session.statements
+        if "FROM tasking_project_roles" in statement
+    )
+    assert "'lead'" in role_query
+    assert any(
+        statement.startswith("UPDATE tasking_projects")
+        for statement in session.statements
+    )
+    assert session.commits == 1
