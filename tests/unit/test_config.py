@@ -19,7 +19,7 @@ def test_defaults_loaded_when_env_unset():
     assert s.SENTRY_DSN == ""
     assert s.WS_OSM_HOST == "http://osm-web"
     assert s.TDEI_OIDC_REALM == "tdei"
-    assert s.WS_USER_INFO_CACHE_TTL_SECONDS == 1
+    assert s.WS_USER_INFO_CACHE_TTL_SECONDS == 15
     assert s.TASK_DATABASE_URL.startswith("postgresql+asyncpg://")
     assert s.OSM_DATABASE_URL.startswith("postgresql+asyncpg://")
 

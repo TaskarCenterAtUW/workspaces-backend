@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     TDEI_OIDC_REALM: str = "tdei"
 
     # How long fetched TDEI project-group and workspace permissions remain
-    # cached. Keep this short because project-group assignments happen outside
-    # this service and therefore cannot explicitly evict the affected user.
-    WS_USER_INFO_CACHE_TTL_SECONDS: int = 1
+    # cached. Project-group assignments happen outside this service and cannot
+    # explicitly evict the affected user, so those changes may take up to this
+    # many seconds to become visible.
+    WS_USER_INFO_CACHE_TTL_SECONDS: int = 15
 
     DEBUG: bool = False
 
