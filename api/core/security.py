@@ -27,6 +27,7 @@ from api.src.users.schemas import WorkspaceUserRoleType
 # @test: Test that the methods on the UserInfo class return the correct values for a given set of project groups and workspace roles
 # @test: Test that any failed network requests are handled gracefully
 # @test: Test that the caching mechanism works correctly and evicts entries when roles change
+# @test: Test that the configurable user-info cache TTL expires stale TDEI project-group roles and workspace access
 # @test: Test that when WS_OSM_TOKEN_BRIDGE_ENABLED, a validated token is mirrored into oauth_access_tokens with the doorkeeper application + system-owner user + caller user auto-provisioned and expires_in from the JWT exp; and is a no-op when disabled
 # @test: Test that re-presenting a token reactivates its OSM row (revoked_at cleared, expiry refreshed) and that a rotated (superseded) token is revoked, both gated on WS_OSM_TOKEN_BRIDGE_ENABLED
 # @test: Test that every 401 from validate_token logs why the token was refused and its exp/jti, never the token itself, and at most once a minute per token
@@ -102,7 +103,7 @@ def _log_rejected_token(token: str, reason: str) -> None:
 # still validate the JWT signature and expiry on every request before reading a
 # cached record.
 _user_info_cache: cachetools.TTLCache[UUID, "UserInfo"] = cachetools.TTLCache(
-    maxsize=1000, ttl=60 * 60
+    maxsize=1000, ttl=settings.WS_USER_INFO_CACHE_TTL_SECONDS
 )  # type: ignore[assignment]  # cachetools ctor can't infer key/value types
 
 # Shared HTTP client for TDEI backend calls. Initialized by main.py lifespan.
@@ -532,8 +533,8 @@ async def validate_token(
     access token and fetches permissions from TDEI APIs.
 
     We validate the JWT's signature and expiry on every request. The expensive
-    TDEI API and DB lookups are cached for 1 hour and should be evicted when a
-    user's role changes via evict_user_from_cache().
+    TDEI API and DB lookups are cached for the configured TTL and should be
+    evicted when a user's role changes via evict_user_from_cache().
     """
     token = credentials.credentials
 
