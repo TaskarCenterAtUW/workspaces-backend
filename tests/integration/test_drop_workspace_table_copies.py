@@ -119,6 +119,9 @@ async def test_merges_copied_rows_under_new_ids_and_drops_copies(_migrated_db):
                 )
             )
 
+        # The seed is committed above: the migration works each schema on its
+        # own connection, which cannot see another connection's uncommitted rows.
+        async with engine.connect() as conn:
             await conn.run_sync(migration.merge_and_drop_copies)
 
         async with engine.connect() as conn:
@@ -252,4 +255,111 @@ async def test_drop_at_creation_removes_only_this_services_copies(_migrated_db):
     finally:
         async with engine.begin() as conn:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()
+
+
+# Enough schemas, each with a copy of every owned table, that dropping them all
+# in one transaction overflows a default Postgres lock table (64 locks per
+# transaction per connection): the 2026-10-02 prod failure, "out of shared
+# memory". One transaction per schema stays far below it.
+MANY_SCHEMAS = 200
+FIRST_MANY = 910000
+
+
+async def _create_copied_schema(conn, schema):
+    await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    await conn.execute(
+        text(
+            f'CREATE TYPE "{schema}".workspace_role'
+            " AS ENUM ('lead', 'validator', 'contributor')"
+        )
+    )
+    for table in migration.OWNED_TABLES + ["jobs"]:
+        await conn.execute(
+            text(
+                f'CREATE TABLE "{schema}".{table}'
+                f" (LIKE public.{table} INCLUDING DEFAULTS INCLUDING INDEXES)"
+            )
+        )
+
+
+async def _remaining_copies(conn, schemas):
+    return (
+        await conn.execute(
+            text(
+                "SELECT count(*) FROM pg_class c"
+                " JOIN pg_namespace n ON n.oid = c.relnamespace"
+                " WHERE n.nspname = ANY(:s) AND c.relkind = 'r'"
+            ),
+            {"s": schemas},
+        )
+    ).scalar_one()
+
+
+async def test_many_schemas_do_not_exhaust_the_lock_table(_migrated_db):
+    _task_url, osm_url = _migrated_db
+    schemas = [f"workspace-{FIRST_MANY + i}" for i in range(MANY_SCHEMAS)]
+    engine = create_async_engine(osm_url)
+
+    try:
+        async with engine.begin() as conn:
+            for schema in schemas:
+                await _create_copied_schema(conn, schema)
+
+        async with engine.connect() as conn:
+            await conn.run_sync(migration.merge_and_drop_copies)
+
+        async with engine.connect() as conn:
+            assert await _remaining_copies(conn, schemas) == 0
+    finally:
+        async with engine.begin() as conn:
+            for schema in schemas:
+                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()
+
+
+async def test_a_schema_that_fails_is_left_intact_and_the_rest_still_run(
+    _migrated_db, capsys
+):
+    _task_url, osm_url = _migrated_db
+    bad, good = "workspace-920001", "workspace-920002"
+    engine = create_async_engine(osm_url)
+
+    try:
+        async with engine.begin() as conn:
+            for schema in (bad, good):
+                await _create_copied_schema(conn, schema)
+            # The copy has no foreign key, but public.user_workspace_roles does:
+            # merging a role for a user who does not exist fails for this schema.
+            await conn.execute(
+                text(
+                    f'INSERT INTO "{bad}".user_workspace_roles'
+                    " (user_auth_uid, workspace_id, role)"
+                    " VALUES ('no-such-user', 920001, 'lead')"
+                )
+            )
+
+        async with engine.connect() as conn:
+            await conn.run_sync(migration.merge_and_drop_copies)
+
+        async with engine.connect() as conn:
+            # The failing schema rolled back whole: its copies and row are intact.
+            assert await _remaining_copies(conn, [bad]) == len(
+                migration.OWNED_TABLES + ["jobs"]
+            )
+            left = (
+                await conn.execute(
+                    text(f'SELECT count(*) FROM "{bad}".user_workspace_roles')
+                )
+            ).scalar_one()
+            assert left == 1
+            # The other schema was still cleaned up.
+            assert await _remaining_copies(conn, [good]) == 0
+
+        out = capsys.readouterr().out
+        assert f"{bad}: not cleaned up, left as it was" in out
+    finally:
+        async with engine.begin() as conn:
+            for schema in (bad, good):
+                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await engine.dispose()
