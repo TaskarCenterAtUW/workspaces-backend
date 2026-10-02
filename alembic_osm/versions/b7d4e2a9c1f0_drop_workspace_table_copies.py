@@ -191,13 +191,15 @@ def _merge_table(
     return result.rowcount
 
 
-def merge_and_drop_copies(conn: Connection) -> None:
-    schemas = conn.execute(
-        text(
-            "SELECT nspname FROM pg_namespace"
-            " WHERE nspname ~ '^workspace-[0-9]+$' ORDER BY nspname"
-        )
-    ).scalars()
+def _merge_and_drop_schema(conn: Connection, schema: str) -> None:
+    """Merge one workspace schema's copies into public and drop them.
+
+    Runs in its own transaction (see merge_and_drop_copies), so it either
+    merges and drops everything for this schema or changes nothing.
+    """
+    present = _tables_in(conn, schema) & set(OWNED_TABLES + DISCARDED_TABLES)
+    if not present:
+        return
 
     conn.execute(
         text(
@@ -205,36 +207,75 @@ def merge_and_drop_copies(conn: Connection) -> None:
             " (tbl text, old_id bigint, new_id bigint) ON COMMIT DROP"
         )
     )
+    kept = set()
 
-    for schema in list(schemas):
-        present = _tables_in(conn, schema) & set(OWNED_TABLES + DISCARDED_TABLES)
-        if not present:
-            continue
+    for table, has_id, remaps in MERGED_TABLES:
+        if table in present:
+            merged = _merge_table(conn, schema, table, has_id, remaps)
+            if merged:
+                print(f"{schema}: merged {merged} row(s) of {table} into public")
 
-        conn.execute(text("TRUNCATE _copy_id_map"))
-        kept = set()
+    # Owned tables with no merge rule: keep any that hold rows.
+    for table in present - {t for t, _, _ in MERGED_TABLES} - set(DISCARDED_TABLES):
+        count = conn.execute(
+            text(f"SELECT count(*) FROM {_q(schema)}.{_q(table)}")
+        ).scalar_one()
+        if count:
+            kept.add(table)
+            print(f"{schema}: kept {table}, which holds {count} unmerged row(s)")
 
-        for table, has_id, remaps in MERGED_TABLES:
-            if table in present:
-                merged = _merge_table(conn, schema, table, has_id, remaps)
-                if merged:
-                    print(f"{schema}: merged {merged} row(s) of {table} into public")
+    for table in sorted(present - kept):
+        conn.execute(text(f"DROP TABLE {_q(schema)}.{_q(table)} CASCADE"))
 
-        # Owned tables with no merge rule: keep any that hold rows.
-        for table in present - {t for t, _, _ in MERGED_TABLES} - set(DISCARDED_TABLES):
-            count = conn.execute(
-                text(f"SELECT count(*) FROM {_q(schema)}.{_q(table)}")
-            ).scalar_one()
-            if count:
-                kept.add(table)
-                print(f"{schema}: kept {table}, which holds {count} unmerged row(s)")
+    if not kept:
+        for enum in OWNED_ENUMS:
+            conn.execute(text(f"DROP TYPE IF EXISTS {_q(schema)}.{_q(enum)}"))
 
-        for table in sorted(present - kept):
-            conn.execute(text(f"DROP TABLE {_q(schema)}.{_q(table)} CASCADE"))
 
-        if not kept:
-            for enum in OWNED_ENUMS:
-                conn.execute(text(f"DROP TYPE IF EXISTS {_q(schema)}.{_q(enum)}"))
+def merge_and_drop_copies(conn: Connection) -> None:
+    """Merge and drop the copies in every workspace schema, one schema per
+    transaction.
+
+    The first version did every schema in Alembic's single transaction. On
+    prod (2026-10-02) that held a lock on each dropped table, index, sequence
+    and type at once -- thousands -- and failed with "out of shared memory"
+    (max_locks_per_transaction), rolling everything back, so the app exited
+    at startup and prod stayed down until rolled back.
+
+    Each schema now runs on its own connection in its own transaction:
+    atomic per schema, so an interrupted run resumes cleanly (a schema already
+    done has nothing left to do), and a schema that fails rolls back alone,
+    is reported, and does not stop the rest -- or the app -- from starting.
+    """
+    # Only the schemas holding a copy: prod has ~1,900 workspace schemas but
+    # ~370 with copies, and each one worked costs a fresh connection (Alembic's
+    # engine does not pool), all inside the app's startup time limit.
+    schemas = list(
+        conn.execute(
+            text(
+                "SELECT DISTINCT n.nspname FROM pg_class c"
+                " JOIN pg_namespace n ON n.oid = c.relnamespace"
+                " WHERE n.nspname ~ '^workspace-[0-9]+$' AND c.relkind = 'r'"
+                " AND c.relname = ANY(:owned) ORDER BY n.nspname"
+            ),
+            {"owned": OWNED_TABLES + DISCARDED_TABLES},
+        ).scalars()
+    )
+
+    done = failed = 0
+    for schema in schemas:
+        try:
+            with conn.engine.begin() as schema_conn:
+                _merge_and_drop_schema(schema_conn, schema)
+            done += 1
+        except Exception as e:  # noqa: BLE001 -- reported, and the rest continue
+            failed += 1
+            print(f"{schema}: not cleaned up, left as it was: {type(e).__name__}: {e}")
+
+    print(
+        f"Workspace table copies: {done} schema(s) checked, {failed} left as they "
+        "were after an error"
+    )
 
 
 def upgrade() -> None:
