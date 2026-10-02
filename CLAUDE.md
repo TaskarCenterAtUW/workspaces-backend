@@ -220,6 +220,27 @@ silently hits the copy.
   `workspaces-importer`, which calls osm-rails through the gateway
   (`osm.internal…`), not this proxy, so the drop does not run for them yet
   (AB#4368).
+* **A migration that touches every workspace schema must commit per schema.**
+  There are ~1,900 of them on prod. The first version of `b7d4e2a9c1f0` did all
+  its work in Alembic's one transaction, which holds a lock on every table,
+  index, sequence and type it drops until commit. On prod (2026-10-02) that
+  overflowed the lock table at ~250 schemas -- `out of shared memory`, i.e.
+  `max_locks_per_transaction` -- and rolled everything back. Migrations run at
+  startup (`run_migrations`), so the app exited with code 3 and Azure kept
+  restarting it: prod was down ~4 hours, until pinned back to its previous
+  image. Do each schema on its own connection and transaction
+  (`merge_and_drop_copies` shows the pattern). That makes each schema atomic,
+  lets an interrupted run resume, and lets one bad schema be reported without
+  blocking startup. Visit only the schemas that need work, too: each costs a
+  connection inside the startup time limit (`WEBSITES_CONTAINER_START_TIME_LIMIT`,
+  230s by default).
+* **Stage passing is not proof at prod's scale.** Stage had 161 copied schemas
+  and the one-transaction migration fit; prod had ~250 and did not. For anything
+  whose cost grows with the number of workspaces, test at least prod's count --
+  `tests/integration/test_drop_workspace_table_copies.py` builds 200 schemas,
+  which fails on the old code with prod's exact error. Before restarting prod
+  onto a new migration, snapshot what it will change, and know the image to
+  roll back to (images are tagged by commit).
 
 ### How OSM authenticates, and the TDEI token bridge
 
