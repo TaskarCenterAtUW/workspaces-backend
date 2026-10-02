@@ -108,21 +108,6 @@ app.add_middleware(
     max_age=100,
 )
 
-# Never log these header values verbatim (tokens/session identifiers):
-_SENSITIVE_LOG_HEADERS = frozenset({"authorization", "cookie", "set-cookie"})
-
-
-# Registered after CORSMiddleware, so it runs outermost and sees every
-# request -- including OPTIONS preflights CORSMiddleware intercepts itself.
-@app.middleware("http")
-async def log_request_headers(request: Request, call_next):
-    safe_headers = {
-        k: ("<redacted>" if k.lower() in _SENSITIVE_LOG_HEADERS else v)
-        for k, v in request.headers.items()
-    }
-    logger.info(f"{request.method} {request.url.path} headers={safe_headers}")
-    return await call_next(request)
-
 
 # Include routers
 app.include_router(osm_router, prefix="/api/v1")
@@ -280,19 +265,6 @@ STRIP_REQUEST_HEADERS = HOP_BY_HOP_HEADERS | {
     "forwarded",
 }
 
-# osm-rails sets its own Access-Control-*/Vary headers on some API responses
-# (e.g. GET /api/0.6/users) for direct browser access. Forwarding those
-# verbatim alongside our own CORSMiddleware's headers produces duplicate,
-# conflicting values that browsers reject as a CORS error.
-STRIP_RESPONSE_HEADERS = HOP_BY_HOP_HEADERS | {
-    "vary",
-    "access-control-allow-origin",
-    "access-control-allow-credentials",
-    "access-control-allow-methods",
-    "access-control-allow-headers",
-    "access-control-expose-headers",
-    "access-control-max-age",
-}
 
 
 class TenantlessEndpoint(NamedTuple):
@@ -441,9 +413,7 @@ async def capabilities(request: Request, workspace_id: int | None = None):
         )
 
     forwarded_headers = {
-        k: v
-        for k, v in rp_resp.headers.items()
-        if k.lower() not in STRIP_RESPONSE_HEADERS
+        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
     }
 
     return StreamingResponse(
@@ -650,7 +620,6 @@ async def catch_all(
 
     try:
         rp_resp = await client.send(rp_req, stream=True)
-        logger.info(f"Upstream request to {rp_req.url} sent successfully")
     except httpx.TimeoutException:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -689,9 +658,7 @@ async def catch_all(
             logger.error(f"Could not drop table copies from new workspace: {e}")
 
     forwarded_headers = {
-        k: v
-        for k, v in rp_resp.headers.items()
-        if k.lower() not in STRIP_RESPONSE_HEADERS
+        k: v for k, v in rp_resp.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
     }
 
     return StreamingResponse(
