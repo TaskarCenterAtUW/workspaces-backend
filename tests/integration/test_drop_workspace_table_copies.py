@@ -302,8 +302,11 @@ async def test_many_schemas_do_not_exhaust_the_lock_table(_migrated_db):
     engine = create_async_engine(osm_url)
 
     try:
-        async with engine.begin() as conn:
-            for schema in schemas:
+        # One transaction per schema here too: creating them all in one would
+        # need the very lock-table headroom the test is about, and CI's Postgres
+        # has less of it than a developer machine.
+        for schema in schemas:
+            async with engine.begin() as conn:
                 await _create_copied_schema(conn, schema)
 
         async with engine.connect() as conn:
@@ -312,8 +315,8 @@ async def test_many_schemas_do_not_exhaust_the_lock_table(_migrated_db):
         async with engine.connect() as conn:
             assert await _remaining_copies(conn, schemas) == 0
     finally:
-        async with engine.begin() as conn:
-            for schema in schemas:
+        for schema in schemas:
+            async with engine.begin() as conn:
                 await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await engine.dispose()
 
