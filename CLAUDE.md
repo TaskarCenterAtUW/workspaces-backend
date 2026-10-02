@@ -181,6 +181,67 @@ either alembic tree — the trees only FK to it, and integration tests stub it
 via raw SQL with `auth_provider='TDEI'` and `auth_uid = str(<JWT sub>)` (the OSM
 `auth_uid` **is** the token's `sub` claim).
 
+### Workspace schemas are clones of `public`: only ever `SET LOCAL search_path`
+
+Each workspace's OSM data lives in its own schema, `"workspace-<id>"`. osm-rails
+creates it with Apartment, whose `use_sql = true` mode **`pg_dump`s `public` and
+loads the result into the new schema**. So every table in `public` has a
+same-named copy in each workspace schema, and so does every table this service
+adds to `public`. That includes Rails' shared tables (`oauth_access_tokens`,
+`user_roles`, …) and, unless they are dropped, this service's own (`jobs`,
+`tasking_*`, `user_workspace_roles`, …). Rails drops only its `users` copy
+(`WorkspacesController#create`); the others are empty and never meant to be read.
+
+That makes the `search_path` dangerous. Anything unqualified resolves to the
+first match, so with `workspace-<id>` ahead of `public` a read or write
+silently hits the copy.
+
+* **Use `SET LOCAL`, never plain `SET`.** A plain `SET search_path` outlives the
+  transaction and stays on the pooled connection, so an unrelated later request
+  inherits it. Go through `OSMRepository._use_workspace_schema`, which scopes
+  it to the transaction. This leaked in production until 2026-09-25 and caused
+  two failures:
+  * **Creates returned 500** with `Could not refresh instance '<Job …>'`: the
+    insert reached `public.jobs`, and the refresh read the copy.
+  * **OSM writes returned 401 while reads worked.** The token bridge's
+    unqualified insert landed in a workspace copy of `oauth_access_tokens`,
+    which Rails never reads, and the validation cache stopped it retrying
+    until the token rotated. 444 tokens for 37 users were stranded this way.
+* **Recognising it:** a row that was "written" but can't be found, or the
+  bridge logging `Mirrored TDEI token…` while Rails still 401s. Look for the
+  row in `workspace-*` schemas, not just `public`.
+* **This service's copies are dropped** after a successful
+  `PUT /api/0.6/workspaces/{id}` (`catch_all` →
+  `OSMRepository.dropServiceTableCopies`, following Rails' `users` drop), and
+  migration `b7d4e2a9c1f0` removed the ones made before that. **Add any new
+  `public` table or enum type to `SERVICE_TABLES` / `SERVICE_ENUMS`** in
+  `api/src/osm/repository.py`, or new workspaces will carry copies of it.
+* **Gap:** workspaces created from TDEI or from a file get their schema from
+  `workspaces-importer`, which calls osm-rails through the gateway
+  (`osm.internal…`), not this proxy, so the drop does not run for them yet
+  (AB#4368).
+* **A migration that touches every workspace schema must commit per schema.**
+  There are ~1,900 of them on prod. The first version of `b7d4e2a9c1f0` did all
+  its work in Alembic's one transaction, which holds a lock on every table,
+  index, sequence and type it drops until commit. On prod (2026-10-02) that
+  overflowed the lock table at ~250 schemas -- `out of shared memory`, i.e.
+  `max_locks_per_transaction` -- and rolled everything back. Migrations run at
+  startup (`run_migrations`), so the app exited with code 3 and Azure kept
+  restarting it: prod was down ~4 hours, until pinned back to its previous
+  image. Do each schema on its own connection and transaction
+  (`merge_and_drop_copies` shows the pattern). That makes each schema atomic,
+  lets an interrupted run resume, and lets one bad schema be reported without
+  blocking startup. Visit only the schemas that need work, too: each costs a
+  connection inside the startup time limit (`WEBSITES_CONTAINER_START_TIME_LIMIT`,
+  230s by default).
+* **Stage passing is not proof at prod's scale.** Stage had 161 copied schemas
+  and the one-transaction migration fit; prod had ~250 and did not. For anything
+  whose cost grows with the number of workspaces, test at least prod's count --
+  `tests/integration/test_drop_workspace_table_copies.py` builds 200 schemas,
+  which fails on the old code with prod's exact error. Before restarting prod
+  onto a new migration, snapshot what it will change, and know the image to
+  roll back to (images are tagged by commit).
+
 ### How OSM authenticates, and the TDEI token bridge
 
 * **osm-rails** authenticates API calls *only* via **doorkeeper OAuth2**: it
