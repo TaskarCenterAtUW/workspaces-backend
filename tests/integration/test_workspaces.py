@@ -17,6 +17,7 @@ from uuid import UUID
 import pytest
 
 import api.src.workspaces.routes as ws_routes
+from api.core.security import TdeiProjectGroupRole
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.jobs.schemas import Job
 from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceLongQuest
@@ -278,7 +279,15 @@ async def test_create_workspace(
     monkeypatch.setattr(ws_routes, "Messenger", _FakeMessenger)
     app.dependency_overrides[ws_routes.get_jobs_repository] = _FakeJobsRepository
 
-    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    login(
+        factories.make_user_info(
+            project_group_ids=[factories.DEFAULT_PG_ID],
+            tdei_roles=[
+                TdeiProjectGroupRole.MEMBER,
+                TdeiProjectGroupRole.OSW_GENERATOR,
+            ],
+        )
+    )
     osm_session.queue(
         fakes.scalar(1),  # assign_member_role: user exists
         fakes.affected(1),  # assign_member_role: role upsert execute
@@ -301,6 +310,39 @@ async def test_create_workspace(
     assert task_session.commits == 1  # workspace insert
     assert osm_session.commits == 1  # role insert
     assert evictions == [UUID(factories.DEFAULT_USER_ID)]  # creator's cache evicted
+
+
+async def test_create_as_member_only_403(client, login):
+    # "member" alone in the project group cannot create a workspace.
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    response = await client.post(
+        f"{API}",
+        json={
+            "type": "osw",
+            "title": "Member Only",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+        },
+    )
+    assert response.status_code == 403
+
+
+async def test_create_type_not_covered_by_role_403(client, login):
+    # An OSW generator cannot create a Pathways workspace.
+    login(
+        factories.make_user_info(
+            project_group_ids=[factories.DEFAULT_PG_ID],
+            tdei_roles=[TdeiProjectGroupRole.OSW_GENERATOR],
+        )
+    )
+    response = await client.post(
+        f"{API}",
+        json={
+            "type": "pathways",
+            "title": "Wrong Type",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+        },
+    )
+    assert response.status_code == 403
 
 
 async def test_create_in_unauthorized_group_403(client, login):

@@ -41,10 +41,12 @@ class WorkspaceRepository:
             importStatus=importStatus,
         )
 
-        if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():
+        if not current_user.canCreateWorkspace(
+            str(workspace.tdeiProjectGroupId), workspace_data.type
+        ):
             raise ForbiddenException(
-                "User does not have permissions to create a workspace in that "
-                "project group."
+                "User does not have permissions to create a workspace of that "
+                "type in that project group."
             )
 
         try:

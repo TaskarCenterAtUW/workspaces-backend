@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
+
 from api.core.security import TdeiProjectGroupRole, UserInfo, UserInfoPGMembership
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.schemas import WorkspaceType
 
 PG = "00000000-0000-0000-0000-000000000001"
 
@@ -80,3 +83,52 @@ class TestIsWorkspaceContributor:
     def test_outsider_is_not_contributor(self):
         """An outsider (no PG membership) is NOT a contributor."""
         assert _user().isWorkspaceContributor(42) is False
+
+
+Role = TdeiProjectGroupRole
+WsType = WorkspaceType
+
+
+class TestCanCreateWorkspace:
+    @pytest.mark.parametrize("ws_type", list(WorkspaceType))
+    def test_member_only_cannot_create(self, ws_type):
+        """A user whose only TDEI role in the PG is member cannot create any type."""
+        u = _user(pg_roles=[Role.MEMBER])
+        assert u.canCreateWorkspace(PG, ws_type) is False
+
+    @pytest.mark.parametrize(
+        "role, ws_type, allowed",
+        [
+            (Role.POINT_OF_CONTACT, WsType.OSW, True),
+            (Role.POINT_OF_CONTACT, WsType.PATHWAYS, True),
+            (Role.POINT_OF_CONTACT, WsType.FLEX, True),
+            (Role.OSW_GENERATOR, WsType.OSW, True),
+            (Role.OSW_GENERATOR, WsType.PATHWAYS, False),
+            (Role.OSW_GENERATOR, WsType.FLEX, False),
+            (Role.PATHWAYS_GENERATOR, WsType.OSW, False),
+            (Role.PATHWAYS_GENERATOR, WsType.PATHWAYS, True),
+            (Role.PATHWAYS_GENERATOR, WsType.FLEX, False),
+            (Role.FLEX_GENERATOR, WsType.OSW, False),
+            (Role.FLEX_GENERATOR, WsType.PATHWAYS, False),
+            (Role.FLEX_GENERATOR, WsType.FLEX, True),
+        ],
+    )
+    def test_role_limits_workspace_type(self, role, ws_type, allowed):
+        """Each role creates only the types it covers, alone or alongside member."""
+        assert _user(pg_roles=[role]).canCreateWorkspace(PG, ws_type) is allowed
+        assert (
+            _user(pg_roles=[Role.MEMBER, role]).canCreateWorkspace(PG, ws_type)
+            is allowed
+        )
+
+    def test_roles_combine_across_types(self):
+        """OSW + Pathways generator roles together can create both types."""
+        u = _user(pg_roles=[Role.OSW_GENERATOR, Role.PATHWAYS_GENERATOR])
+        assert u.canCreateWorkspace(PG, WsType.OSW) is True
+        assert u.canCreateWorkspace(PG, WsType.PATHWAYS) is True
+
+    def test_other_project_group_cannot_create(self):
+        """A creator role in one PG does not allow creating in another."""
+        u = _user(pg_roles=[Role.POINT_OF_CONTACT])
+        other_pg = "00000000-0000-0000-0000-000000000099"
+        assert u.canCreateWorkspace(other_pg, WsType.OSW) is False

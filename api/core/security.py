@@ -21,6 +21,7 @@ from api.core.database import get_osm_session, get_task_session
 from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.schemas import WorkspaceType
 
 # Test outline:
 # @test: Test that the permissions structure here matches what is described in CLAUDE.md
@@ -422,6 +423,16 @@ class TdeiProjectGroupRole(StrEnum):
     PATHWAYS_GENERATOR = "pathways_data_generator"
 
 
+# Workspace types each TDEI project group role may create. MEMBER is absent:
+# members can edit workspace data but not create workspaces.
+_CREATABLE_WORKSPACE_TYPES: dict[TdeiProjectGroupRole, frozenset[WorkspaceType]] = {
+    TdeiProjectGroupRole.POINT_OF_CONTACT: frozenset(WorkspaceType),
+    TdeiProjectGroupRole.OSW_GENERATOR: frozenset({WorkspaceType.OSW}),
+    TdeiProjectGroupRole.FLEX_GENERATOR: frozenset({WorkspaceType.FLEX}),
+    TdeiProjectGroupRole.PATHWAYS_GENERATOR: frozenset({WorkspaceType.PATHWAYS}),
+}
+
+
 class UserInfoPGMembership:
     project_group_name: str
     project_group_id: str
@@ -463,6 +474,24 @@ class UserInfo:
             if withRole == "any" or pg.tdeiRoles.__contains__(withRole):
                 pgids.append(pg.project_group_id)
         return pgids
+
+    # Who can create a workspace of a given type in a PG: POC can create any
+    # type; a data generator only its own type (OSW generator -> OSW, Flex
+    # generator -> Flex, Pathways generator -> Pathways); a plain member
+    # cannot. Roles are a list, so a member who also holds a qualifying role
+    # can create.
+    # @test: Test that canCreateWorkspace is False for a PG the user only has "member" in, True when "member" is combined with a role that covers the workspace type, and False for a PG the user does not belong to
+    # @test: Test that POC can create every workspace type, and each data generator role only its own type (OSW -> OSW, Flex -> Flex, Pathways -> Pathways)
+    def canCreateWorkspace(
+        self, project_group_id: str, workspace_type: WorkspaceType
+    ) -> bool:
+        for pg in self.projectGroups:
+            if pg.project_group_id != project_group_id:
+                continue
+            for role in pg.tdeiRoles:
+                if workspace_type in _CREATABLE_WORKSPACE_TYPES.get(role, ()):
+                    return True
+        return False
 
     # we get admin/lead rights in two ways:
     # 1. from OSM DB explicitly
