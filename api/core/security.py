@@ -224,6 +224,94 @@ async def fetch_project_group_users(
     return out
 
 
+class TdeiDataset:
+    """The fields of a TDEI dataset that workspace creation checks, as
+    returned by ``GET /datasets?tdei_dataset_id=...``.
+    """
+
+    # TDEI marks a released dataset "Publish"; unreleased ones are "Pre-Release".
+    RELEASED_STATUS = "Publish"
+
+    def __init__(
+        self,
+        *,
+        tdei_dataset_id: str,
+        project_group_id: str,
+        status: str,
+    ) -> None:
+        self.tdei_dataset_id = tdei_dataset_id
+        self.project_group_id = project_group_id
+        self.status = status
+
+    @property
+    def is_released(self) -> bool:
+        return self.status == self.RELEASED_STATUS
+
+
+# @test: Test that fetch_tdei_dataset returns the dataset's project group and status, None when TDEI returns no match, 401 when TDEI rejects the token, and 502 when TDEI is unreachable, answers non-200, or returns a non-JSON body
+async def fetch_tdei_dataset(
+    dataset_id: str,
+    bearer_token: str,
+) -> TdeiDataset | None:
+    """Look up one dataset via ``GET /datasets?tdei_dataset_id=...`` on TDEI.
+
+    Returns None when TDEI has no dataset with that id visible to the caller.
+    Raises 502 if TDEI is unreachable, 401 if the token is rejected.
+    """
+    if _tdei_client is None:  # pragma: no cover — lifespan should init this
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI client is not initialised",
+        )
+
+    try:
+        response = await _tdei_client.get(
+            "datasets",
+            headers={"Authorization": f"Bearer {bearer_token}"},
+            # status=All includes unreleased datasets, which TDEI omits by default
+            params={"tdei_dataset_id": dataset_id, "status": "All"},
+        )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach TDEI backend to fetch dataset details",
+        ) from None
+
+    if response.status_code == 401:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="TDEI rejected the bearer token",
+        )
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"TDEI returned {response.status_code} when fetching "
+                f"dataset {dataset_id}"
+            ),
+        )
+
+    try:
+        rows = response.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI returned a non-JSON body",
+        ) from None
+
+    for row in rows if isinstance(rows, list) else []:
+        if str(row.get("tdei_dataset_id")) != dataset_id:
+            continue
+        return TdeiDataset(
+            tdei_dataset_id=dataset_id,
+            project_group_id=str(
+                (row.get("project_group") or {}).get("tdei_project_group_id", "")
+            ),
+            status=str(row.get("status", "")),
+        )
+    return None
+
+
 def evict_user_from_cache(auth_uid: UUID) -> None:
     """
     Evict a user's cached UserInfo object so that their next request re-fetches
@@ -492,6 +580,20 @@ class UserInfo:
                 if workspace_type in _CREATABLE_WORKSPACE_TYPES.get(role, ()):
                     return True
         return False
+
+    # Creating from a TDEI dataset additionally depends on the dataset: a
+    # released dataset may come from any PG (even one the user has no role
+    # in), an unreleased one only from the PG the workspace is created in.
+    # @test: Test that canCreateWorkspaceFromDataset allows a released dataset from any PG, allows an unreleased dataset only from the target PG, and is False whenever canCreateWorkspace is False
+    def canCreateWorkspaceFromDataset(
+        self,
+        project_group_id: str,
+        workspace_type: WorkspaceType,
+        dataset: TdeiDataset,
+    ) -> bool:
+        if not self.canCreateWorkspace(project_group_id, workspace_type):
+            return False
+        return dataset.is_released or dataset.project_group_id == project_group_id
 
     # we get admin/lead rights in two ways:
     # 1. from OSM DB explicitly

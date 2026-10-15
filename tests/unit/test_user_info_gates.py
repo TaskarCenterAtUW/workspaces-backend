@@ -4,7 +4,12 @@ from uuid import UUID
 
 import pytest
 
-from api.core.security import TdeiProjectGroupRole, UserInfo, UserInfoPGMembership
+from api.core.security import (
+    TdeiDataset,
+    TdeiProjectGroupRole,
+    UserInfo,
+    UserInfoPGMembership,
+)
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.schemas import WorkspaceType
 
@@ -132,3 +137,68 @@ class TestCanCreateWorkspace:
         u = _user(pg_roles=[Role.POINT_OF_CONTACT])
         other_pg = "00000000-0000-0000-0000-000000000099"
         assert u.canCreateWorkspace(other_pg, WsType.OSW) is False
+
+
+OTHER_PG = "00000000-0000-0000-0000-000000000099"
+
+
+def _dataset(project_group_id: str, status: str) -> TdeiDataset:
+    return TdeiDataset(
+        tdei_dataset_id="33333333-3333-3333-3333-333333333333",
+        project_group_id=project_group_id,
+        status=status,
+    )
+
+
+class TestCanCreateWorkspaceFromDataset:
+    @pytest.mark.parametrize(
+        "dataset_pg, status, allowed",
+        [
+            (PG, "Pre-Release", True),  # unreleased, in the target PG
+            (PG, "Publish", True),
+            (OTHER_PG, "Publish", True),  # released, from any PG
+            (OTHER_PG, "Pre-Release", False),  # unreleased, from another PG
+        ],
+    )
+    def test_release_status_and_owning_pg(self, dataset_pg, status, allowed):
+        """POC of the target PG: released from anywhere, unreleased only its own."""
+        u = _user(pg_roles=[Role.POINT_OF_CONTACT])
+        dataset = _dataset(dataset_pg, status)
+        assert u.canCreateWorkspaceFromDataset(PG, WsType.OSW, dataset) is allowed
+
+    def test_generator_follows_the_same_dataset_rule(self):
+        """Data generators keep their type limit and also get the dataset rule."""
+        u = _user(pg_roles=[Role.OSW_GENERATOR])
+        released_elsewhere = _dataset(OTHER_PG, "Publish")
+        unreleased_elsewhere = _dataset(OTHER_PG, "Pre-Release")
+        assert u.canCreateWorkspaceFromDataset(PG, WsType.OSW, released_elsewhere)
+        assert not u.canCreateWorkspaceFromDataset(PG, WsType.OSW, unreleased_elsewhere)
+        assert not u.canCreateWorkspaceFromDataset(
+            PG, WsType.PATHWAYS, released_elsewhere
+        )
+
+    @pytest.mark.parametrize("status", ["Publish", "Pre-Release"])
+    def test_member_only_cannot_create_from_any_dataset(self, status):
+        """Case 2: member-only in the PG never creates, whatever the dataset."""
+        u = _user(pg_roles=[Role.MEMBER])
+        assert (
+            u.canCreateWorkspaceFromDataset(PG, WsType.OSW, _dataset(PG, status))
+            is False
+        )
+
+    def test_poc_elsewhere_cannot_pull_unreleased_dataset_in(self):
+        """Case 1: member of the dataset's PG + POC of another PG cannot open
+        the dataset's unreleased data in either PG."""
+        u = _user(pg_roles=[Role.POINT_OF_CONTACT])
+        u.projectGroups.append(
+            UserInfoPGMembership(
+                project_group_name="Other",
+                project_group_id=OTHER_PG,
+                tdeiRoles=[Role.MEMBER],
+            )
+        )
+        unreleased_in_other = _dataset(OTHER_PG, "Pre-Release")
+        assert not u.canCreateWorkspaceFromDataset(PG, WsType.OSW, unreleased_in_other)
+        assert not u.canCreateWorkspaceFromDataset(
+            OTHER_PG, WsType.OSW, unreleased_in_other
+        )
