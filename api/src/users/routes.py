@@ -51,7 +51,7 @@ async def get_privileged_workspace_members(
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user is not associated with the workspace
-# @test: Test that this endpoint properly evicts any cached data for the user after the user is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+# @test: Test that this endpoint properly evicts any cached data for the user after the user is deleted so that their next request reflects the deletion rather than serving stale data until the configured cache TTL expires
 # @test: Test that this endpoint properly allows users to be workspace leads or validators, and to unset the user of either role and become a contributor again
 # @test: Test that this endpoint doesn't allow changing workspaces the user doesn't have workspace lead permissions for, or roles for users not already associated with the workspace
 # @test: Test that this endpoint doesn't allow setting the workspace role to a POC
@@ -87,7 +87,7 @@ async def assign_member_role(
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user does not exist and returns a 404
 # @test: Test that this endpoint properly handles the case where the user is not associated with the workspace
-# @test: Test that this endpoint properly evicts any cached data for the user after the user is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+# @test: Test that this endpoint properly evicts any cached data for the user after the user is deleted so that their next request reflects the deletion rather than serving stale data until the configured cache TTL expires
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
