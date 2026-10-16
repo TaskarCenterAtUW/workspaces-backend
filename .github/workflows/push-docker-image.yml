@@ -82,6 +82,6 @@ jobs:
                 "containername": "main",
                 "image": "${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }}",
                 "targetport": "8000",
-                "ismain": true
+                "isMain": true
               }
             ]
