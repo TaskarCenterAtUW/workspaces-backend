@@ -1,4 +1,4 @@
-name: Push Docker Image to Azure Container Registry
+name: Push Docker Image to Azure Container Registry and Deploy to Azure
 
 on:
   workflow_dispatch:
@@ -61,4 +61,19 @@ jobs:
             platforms: linux/amd64
             tags: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }},
                   ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{github.sha}}
-        
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    name: "Deploy to Azure"
+    steps:
+      - name: Display environment
+        run: echo "Deploying to ${{ needs.set-github-environment.outputs.environment }}"
+      - name: Login to Azure
+        uses: azure/login@v2.0.0
+        with:
+          creds: ${{ secrets.TDEI_CORE_AZURE_CREDS }}
+      - name: Deploy to Azure
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ws-backend-${{ needs.set-github-environment.outputs.environment }}
+          images: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }}
