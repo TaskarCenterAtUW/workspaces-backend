@@ -17,12 +17,15 @@ from uuid import UUID
 import pytest
 
 import api.src.workspaces.routes as ws_routes
+from api.core.security import TdeiDataset, TdeiProjectGroupRole
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.jobs.schemas import Job
 from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceLongQuest
 from tests.support import factories, fakes
 
 API = "/api/v1/workspaces"
+RECORD_ID = "33333333-3333-3333-3333-333333333333"
+OTHER_PG_ID = "99999999-9999-9999-9999-999999999999"
 
 
 @pytest.fixture
@@ -240,7 +243,14 @@ async def test_get_bbox_no_nodes_404(client, login, task_session, osm_session):
 
 
 async def test_create_workspace(
-    client, app, login, task_session, osm_session, evictions, monkeypatch
+    client,
+    app,
+    login,
+    task_session,
+    osm_session,
+    evictions,
+    monkeypatch,
+    tdei_datasets,
 ):
     class _FakeMessenger:
         def send_message(self, _message):
@@ -278,7 +288,21 @@ async def test_create_workspace(
     monkeypatch.setattr(ws_routes, "Messenger", _FakeMessenger)
     app.dependency_overrides[ws_routes.get_jobs_repository] = _FakeJobsRepository
 
-    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    login(
+        factories.make_user_info(
+            project_group_ids=[factories.DEFAULT_PG_ID],
+            tdei_roles=[
+                TdeiProjectGroupRole.MEMBER,
+                TdeiProjectGroupRole.OSW_GENERATOR,
+            ],
+        )
+    )
+    # An unreleased dataset in the same project group may be opened.
+    tdei_datasets[RECORD_ID] = TdeiDataset(
+        tdei_dataset_id=RECORD_ID,
+        project_group_id=factories.DEFAULT_PG_ID,
+        status="Pre-Release",
+    )
     osm_session.queue(
         fakes.scalar(1),  # assign_member_role: user exists
         fakes.affected(1),  # assign_member_role: role upsert execute
@@ -290,7 +314,7 @@ async def test_create_workspace(
             "type": "osw",
             "title": "Fresh",
             "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
-            "tdeiRecordId": "33333333-3333-3333-3333-333333333333",
+            "tdeiRecordId": RECORD_ID,
             "tdeiServiceId": "44444444-4444-4444-4444-444444444444",
         },
     )
@@ -301,6 +325,83 @@ async def test_create_workspace(
     assert task_session.commits == 1  # workspace insert
     assert osm_session.commits == 1  # role insert
     assert evictions == [UUID(factories.DEFAULT_USER_ID)]  # creator's cache evicted
+
+
+async def test_create_as_member_only_403(client, login):
+    # "member" alone in the project group cannot create a workspace.
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+    response = await client.post(
+        f"{API}",
+        json={
+            "type": "osw",
+            "title": "Member Only",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+        },
+    )
+    assert response.status_code == 403
+
+
+async def test_create_type_not_covered_by_role_403(client, login):
+    # An OSW generator cannot create a Pathways workspace.
+    login(
+        factories.make_user_info(
+            project_group_ids=[factories.DEFAULT_PG_ID],
+            tdei_roles=[TdeiProjectGroupRole.OSW_GENERATOR],
+        )
+    )
+    response = await client.post(
+        f"{API}",
+        json={
+            "type": "pathways",
+            "title": "Wrong Type",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+        },
+    )
+    assert response.status_code == 403
+
+
+def _poc_of_default_pg():
+    return factories.make_user_info(
+        project_group_ids=[factories.DEFAULT_PG_ID],
+        poc_group_ids=(factories.DEFAULT_PG_ID,),
+    )
+
+
+async def test_create_from_unreleased_dataset_in_other_group_403(
+    client, login, task_session, tdei_datasets
+):
+    # A POC of the target PG cannot open another PG's unreleased dataset.
+    tdei_datasets[RECORD_ID] = TdeiDataset(
+        tdei_dataset_id=RECORD_ID, project_group_id=OTHER_PG_ID, status="Pre-Release"
+    )
+    login(_poc_of_default_pg())
+    response = await client.post(
+        f"{API}",
+        json={
+            "type": "osw",
+            "title": "Not Yours",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+    assert response.status_code == 403
+    assert task_session.commits == 0
+
+
+async def test_create_from_unknown_dataset_404(client, login, task_session):
+    # TDEI has no dataset with that id (or hides it from the caller).
+    login(_poc_of_default_pg())
+    response = await client.post(
+        f"{API}",
+        json={
+            "type": "osw",
+            "title": "Ghost",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+    assert response.status_code == 404
+    assert task_session.commits == 0
 
 
 async def test_create_in_unauthorized_group_403(client, login):

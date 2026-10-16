@@ -822,3 +822,96 @@ async def test_bearer_is_accepted_on_native_api_paths():
     )
     assert creds is not None
     assert creds.credentials == "a.valid.jwt"
+
+
+# --- fetch_tdei_dataset ------------------------------------------------------
+
+DATASET_ID = "33333333-3333-3333-3333-333333333333"
+
+
+class _RecordingTdeiClient(_FakeTdeiClient):
+    def __init__(self, resp=None, exc=None):
+        super().__init__(resp, exc)
+        self.calls: list[tuple[tuple, dict]] = []
+
+    async def get(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return await super().get(*args, **kwargs)
+
+
+async def test_fetch_tdei_dataset_returns_project_group_and_status(monkeypatch):
+    tdei = _RecordingTdeiClient(
+        _FakeResp(
+            200,
+            [
+                {
+                    "tdei_dataset_id": DATASET_ID,
+                    "status": "Pre-Release",
+                    "project_group": {"tdei_project_group_id": "pg-1", "name": "PG"},
+                }
+            ],
+        )
+    )
+    monkeypatch.setattr(sec, "_tdei_client", tdei)
+
+    dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+
+    assert dataset is not None
+    assert dataset.project_group_id == "pg-1"
+    assert dataset.status == "Pre-Release"
+    assert dataset.is_released is False
+    args, kwargs = tdei.calls[0]
+    assert args == ("datasets",)
+    # status=All, or TDEI would hide unreleased datasets.
+    assert kwargs["params"] == {"tdei_dataset_id": DATASET_ID, "status": "All"}
+    assert kwargs["headers"] == {"Authorization": "Bearer tok"}
+
+
+async def test_fetch_tdei_dataset_publish_is_released(monkeypatch):
+    monkeypatch.setattr(
+        sec,
+        "_tdei_client",
+        _FakeTdeiClient(
+            _FakeResp(
+                200,
+                [
+                    {
+                        "tdei_dataset_id": DATASET_ID,
+                        "status": "Publish",
+                        "project_group": {"tdei_project_group_id": "pg-1"},
+                    }
+                ],
+            )
+        ),
+    )
+
+    dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+
+    assert dataset is not None and dataset.is_released is True
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [[], [{"tdei_dataset_id": "some-other-id", "status": "Publish"}], {}],
+)
+async def test_fetch_tdei_dataset_no_match_returns_none(monkeypatch, rows):
+    monkeypatch.setattr(sec, "_tdei_client", _FakeTdeiClient(_FakeResp(200, rows)))
+
+    assert await sec.fetch_tdei_dataset(DATASET_ID, "tok") is None
+
+
+@pytest.mark.parametrize(
+    "client, expected_status",
+    [
+        (_FakeTdeiClient(_FakeResp(401)), 401),
+        (_FakeTdeiClient(_FakeResp(500)), 502),
+        (_FakeTdeiClient(_FakeResp(200, raises=True)), 502),
+        (_FakeTdeiClient(exc=httpx.ConnectError("x")), 502),
+    ],
+)
+async def test_fetch_tdei_dataset_failures(monkeypatch, client, expected_status):
+    monkeypatch.setattr(sec, "_tdei_client", client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+    assert exc_info.value.status_code == expected_status

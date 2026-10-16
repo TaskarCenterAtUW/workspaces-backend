@@ -8,7 +8,7 @@ from api.core.exceptions import (
     NotFoundException,
 )
 from api.core.json_schema import get_http_client
-from api.core.security import UserInfo
+from api.core.security import UserInfo, fetch_tdei_dataset
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
     QuestDefinitionType,
@@ -41,11 +41,29 @@ class WorkspaceRepository:
             importStatus=importStatus,
         )
 
-        if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():
+        if not current_user.canCreateWorkspace(
+            str(workspace.tdeiProjectGroupId), workspace_data.type
+        ):
             raise ForbiddenException(
-                "User does not have permissions to create a workspace in that "
-                "project group."
+                "User does not have permissions to create a workspace of that "
+                "type in that project group."
             )
+
+        if workspace_data.tdeiRecordId is not None:
+            dataset = await fetch_tdei_dataset(
+                str(workspace_data.tdeiRecordId), current_user.credentials
+            )
+            if dataset is None:
+                raise NotFoundException(
+                    f"TDEI dataset {workspace_data.tdeiRecordId} not found"
+                )
+            if not current_user.canCreateWorkspaceFromDataset(
+                str(workspace.tdeiProjectGroupId), workspace_data.type, dataset
+            ):
+                raise ForbiddenException(
+                    "An unreleased dataset can only be opened in a workspace "
+                    "in its own project group."
+                )
 
         try:
             self.session.add(workspace)
