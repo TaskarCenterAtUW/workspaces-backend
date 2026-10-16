@@ -73,7 +73,15 @@ jobs:
         with:
           creds: ${{ secrets.TDEI_CORE_AZURE_CREDS }}
       - name: Deploy to Azure
-        uses: azure/webapps-deploy@v2
+        uses: azure/webapps-deploy@v3
         with:
           app-name: ws-backend-${{ needs.set-github-environment.outputs.environment }}
-          images: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }}
+          sitecontainers-config: |
+            [
+              {
+                "containername": "main",
+                "image": "${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }}",
+                "targetport": "8000",
+                "ismain": true
+              }
+            ]
