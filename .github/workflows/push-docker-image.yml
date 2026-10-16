@@ -79,7 +79,7 @@ jobs:
           sitecontainers-config: |
             [
               {
-                "containername": "main",
+                "name": "main",
                 "image": "${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }}",
                 "targetport": "8000",
                 "isMain": true
