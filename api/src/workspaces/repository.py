@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -8,13 +10,15 @@ from api.core.exceptions import (
     NotFoundException,
 )
 from api.core.json_schema import get_http_client
-from api.core.security import UserInfo
+from api.core.security import UserInfo, fetch_tdei_dataset
 from api.src.workspaces.schemas import (
     ImagerySettingsPatch,
     QuestDefinitionType,
     QuestSettingsPatch,
     Workspace,
     WorkspaceCreate,
+    WorkspaceCreateCheck,
+    WorkspaceCreateCheckResponse,
     WorkspaceImagery,
     WorkspaceLongQuest,
     WorkspaceNameCheck,
@@ -41,11 +45,12 @@ class WorkspaceRepository:
             importStatus=importStatus,
         )
 
-        if str(workspace.tdeiProjectGroupId) not in current_user.getProjectGroupIds():
-            raise ForbiddenException(
-                "User does not have permissions to create a workspace in that "
-                "project group."
-            )
+        await self._authorize_create(
+            current_user,
+            str(workspace.tdeiProjectGroupId),
+            workspace_data.type,
+            workspace_data.tdeiRecordId,
+        )
 
         try:
             self.session.add(workspace)
@@ -76,6 +81,50 @@ class WorkspaceRepository:
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    # The checks `create` applies before inserting, shared with
+    # `check_create_permission` so the pre-flight answer can't drift from it.
+    async def _authorize_create(
+        self,
+        current_user: UserInfo,
+        project_group_id: str,
+        workspace_type: WorkspaceType,
+        tdei_record_id: UUID | None,
+    ) -> None:
+        if not current_user.canCreateWorkspace(project_group_id, workspace_type):
+            raise ForbiddenException(
+                "User does not have permissions to create a workspace of that "
+                "type in that project group."
+            )
+
+        if tdei_record_id is not None:
+            dataset = await fetch_tdei_dataset(
+                str(tdei_record_id), current_user.credentials
+            )
+            if dataset is None:
+                raise NotFoundException(f"TDEI dataset {tdei_record_id} not found")
+            if not current_user.canCreateWorkspaceFromDataset(
+                project_group_id, workspace_type, dataset
+            ):
+                raise ForbiddenException(
+                    "An unreleased dataset can only be opened in a workspace "
+                    "in its own project group."
+                )
+
+    # @test: Test that check_create_permission allows what create allows, and reports a reason (instead of raising) for a missing role, an unknown dataset, and an unreleased dataset from another project group
+    async def check_create_permission(
+        self, current_user: UserInfo, check: WorkspaceCreateCheck
+    ) -> WorkspaceCreateCheckResponse:
+        try:
+            await self._authorize_create(
+                current_user,
+                str(check.tdeiProjectGroupId),
+                check.type,
+                check.tdeiRecordId,
+            )
+        except (ForbiddenException, NotFoundException) as e:
+            return WorkspaceCreateCheckResponse(canCreate=False, reason=e.detail)
+        return WorkspaceCreateCheckResponse(canCreate=True)
 
     async def is_name_available(
         self, current_user: UserInfo, workspace_name_check: WorkspaceNameCheck
