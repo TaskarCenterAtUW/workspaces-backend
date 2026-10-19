@@ -109,21 +109,29 @@ _user_info_cache: cachetools.TTLCache[UUID, "UserInfo"] = cachetools.TTLCache(
 
 # Shared HTTP client for TDEI backend calls. Initialized by main.py lifespan.
 _tdei_client: httpx.AsyncClient | None = None
+_tdei_api_client: httpx.AsyncClient | None = None
 
 
 def init_tdei_client() -> None:
-    global _tdei_client
+    global _tdei_client, _tdei_api_client
     _tdei_client = httpx.AsyncClient(
         base_url=settings.TDEI_BACKEND_URL,
+        timeout=httpx.Timeout(connect=10, read=30, write=30, pool=10),
+    )
+    _tdei_api_client = httpx.AsyncClient(
+        base_url=settings.TDEI_API_BACKEND_URL,
         timeout=httpx.Timeout(connect=10, read=30, write=30, pool=10),
     )
 
 
 async def close_tdei_client() -> None:
-    global _tdei_client
+    global _tdei_client, _tdei_api_client
     if _tdei_client is not None:
         await _tdei_client.aclose()
         _tdei_client = None
+    if _tdei_api_client is not None:
+        await _tdei_api_client.aclose()
+        _tdei_api_client = None
 
 
 class TdeiProjectGroupUser:
@@ -265,7 +273,7 @@ async def fetch_tdei_dataset(
         )
 
     try:
-        response = await _tdei_client.get(
+        response = await _tdei_api_client.get(
             "datasets",
             headers={"Authorization": f"Bearer {bearer_token}"},
             # status=All includes unreleased datasets, which TDEI omits by default

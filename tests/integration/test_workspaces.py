@@ -180,6 +180,93 @@ async def test_check_workspace_name_invalid_body_422(client, login):
     assert response.status_code == 422
 
 
+# === POST /check-create ====================================================
+
+
+async def test_check_create_released_dataset_from_other_group(
+    client, login, tdei_datasets
+):
+    tdei_datasets[RECORD_ID] = TdeiDataset(
+        tdei_dataset_id=RECORD_ID, project_group_id=OTHER_PG_ID, status="Publish"
+    )
+    login(_poc_of_default_pg())
+
+    response = await client.post(
+        f"{API}/check-create",
+        json={
+            "type": "osw",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"canCreate": True, "reason": None}
+
+
+async def test_check_create_unreleased_dataset_from_other_group(
+    client, login, tdei_datasets
+):
+    tdei_datasets[RECORD_ID] = TdeiDataset(
+        tdei_dataset_id=RECORD_ID, project_group_id=OTHER_PG_ID, status="Pre-Release"
+    )
+    login(_poc_of_default_pg())
+
+    response = await client.post(
+        f"{API}/check-create",
+        json={
+            "type": "osw",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["canCreate"] is False
+    assert "unreleased" in body["reason"]
+
+
+async def test_check_create_member_only(client, login):
+    login(factories.make_user_info(project_group_ids=[factories.DEFAULT_PG_ID]))
+
+    response = await client.post(
+        f"{API}/check-create",
+        json={"type": "osw", "tdeiProjectGroupId": factories.DEFAULT_PG_ID},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["canCreate"] is False
+
+
+async def test_check_create_unknown_dataset(client, login):
+    login(_poc_of_default_pg())
+
+    response = await client.post(
+        f"{API}/check-create",
+        json={
+            "type": "osw",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["canCreate"] is False
+    assert "not found" in body["reason"]
+
+
+async def test_check_create_missing_fields_422(client, login):
+    login()
+
+    response = await client.post(
+        f"{API}/check-create", json={"tdeiRecordId": RECORD_ID}
+    )
+
+    assert response.status_code == 422
+
+
 async def test_get_workspace_by_id(client, login, task_session):
     login()
     task_session.queue(fakes.rows(factories.make_workspace(id=7, title="Lucky")))

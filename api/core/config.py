@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     )
 
     TDEI_BACKEND_URL: str = "https://portal-api-dev.tdei.us/api/v1/"
+    TDEI_API_BACKEND_URL: str = "https://api-dev.tdei.us/api/v1/"
     TDEI_OIDC_URL: str = "https://account-dev.tdei.us/"
     TDEI_OIDC_REALM: str = "tdei"
 

@@ -40,6 +40,8 @@ from api.src.workspaces.schemas import (
     QuestSettingsPatch,
     QuestSettingsResponse,
     WorkspaceCreate,
+    WorkspaceCreateCheck,
+    WorkspaceCreateCheckResponse,
     WorkspaceCreateWithForm,
     WorkspaceImagery,
     WorkspaceNameCheck,
@@ -157,6 +159,24 @@ async def check_workspace_name(
         return WorkspaceNameCheckResponse(available=available)
     except Exception as e:
         logger.error(f"Failed to check workspace name: {str(e)}")
+        raise
+
+
+# @test: Test that this endpoint returns canCreate true when the user's role covers the type and the dataset is released or in the target project group
+# @test: Test that this endpoint returns canCreate false with a reason for a member-only user, an unknown dataset, and an unreleased dataset from another project group
+# @test: Test that this endpoint returns 422 when type or tdeiProjectGroupId is missing
+@router.post("/check-create", response_model=WorkspaceCreateCheckResponse)
+async def check_workspace_create(
+    workspace_create_check: WorkspaceCreateCheck,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceCreateCheckResponse:
+    try:
+        return await repository_ws.check_create_permission(
+            current_user, workspace_create_check
+        )
+    except Exception as e:
+        logger.error(f"Failed to check workspace create permission: {str(e)}")
         raise
 
 

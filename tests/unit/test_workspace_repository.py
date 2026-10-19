@@ -17,6 +17,7 @@ from api.core.security import TdeiDataset, TdeiProjectGroupRole
 from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import (
     WorkspaceCreate,
+    WorkspaceCreateCheck,
     WorkspaceNameCheck,
     WorkspaceType,
 )
@@ -230,6 +231,77 @@ async def test_create_member_only_is_rejected_before_tdei_lookup(user, tdei_data
     with pytest.raises(ForbiddenException):
         await _repo(session).create(user, _from_dataset())
     assert fetched == []
+
+
+def _check(record_id: str | None = RECORD_ID) -> WorkspaceCreateCheck:
+    return WorkspaceCreateCheck(
+        type=WorkspaceType.OSW,
+        tdeiProjectGroupId=UUID(factories.DEFAULT_PG_ID),
+        tdeiRecordId=UUID(record_id) if record_id else None,
+    )
+
+
+@pytest.mark.parametrize(
+    "dataset_pg, status",
+    [
+        (factories.DEFAULT_PG_ID, "Pre-Release"),  # unreleased, same PG
+        (OTHER_PG_ID, "Publish"),  # released, any PG
+    ],
+)
+async def test_check_create_permission_allowed(
+    creator, tdei_datasets, dataset_pg, status
+):
+    datasets, _ = tdei_datasets
+    datasets[RECORD_ID] = _dataset(dataset_pg, status)
+    session = fakes.FakeSession()
+
+    result = await _repo(session).check_create_permission(creator, _check())
+
+    assert result.canCreate is True
+    assert result.reason is None
+    assert session.commits == 0  # a check never writes
+
+
+async def test_check_create_permission_without_dataset_skips_tdei_lookup(
+    creator, tdei_datasets
+):
+    _, fetched = tdei_datasets
+
+    result = await _repo(fakes.FakeSession()).check_create_permission(
+        creator, _check(record_id=None)
+    )
+
+    assert result.canCreate is True
+    assert fetched == []
+
+
+async def test_check_create_permission_member_only_denied(user, tdei_datasets):
+    _, fetched = tdei_datasets
+
+    result = await _repo(fakes.FakeSession()).check_create_permission(user, _check())
+
+    assert result.canCreate is False
+    assert result.reason is not None and "type" in result.reason
+    assert fetched == []
+
+
+async def test_check_create_permission_unreleased_other_group_denied(
+    creator, tdei_datasets
+):
+    datasets, _ = tdei_datasets
+    datasets[RECORD_ID] = _dataset(OTHER_PG_ID, "Pre-Release")
+
+    result = await _repo(fakes.FakeSession()).check_create_permission(creator, _check())
+
+    assert result.canCreate is False
+    assert result.reason is not None and "unreleased" in result.reason
+
+
+async def test_check_create_permission_unknown_dataset_denied(creator, tdei_datasets):
+    result = await _repo(fakes.FakeSession()).check_create_permission(creator, _check())
+
+    assert result.canCreate is False
+    assert result.reason is not None and "not found" in result.reason
 
 
 async def test_name_is_available_when_not_found(user):
