@@ -266,10 +266,10 @@ async def fetch_tdei_dataset(
     Returns None when TDEI has no dataset with that id visible to the caller.
     Raises 502 if TDEI is unreachable, 401 if the token is rejected.
     """
-    if _tdei_client is None:  # pragma: no cover — lifespan should init this
+    if _tdei_api_client is None:  # pragma: no cover — lifespan should init this
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="TDEI client is not initialised",
+            detail="TDEI API client is not initialised",
         )
 
     try:

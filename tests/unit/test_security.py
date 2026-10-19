@@ -852,7 +852,7 @@ async def test_fetch_tdei_dataset_returns_project_group_and_status(monkeypatch):
             ],
         )
     )
-    monkeypatch.setattr(sec, "_tdei_client", tdei)
+    monkeypatch.setattr(sec, "_tdei_api_client", tdei)
 
     dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
 
@@ -870,7 +870,7 @@ async def test_fetch_tdei_dataset_returns_project_group_and_status(monkeypatch):
 async def test_fetch_tdei_dataset_publish_is_released(monkeypatch):
     monkeypatch.setattr(
         sec,
-        "_tdei_client",
+        "_tdei_api_client",
         _FakeTdeiClient(
             _FakeResp(
                 200,
@@ -895,7 +895,7 @@ async def test_fetch_tdei_dataset_publish_is_released(monkeypatch):
     [[], [{"tdei_dataset_id": "some-other-id", "status": "Publish"}], {}],
 )
 async def test_fetch_tdei_dataset_no_match_returns_none(monkeypatch, rows):
-    monkeypatch.setattr(sec, "_tdei_client", _FakeTdeiClient(_FakeResp(200, rows)))
+    monkeypatch.setattr(sec, "_tdei_api_client", _FakeTdeiClient(_FakeResp(200, rows)))
 
     assert await sec.fetch_tdei_dataset(DATASET_ID, "tok") is None
 
@@ -910,7 +910,7 @@ async def test_fetch_tdei_dataset_no_match_returns_none(monkeypatch, rows):
     ],
 )
 async def test_fetch_tdei_dataset_failures(monkeypatch, client, expected_status):
-    monkeypatch.setattr(sec, "_tdei_client", client)
+    monkeypatch.setattr(sec, "_tdei_api_client", client)
 
     with pytest.raises(HTTPException) as exc_info:
         await sec.fetch_tdei_dataset(DATASET_ID, "tok")
