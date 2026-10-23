@@ -303,7 +303,7 @@ async def create_workspace_from_file(
 
 
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
-# @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+# @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data until the configured cache TTL expires
 # @test: Test that this method properly calls the repository method to create the workspace and that the repository method properly creates the workspace in the database
 # @test: Test that this method properly sets the creator as the lead of the workspace and that the repository method properly assigns the lead role in the database
 # @test: Test that this method properly handles inputs that match the schema in WorkspaceCreate and that the repository method properly creates the workspace in the database with those values
@@ -424,7 +424,7 @@ async def update_workspace(
 
 
 # @test: Test that this endpoint properly validates the user's permissions and returns a 403 if the user is not a workspace lead
-# @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data for up to an hour
+# @test: Test that this endpoint properly evicts any cached data for the user after the workspace is deleted so that their next request reflects the deletion rather than serving stale data until the configured cache TTL expires
 # @test: Test that this endpoint properly handles any exceptions and returns a 500 if an unexpected error occurs
 # @test: Test that this endpoint properly handles the case where the workspace does not exist and returns a 404
 # @test: Test that this method properly calls the repository method to delete the workspace and that the repository method properly deletes the workspace from the database
