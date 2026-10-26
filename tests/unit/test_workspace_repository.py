@@ -152,9 +152,12 @@ def tdei_datasets(monkeypatch):
     return datasets, fetched
 
 
-def _dataset(project_group_id: str, status: str) -> TdeiDataset:
+def _dataset(project_group_id: str, status: str, data_type: str = "osw") -> TdeiDataset:
     return TdeiDataset(
-        tdei_dataset_id=RECORD_ID, project_group_id=project_group_id, status=status
+        tdei_dataset_id=RECORD_ID,
+        project_group_id=project_group_id,
+        status=status,
+        data_type=data_type,
     )
 
 
@@ -196,6 +199,30 @@ async def test_create_from_unreleased_dataset_in_other_group_raises(
     with pytest.raises(ForbiddenException):
         await _repo(session).create(creator, _from_dataset())
     assert session.commits == 0
+
+
+@pytest.mark.parametrize("data_type", ["flex", "pathways", ""])
+async def test_create_from_dataset_of_another_type_raises(
+    creator, tdei_datasets, data_type
+):
+    # The type rule would mean nothing if an OSW workspace could hold any data.
+    datasets, _ = tdei_datasets
+    datasets[RECORD_ID] = _dataset(factories.DEFAULT_PG_ID, "Publish", data_type)
+    session = fakes.FakeSession()
+
+    with pytest.raises(ForbiddenException):
+        await _repo(session).create(creator, _from_dataset())
+    assert session.commits == 0
+
+
+async def test_create_from_dataset_type_match_ignores_case(creator, tdei_datasets):
+    datasets, _ = tdei_datasets
+    datasets[RECORD_ID] = _dataset(factories.DEFAULT_PG_ID, "Publish", "OSW")
+    session = fakes.FakeSession()
+
+    await _repo(session).create(creator, _from_dataset())
+
+    assert session.commits == 1
 
 
 async def test_create_from_unknown_dataset_raises_not_found(creator, tdei_datasets):

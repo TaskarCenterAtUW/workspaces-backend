@@ -103,6 +103,14 @@ class WorkspaceRepository:
             )
             if dataset is None:
                 raise NotFoundException(f"TDEI dataset {tdei_record_id} not found")
+            # Otherwise an OSW generator could open a Flex or Pathways
+            # dataset as an OSW workspace, getting around the role rule.
+            if not dataset.matches_type(workspace_type):
+                raise ForbiddenException(
+                    f"TDEI dataset {tdei_record_id} is a "
+                    f"{dataset.data_type or 'unknown'} dataset and can't be opened "
+                    f"as a {workspace_type.value} workspace."
+                )
             if not current_user.canCreateWorkspaceFromDataset(
                 project_group_id, workspace_type, dataset
             ):
@@ -111,7 +119,11 @@ class WorkspaceRepository:
                     "in its own project group."
                 )
 
-    # @test: Test that check_create_permission allows what create allows, and reports a reason (instead of raising) for a missing role, an unknown dataset, and an unreleased dataset from another project group
+    # @test: Test that check_create_permission allows what create allows, and reports a reason (instead of raising) for a missing role, an unknown dataset, a dataset whose data type differs from the workspace type, and an unreleased dataset from another project group
+    # @test: Test that check_create_permission lets a 502 from the TDEI dataset lookup propagate rather than reporting canCreate false
+    # A TDEI failure (502) is not a denial, so it propagates: answering
+    # canCreate=false would tell the user they lack permission when TDEI is
+    # simply down.
     async def check_create_permission(
         self, current_user: UserInfo, check: WorkspaceCreateCheck
     ) -> WorkspaceCreateCheckResponse:

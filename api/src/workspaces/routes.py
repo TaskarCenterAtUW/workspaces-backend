@@ -163,9 +163,20 @@ async def check_workspace_name(
 
 
 # @test: Test that this endpoint returns canCreate true when the user's role covers the type and the dataset is released or in the target project group
-# @test: Test that this endpoint returns canCreate false with a reason for a member-only user, an unknown dataset, and an unreleased dataset from another project group
+# @test: Test that this endpoint returns canCreate false with a reason for a member-only user, an unknown dataset, a dataset of another data type, and an unreleased dataset from another project group
 # @test: Test that this endpoint returns 422 when type or tdeiProjectGroupId is missing
-@router.post("/check-create", response_model=WorkspaceCreateCheckResponse)
+# @test: Test that this endpoint returns 502 when the TDEI dataset lookup fails
+@router.post(
+    "/check-create",
+    response_model=WorkspaceCreateCheckResponse,
+    responses={
+        502: {
+            "description": "TDEI could not be reached or gave an unusable "
+            "answer while looking up tdeiRecordId; whether the user may "
+            "create is unknown"
+        }
+    },
+)
 async def check_workspace_create(
     workspace_create_check: WorkspaceCreateCheck,
     repository_ws: WorkspaceRepository = Depends(get_workspace_repository),

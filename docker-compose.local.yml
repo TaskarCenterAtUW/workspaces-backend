@@ -75,6 +75,7 @@ services:
         - 8000:8000
      environment:
         TDEI_BACKEND_URL: ${TDEI_BACKEND_URL}
+        TDEI_API_BACKEND_URL: ${TDEI_API_BACKEND_URL}
         TDEI_OIDC_REALM: ${TDEI_OIDC_REALM}
         TDEI_OIDC_URL: ${TDEI_OIDC_URL}
         OSM_DATABASE_URL: postgresql+asyncpg://postgres:testing@database:5432/workspaces-osm-local

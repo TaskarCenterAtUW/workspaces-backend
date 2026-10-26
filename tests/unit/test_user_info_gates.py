@@ -147,6 +147,7 @@ def _dataset(project_group_id: str, status: str) -> TdeiDataset:
         tdei_dataset_id="33333333-3333-3333-3333-333333333333",
         project_group_id=project_group_id,
         status=status,
+        data_type="osw",
     )
 
 
@@ -202,3 +203,16 @@ class TestCanCreateWorkspaceFromDataset:
         assert not u.canCreateWorkspaceFromDataset(
             OTHER_PG, WsType.OSW, unreleased_in_other
         )
+
+    def test_unreleased_dataset_pg_matches_regardless_of_case(self):
+        """TDEI may not send the canonical lowercase hyphenated UUID."""
+        u = _user(pg_roles=[Role.POINT_OF_CONTACT])
+        dataset = _dataset(PG.upper().replace("-", ""), "Pre-Release")
+        assert u.canCreateWorkspaceFromDataset(PG, WsType.OSW, dataset) is True
+
+
+class TestCanCreateWorkspaceIdFormat:
+    def test_project_group_id_matches_regardless_of_case_or_hyphens(self):
+        u = _user(pg_roles=[Role.POINT_OF_CONTACT])
+        assert u.canCreateWorkspace(PG.upper(), WsType.OSW) is True
+        assert u.canCreateWorkspace(PG.replace("-", ""), WsType.OSW) is True

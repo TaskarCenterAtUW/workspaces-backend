@@ -232,6 +232,20 @@ async def fetch_project_group_users(
     return out
 
 
+def same_uuid(a: object, b: object) -> bool:
+    """True when both values parse to the same UUID.
+
+    TDEI ids are UUIDs, but nothing guarantees the canonical lowercase,
+    hyphenated form we get from ``str(UUID)``. Comparing parsed values avoids
+    a missed match on case or hyphens. Values that don't parse as UUIDs fall
+    back to exact string comparison.
+    """
+    try:
+        return UUID(str(a)) == UUID(str(b))
+    except ValueError:
+        return str(a) == str(b)
+
+
 class TdeiDataset:
     """The fields of a TDEI dataset that workspace creation checks, as
     returned by ``GET /datasets?tdei_dataset_id=...``.
@@ -246,17 +260,24 @@ class TdeiDataset:
         tdei_dataset_id: str,
         project_group_id: str,
         status: str,
+        data_type: str,
     ) -> None:
         self.tdei_dataset_id = tdei_dataset_id
         self.project_group_id = project_group_id
         self.status = status
+        # "osw", "flex" or "pathways" -- the WorkspaceType values
+        self.data_type = data_type
 
     @property
     def is_released(self) -> bool:
         return self.status == self.RELEASED_STATUS
 
+    def matches_type(self, workspace_type: WorkspaceType) -> bool:
+        return self.data_type.strip().lower() == workspace_type.value
 
-# @test: Test that fetch_tdei_dataset returns the dataset's project group and status, None when TDEI returns no match, 401 when TDEI rejects the token, and 502 when TDEI is unreachable, answers non-200, or returns a non-JSON body
+
+# @test: Test that fetch_tdei_dataset returns the dataset's project group, status and data type, None when TDEI returns no match, and 502 when TDEI is unreachable, rejects the token, answers non-200, or returns a non-JSON or non-list body
+# @test: Test that fetch_tdei_dataset matches the dataset id regardless of case or hyphens
 async def fetch_tdei_dataset(
     dataset_id: str,
     bearer_token: str,
@@ -264,7 +285,10 @@ async def fetch_tdei_dataset(
     """Look up one dataset via ``GET /datasets?tdei_dataset_id=...`` on TDEI.
 
     Returns None when TDEI has no dataset with that id visible to the caller.
-    Raises 502 if TDEI is unreachable, 401 if the token is rejected.
+    Raises 502 if TDEI is unreachable or answers with anything but a JSON
+    list -- including a 401: validate_token has already accepted the caller's
+    token, so a rejection here is a TDEI-side mismatch (e.g. a wrong
+    TDEI_API_BACKEND_URL), not an expired session the client should act on.
     """
     if _tdei_api_client is None:  # pragma: no cover — lifespan should init this
         raise HTTPException(
@@ -287,8 +311,8 @@ async def fetch_tdei_dataset(
 
     if response.status_code == 401:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="TDEI rejected the bearer token",
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI rejected the bearer token when fetching dataset details",
         )
     if response.status_code != 200:
         raise HTTPException(
@@ -307,8 +331,16 @@ async def fetch_tdei_dataset(
             detail="TDEI returned a non-JSON body",
         ) from None
 
-    for row in rows if isinstance(rows, list) else []:
-        if str(row.get("tdei_dataset_id")) != dataset_id:
+    if not isinstance(rows, list):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI returned an unexpected response shape for datasets",
+        )
+
+    for row in rows:
+        if not isinstance(row, dict) or not same_uuid(
+            row.get("tdei_dataset_id"), dataset_id
+        ):
             continue
         return TdeiDataset(
             tdei_dataset_id=dataset_id,
@@ -316,6 +348,7 @@ async def fetch_tdei_dataset(
                 (row.get("project_group") or {}).get("tdei_project_group_id", "")
             ),
             status=str(row.get("status", "")),
+            data_type=str(row.get("data_type", "")),
         )
     return None
 
@@ -582,7 +615,7 @@ class UserInfo:
         self, project_group_id: str, workspace_type: WorkspaceType
     ) -> bool:
         for pg in self.projectGroups:
-            if pg.project_group_id != project_group_id:
+            if not same_uuid(pg.project_group_id, project_group_id):
                 continue
             for role in pg.tdeiRoles:
                 if workspace_type in _CREATABLE_WORKSPACE_TYPES.get(role, ()):
@@ -601,7 +634,9 @@ class UserInfo:
     ) -> bool:
         if not self.canCreateWorkspace(project_group_id, workspace_type):
             return False
-        return dataset.is_released or dataset.project_group_id == project_group_id
+        return dataset.is_released or same_uuid(
+            dataset.project_group_id, project_group_id
+        )
 
     # we get admin/lead rights in two ways:
     # 1. from OSM DB explicitly

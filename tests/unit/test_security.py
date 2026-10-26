@@ -847,6 +847,7 @@ async def test_fetch_tdei_dataset_returns_project_group_and_status(monkeypatch):
                 {
                     "tdei_dataset_id": DATASET_ID,
                     "status": "Pre-Release",
+                    "data_type": "osw",
                     "project_group": {"tdei_project_group_id": "pg-1", "name": "PG"},
                 }
             ],
@@ -859,6 +860,7 @@ async def test_fetch_tdei_dataset_returns_project_group_and_status(monkeypatch):
     assert dataset is not None
     assert dataset.project_group_id == "pg-1"
     assert dataset.status == "Pre-Release"
+    assert dataset.data_type == "osw"
     assert dataset.is_released is False
     args, kwargs = tdei.calls[0]
     assert args == ("datasets",)
@@ -891,8 +893,23 @@ async def test_fetch_tdei_dataset_publish_is_released(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "dataset_id_from_tdei",
+    [DATASET_ID.upper(), DATASET_ID.replace("-", ""), "{" + DATASET_ID + "}"],
+)
+async def test_fetch_tdei_dataset_matches_id_in_any_uuid_format(
+    monkeypatch, dataset_id_from_tdei
+):
+    row = {"tdei_dataset_id": dataset_id_from_tdei, "status": "Publish"}
+    monkeypatch.setattr(sec, "_tdei_api_client", _FakeTdeiClient(_FakeResp(200, [row])))
+
+    dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+
+    assert dataset is not None and dataset.tdei_dataset_id == DATASET_ID
+
+
+@pytest.mark.parametrize(
     "rows",
-    [[], [{"tdei_dataset_id": "some-other-id", "status": "Publish"}], {}],
+    [[], [{"tdei_dataset_id": "some-other-id", "status": "Publish"}], ["junk"]],
 )
 async def test_fetch_tdei_dataset_no_match_returns_none(monkeypatch, rows):
     monkeypatch.setattr(sec, "_tdei_api_client", _FakeTdeiClient(_FakeResp(200, rows)))
@@ -903,8 +920,13 @@ async def test_fetch_tdei_dataset_no_match_returns_none(monkeypatch, rows):
 @pytest.mark.parametrize(
     "client, expected_status",
     [
-        (_FakeTdeiClient(_FakeResp(401)), 401),
+        # validate_token already accepted the token: a TDEI 401 here is a
+        # config mismatch, and must not look like an expired session.
+        (_FakeTdeiClient(_FakeResp(401)), 502),
         (_FakeTdeiClient(_FakeResp(500)), 502),
+        # A paginated wrapper or an error object sent with 200
+        (_FakeTdeiClient(_FakeResp(200, {"items": []})), 502),
+        (_FakeTdeiClient(_FakeResp(200, {"error": "x"})), 502),
         (_FakeTdeiClient(_FakeResp(200, raises=True)), 502),
         (_FakeTdeiClient(exc=httpx.ConnectError("x")), 502),
     ],

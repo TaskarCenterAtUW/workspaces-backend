@@ -15,6 +15,7 @@ from datetime import datetime
 from uuid import UUID
 
 import pytest
+from fastapi import HTTPException
 
 import api.src.workspaces.routes as ws_routes
 from api.core.security import TdeiDataset, TdeiProjectGroupRole
@@ -187,7 +188,10 @@ async def test_check_create_released_dataset_from_other_group(
     client, login, tdei_datasets
 ):
     tdei_datasets[RECORD_ID] = TdeiDataset(
-        tdei_dataset_id=RECORD_ID, project_group_id=OTHER_PG_ID, status="Publish"
+        tdei_dataset_id=RECORD_ID,
+        project_group_id=OTHER_PG_ID,
+        status="Publish",
+        data_type="osw",
     )
     login(_poc_of_default_pg())
 
@@ -208,7 +212,10 @@ async def test_check_create_unreleased_dataset_from_other_group(
     client, login, tdei_datasets
 ):
     tdei_datasets[RECORD_ID] = TdeiDataset(
-        tdei_dataset_id=RECORD_ID, project_group_id=OTHER_PG_ID, status="Pre-Release"
+        tdei_dataset_id=RECORD_ID,
+        project_group_id=OTHER_PG_ID,
+        status="Pre-Release",
+        data_type="osw",
     )
     login(_poc_of_default_pg())
 
@@ -225,6 +232,54 @@ async def test_check_create_unreleased_dataset_from_other_group(
     body = response.json()
     assert body["canCreate"] is False
     assert "unreleased" in body["reason"]
+
+
+async def test_check_create_dataset_of_another_type(client, login, tdei_datasets):
+    tdei_datasets[RECORD_ID] = TdeiDataset(
+        tdei_dataset_id=RECORD_ID,
+        project_group_id=factories.DEFAULT_PG_ID,
+        status="Publish",
+        data_type="pathways",
+    )
+    login(_poc_of_default_pg())
+
+    response = await client.post(
+        f"{API}/check-create",
+        json={
+            "type": "osw",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["canCreate"] is False
+    assert "pathways" in body["reason"]
+
+
+async def test_check_create_tdei_failure_is_502(
+    client, login, tdei_datasets, monkeypatch
+):
+    # A TDEI outage is not a denial, so it isn't reported as canCreate false.
+    async def _unreachable(dataset_id: str, bearer_token: str):
+        raise HTTPException(status_code=502, detail="Could not reach TDEI")
+
+    import api.src.workspaces.repository as ws_repo
+
+    monkeypatch.setattr(ws_repo, "fetch_tdei_dataset", _unreachable)
+    login(_poc_of_default_pg())
+
+    response = await client.post(
+        f"{API}/check-create",
+        json={
+            "type": "osw",
+            "tdeiProjectGroupId": factories.DEFAULT_PG_ID,
+            "tdeiRecordId": RECORD_ID,
+        },
+    )
+
+    assert response.status_code == 502
 
 
 async def test_check_create_member_only(client, login):
@@ -389,6 +444,7 @@ async def test_create_workspace(
         tdei_dataset_id=RECORD_ID,
         project_group_id=factories.DEFAULT_PG_ID,
         status="Pre-Release",
+        data_type="osw",
     )
     osm_session.queue(
         fakes.scalar(1),  # assign_member_role: user exists
@@ -459,7 +515,10 @@ async def test_create_from_unreleased_dataset_in_other_group_403(
 ):
     # A POC of the target PG cannot open another PG's unreleased dataset.
     tdei_datasets[RECORD_ID] = TdeiDataset(
-        tdei_dataset_id=RECORD_ID, project_group_id=OTHER_PG_ID, status="Pre-Release"
+        tdei_dataset_id=RECORD_ID,
+        project_group_id=OTHER_PG_ID,
+        status="Pre-Release",
+        data_type="osw",
     )
     login(_poc_of_default_pg())
     response = await client.post(
