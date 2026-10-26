@@ -115,3 +115,69 @@ async def test_resolve_changeset_unexpected_error_500(
     response = await error_client.put(_resolve_url())
 
     assert response.status_code == 500
+
+
+# === GET /{id}/fixmes ======================================================
+
+
+def _fixme_row(**fields):
+    row = {
+        "type": "node",
+        "id": 5,
+        "version": 2,
+        "changeset": 9,
+        "timestamp": "2026-10-23T22:30:51",
+        "key": "fixme",
+        "note": "set stop_id to the agency's platform stop",
+        "lat": 47.58,
+        "lon": -122.32,
+        "tags": {
+            "stop_name": "Platform",
+            "fixme": "set stop_id to the agency's platform stop",
+        },
+    }
+    return {**row, **fields}
+
+
+async def test_get_fixmes_200(client, login, task_session, osm_session):
+    login(
+        factories.make_user_info(
+            accessible_workspace_ids={factories.DEFAULT_PG_ID: [1]}
+        )
+    )
+    task_session.queue(fakes.rows(factories.make_workspace(id=1)))  # getById
+    osm_session.queue(
+        fakes.mappings(
+            _fixme_row(),
+            _fixme_row(type="way", id=8, key="FIXME", note="which way?", tags=None),
+            _fixme_row(type="relation", id=3, lat=None, lon=None),
+        )
+    )
+
+    response = await client.get(f"{API}/1/fixmes")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(f["type"], f["id"], f["key"]) for f in body] == [
+        ("node", 5, "fixme"),
+        ("way", 8, "FIXME"),
+        ("relation", 3, "fixme"),
+    ]
+    assert body[0]["tags"]["stop_name"] == "Platform"
+    assert body[1]["tags"] == {}  # no tags row: an empty dict, not null
+    assert body[2]["lat"] is None
+
+
+async def test_get_fixmes_inaccessible_workspace_404(
+    client, login, task_session, osm_session
+):
+    login(
+        factories.make_user_info(
+            accessible_workspace_ids={factories.DEFAULT_PG_ID: [1]}
+        )
+    )
+    task_session.queue(fakes.empty())  # getById finds nothing the user can see
+
+    response = await client.get(f"{API}/2/fixmes")
+
+    assert response.status_code == 404

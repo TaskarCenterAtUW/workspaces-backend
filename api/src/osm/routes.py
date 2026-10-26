@@ -5,7 +5,7 @@ from api.core.database import get_osm_session, get_task_session
 from api.core.logging import get_logger
 from api.core.security import UserInfo, validate_token
 from api.src.osm.repository import OSMRepository
-from api.src.osm.schemas import AugmentedDiffResponse
+from api.src.osm.schemas import AugmentedDiffResponse, FixmeElement
 from api.src.workspaces.repository import WorkspaceRepository
 
 logger = get_logger(__name__)
@@ -46,6 +46,27 @@ async def get_changeset_adiff(
             f"Failed to fetch adiff for changeset {changeset_id} "
             f"in workspace {workspace_id}: {str(e)}"
         )
+        raise
+
+
+@router.get(
+    "/{workspace_id}/fixmes",
+    response_model=list[FixmeElement],
+)
+async def get_fixmes(
+    workspace_id: int,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repo),
+    repository_osm: OSMRepository = Depends(get_osm_repo),
+    current_user: UserInfo = Depends(validate_token),
+) -> list[FixmeElement]:
+    """The workspace's elements with a `fixme` tag, for its review queue."""
+    try:
+        await repository_ws.getById(current_user, workspace_id)
+        rows = await repository_osm.getFixmes(workspace_id)
+
+        return [FixmeElement.from_row(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Failed to fetch fixmes in workspace {workspace_id}: {str(e)}")
         raise
 
 
