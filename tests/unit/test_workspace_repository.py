@@ -69,6 +69,36 @@ async def test_get_all_returns_list(user):
     assert [w.id for w in result] == [1, 2]
 
 
+async def test_get_all_gig_only_filters_type_and_app_access(user):
+    session = fakes.FakeSession(fakes.rows(), record_statements=True)
+
+    await _repo(session).getAll(user, gig_only=True)
+
+    sql = session.statements[-1]
+    assert "workspaces.type = " in sql
+    assert '"externalAppAccess" != ' in sql
+
+
+async def test_get_all_skips_geometry_and_definition_joins(user):
+    session = fakes.FakeSession(fakes.rows(), record_statements=True)
+
+    await _repo(session).getAll(user)
+
+    sql = session.statements[-1]
+    assert "geometry" not in sql
+    assert "JOIN" not in sql.upper()
+
+
+async def test_get_all_without_gig_only_has_no_type_or_access_filter(user):
+    session = fakes.FakeSession(fakes.rows(), record_statements=True)
+
+    await _repo(session).getAll(user)
+
+    sql = session.statements[-1]
+    assert "workspaces.type = " not in sql
+    assert '"externalAppAccess" != ' not in sql
+
+
 async def test_create_commits_and_assigns_id(creator):
     session = fakes.FakeSession()
 

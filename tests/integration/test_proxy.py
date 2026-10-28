@@ -251,6 +251,24 @@ async def test_response_body_is_streamed_unmodified(client, login, monkeypatch):
     assert response.headers["content-type"] == "application/xml"
 
 
+async def test_proxied_response_is_not_recompressed(client, login, monkeypatch):
+    # NativeApiGZipMiddleware covers /api/v1/ only; the proxy streams the
+    # upstream's bytes through as received, even large ones.
+    body = b"<osm>" + b"<node id='1'/>" * 200 + b"</osm>"
+    install_osm(
+        monkeypatch, lambda req: (200, {"content-type": "application/xml"}, body)
+    )
+    login(factories.make_user_info(accessible_workspace_ids={"pg": [1]}))
+
+    response = await client.get(
+        "/api/0.6/map", headers={"X-Workspace": "1", "Accept-Encoding": "gzip"}
+    )
+
+    assert response.status_code == 200
+    assert "content-encoding" not in response.headers
+    assert response.content == body
+
+
 # --- /workspace/{id}/ path prefix ------------------------------------------
 #
 # Workspace selection for third-party clients that cannot set an X-Workspace

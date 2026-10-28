@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.background import BackgroundTask
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.core import config
 from api.core.config import settings
@@ -107,6 +109,30 @@ app.add_middleware(
     allow_headers=["*"],
     max_age=100,
 )
+
+
+# @test: Test that a large /api/v1 response is gzipped for a client that accepts it, and that proxied OSM paths are passed through uncompressed
+class NativeApiGZipMiddleware:
+    """Gzip responses from this service's own API (``/api/v1/``) only.
+
+    The OSM proxy (`catch_all`) is left alone: it already negotiates
+    Accept-Encoding with the upstream (see `_UPSTREAM_ACCEPT_ENCODING`) and
+    streams its responses through as received.
+    """
+
+    def __init__(self, app: ASGIApp, prefix: str = "/api/v1/") -> None:
+        self.app = app
+        self.prefix = prefix
+        self.gzip = GZipMiddleware(app, minimum_size=1000)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"].startswith(self.prefix):
+            await self.gzip(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
+app.add_middleware(NativeApiGZipMiddleware)
 
 # Never log these header values verbatim (tokens/session identifiers):
 _SENSITIVE_LOG_HEADERS = frozenset({"authorization", "cookie", "set-cookie"})
