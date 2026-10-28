@@ -40,21 +40,40 @@ from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
 
-sentry_sdk.init(
-    dsn=config.settings.SENTRY_DSN,
-    environment=os.getenv("ENV", "unknown"),
-    release=os.getenv("CODE_VERSION", "unknown"),
-    debug=settings.DEBUG,
-)
-
-# Kept alongside `release` for any dashboards that query the `version` tag.
-sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
-
 # Set up logging configuration
 setup_logging()
 
 # Set up logger for this module
 logger = get_logger(__name__)
+
+
+# @test: Test that a missing SENTRY_DSN logs a warning, and a set one logs the environment and release it reports under
+def init_sentry() -> None:
+    # With no DSN the SDK quietly sends nothing, so say at startup which it
+    # is. The App Services once ran without SENTRY_DSN and nobody could tell.
+    environment = os.getenv("ENV", "unknown")
+    release = os.getenv("CODE_VERSION", "unknown")
+
+    sentry_sdk.init(
+        dsn=config.settings.SENTRY_DSN,
+        environment=environment,
+        release=release,
+        debug=settings.DEBUG,
+    )
+
+    # Kept alongside `release` for any dashboards that query the `version` tag.
+    sentry_sdk.set_tag("version", release)
+
+    if config.settings.SENTRY_DSN:
+        logger.info(
+            f"Reporting errors to Sentry: environment={environment!r}, "
+            f"release={release!r}"
+        )
+    else:
+        logger.warning("SENTRY_DSN is not set, so errors are not reported to Sentry")
+
+
+init_sentry()
 
 # Shared HTTP client for OSM proxy. Reuses connection pool across requests:
 _osm_client: httpx.AsyncClient | None = None
