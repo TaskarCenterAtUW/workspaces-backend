@@ -162,6 +162,42 @@ async def test_list_matches_get_by_id(client, login, task_session, osm_session):
     assert {k: listed[k] for k in shared} == {k: fetched[k] for k in shared}
 
 
+async def test_list_leaves_out_what_only_get_by_id_sends(
+    client, login, task_session, osm_session
+):
+    # tdeiMetadata can be a whole TDEI dataset record, and kartaViewToken a
+    # credential: the list leaves both out, along with the mobile apps'
+    # definitions; the single-workspace GET still sends them.
+    login(
+        factories.make_user_info(osm_workspace_roles={1: [WorkspaceUserRoleType.LEAD]})
+    )
+
+    def workspace():
+        return factories.make_workspace(
+            id=1, tdeiMetadata={"metadata": {"big": True}}, kartaViewToken="secret"
+        )
+
+    task_session.queue(
+        fakes.rows(workspace()),  # /mine getAll
+        fakes.rows(workspace()),  # /1 getById
+    )
+    osm_session.queue(fakes.rows(), fakes.rows())
+
+    listed = (await client.get(f"{API}/mine")).json()[0]
+    fetched = (await client.get(f"{API}/1")).json()
+
+    only_in_get = {
+        "tdeiMetadata",
+        "kartaViewToken",
+        "longFormQuestDef",
+        "imageryListDef",
+    }
+    assert only_in_get.isdisjoint(listed)
+    assert only_in_get <= fetched.keys()
+    assert fetched["tdeiMetadata"] == {"metadata": {"big": True}}
+    assert fetched["kartaViewToken"] == "secret"
+
+
 # === GET /{id} =============================================================
 
 

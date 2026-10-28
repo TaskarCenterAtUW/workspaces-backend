@@ -49,6 +49,7 @@ from api.src.workspaces.schemas import (
     WorkspaceNameCheckResponse,
     WorkspacePatch,
     WorkspaceResponse,
+    WorkspaceSummaryResponse,
 )
 
 # Set up logger for this module
@@ -108,7 +109,7 @@ async def save_uploaded_dataset(workspace_id: int, upload: UploadFile) -> Path:
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 # @test: Test that this method properly checks permissions to see if the user has access to the workspace and if they don't, it doesn't appear in the list
 # @test: Test that this method properly handles the case where the workspace does not exist and doesn't include it
-# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceSummaryResponse, and that no item carries tdeiMetadata or kartaViewToken
 # @test: Test that this method's results match the values of the fetch-by-workspace-id method below; all workspaces in this list are retrievable via that method
 # @test: Test that gig_only=true returns only OSW workspaces with external app access, and that lat, lon and radius are accepted and ignored
 
@@ -118,7 +119,7 @@ async def save_uploaded_dataset(workspace_id: int, upload: UploadFile) -> Path:
 # The mobile apps also send lat, lon and radius. Those are deliberately not
 # applied: the apps get every workspace in the user's project groups, wherever
 # it is. FastAPI ignores undeclared query parameters, so they need no handling.
-@router.get("/mine", response_model=list[WorkspaceResponse])
+@router.get("/mine", response_model=list[WorkspaceSummaryResponse])
 async def get_my_workspaces(
     gig_only: bool = Query(
         False,
@@ -129,7 +130,7 @@ async def get_my_workspaces(
     user_repo: UserRepository = Depends(get_user_repository),
     project_repo: TaskingProjectRepository = Depends(get_project_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> list[WorkspaceResponse]:
+) -> list[WorkspaceSummaryResponse]:
     try:
         workspaces = await repository.getAll(current_user, gig_only=gig_only)
         workspace_ids = [ws.id for ws in workspaces if ws.id is not None]
@@ -141,7 +142,7 @@ async def get_my_workspaces(
         for ws in workspaces:
             assert ws.id is not None  # persisted workspace always has an id
             responses.append(
-                WorkspaceResponse.from_workspace(
+                WorkspaceSummaryResponse.from_workspace(
                     ws,
                     current_user,
                     projects_count=projects_counts.get(ws.id, 0),
