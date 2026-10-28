@@ -72,3 +72,34 @@ class AugmentedDiffResponse(BaseModel):
         ]
 
         return cls(actions=actions)
+
+
+class FixmeElement(BaseModel):
+    """A current element with a `fixme` tag: something a mapper asked to have checked."""
+
+    type: str  # 'node' | 'way' | 'relation'
+    id: int
+    version: int
+    changeset: int
+    timestamp: datetime
+    key: str  # the tag's key as written, e.g. 'fixme' or 'FIXME'
+    note: str
+    # A node's position, or the middle of a way's nodes; none for a relation.
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    tags: dict[str, str]
+
+    @classmethod
+    def from_row(cls, row: Any) -> "FixmeElement":
+        return cls(
+            type=row["type"],
+            id=row["id"],
+            version=row["version"],
+            changeset=row["changeset"],
+            timestamp=row["timestamp"],
+            key=row["key"],
+            note=row["note"],
+            lat=row["lat"],
+            lon=row["lon"],
+            tags=row["tags"] or {},
+        )
