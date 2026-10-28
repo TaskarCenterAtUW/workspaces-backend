@@ -181,10 +181,15 @@ app.include_router(tasking_tasks_router, prefix="/api/v1")
 app.include_router(tasking_audit_router, prefix="/api/v1")
 
 
+# @test: Test that /health reports the CODE_VERSION the image was built with, or "unknown"
 @app.get("/health")
 async def health_check():
-    """Health check endpoint. Used for Docker."""
-    return {"status": "ok"}
+    """Health check endpoint. Used for Docker.
+
+    Also says which commit is running (`CODE_VERSION`, baked into the image by
+    the deploy workflow), so a deploy can be confirmed from outside.
+    """
+    return {"status": "ok", "version": os.getenv("CODE_VERSION", "unknown")}
 
 
 @app.get("/")
