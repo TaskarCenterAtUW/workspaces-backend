@@ -694,7 +694,7 @@ def get_task_db_session(
     return session
 
 
-# @test:
+# @test: Test that TDEI project group role names are trimmed and lowercased, so "POC" or " poc " grant the same rights as "poc"
 
 
 async def validate_token(
@@ -1042,7 +1042,14 @@ async def _validate_token_uncached(
             UserInfoPGMembership(
                 project_group_id=i["tdei_project_group_id"],
                 project_group_name=i["project_group_name"],
-                tdeiRoles=i["roles"],
+                # Normalized so "POC" or " poc" still match TdeiProjectGroupRole,
+                # as the frontend's hasCreationRole does. Roles we don't model
+                # (e.g. tdei-admin) grant nothing here, so they're dropped.
+                tdeiRoles=[
+                    TdeiProjectGroupRole(role)
+                    for r in i.get("roles") or []
+                    if (role := str(r).strip().lower()) in TdeiProjectGroupRole
+                ],
             )
         )
 

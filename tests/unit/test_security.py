@@ -22,6 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 import api.core.security as sec
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.schemas import WorkspaceType
 from tests.support import factories, fakes
 
 USER_ID = "22222222-2222-2222-2222-222222222222"
@@ -149,6 +150,39 @@ async def test_validate_token_populates_attributes(monkeypatch):
     assert info.accessibleWorkspaceIds == {pg_id: [5]}
     assert info.osmWorkspaceRoles == {5: ["lead"]}
     assert info.isWorkspaceLead(5) is True
+
+
+async def test_validate_token_normalizes_role_names(monkeypatch):
+    pg_id = "pg-1"
+    tdei = _FakeTdeiClient(
+        _FakeResp(
+            200,
+            [
+                {
+                    "tdei_project_group_id": pg_id,
+                    "project_group_name": "PG One",
+                    "roles": [" POC ", "OSW_Data_Generator"],
+                }
+            ],
+        )
+    )
+    task = fakes.FakeSession(fakes.mappings({"tdeiProjectGroupId": pg_id, "id": 5}))
+    osm = fakes.FakeSession(fakes.mappings())
+
+    info = await _run_validate(
+        monkeypatch,
+        payload={"sub": USER_ID, "jti": "j1", "preferred_username": "alice"},
+        tdei=tdei,
+        task=task,
+        osm=osm,
+    )
+
+    assert info.projectGroups[0].tdeiRoles == [
+        sec.TdeiProjectGroupRole.POINT_OF_CONTACT,
+        sec.TdeiProjectGroupRole.OSW_GENERATOR,
+    ]
+    assert info.isWorkspaceLead(5) is True
+    assert info.canCreateWorkspace(pg_id, WorkspaceType.FLEX) is True
 
 
 # --- validate_token: graceful failure handling -----------------------------
