@@ -164,6 +164,22 @@ class WorkspaceNameCheckResponse(SQLModel):
     available: bool
 
 
+class WorkspaceCreateCheck(SQLModel):
+    """Fields used to ask whether the user may create a workspace, before
+    submitting the create form. Omit tdeiRecordId for a blank workspace."""
+
+    type: WorkspaceType
+    tdeiProjectGroupId: UUID
+    tdeiRecordId: Optional[UUID] = None
+
+
+class WorkspaceCreateCheckResponse(SQLModel):
+    """Whether creating that workspace would be allowed, and why not."""
+
+    canCreate: bool
+    reason: Optional[str] = None
+
+
 class WorkspaceCreateWithForm(WorkspaceCreate):
     """Fields the client may supply when creating a workspace via form"""
 
