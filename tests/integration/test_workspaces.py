@@ -86,6 +86,44 @@ async def test_list_my_workspaces(client, login, task_session, osm_session):
     assert "updatedAt" in body[0]
 
 
+async def test_list_my_workspaces_accepts_the_mobile_apps_query(
+    client, login, task_session
+):
+    # ScoutRoute sends exactly this; lat/lon/radius are deliberately ignored.
+    login()
+    task_session.queue(fakes.rows())
+    response = await client.get(
+        f"{API}/mine",
+        params={"lat": 47.6, "lon": -122.3, "radius": 20000, "gig_only": "true"},
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_list_my_workspaces_is_gzipped_when_accepted(
+    client, login, task_session, osm_session
+):
+    login()
+    task_session.queue(
+        fakes.rows(
+            *(factories.make_workspace(id=i, title=f"Workspace {i}") for i in range(10))
+        )
+    )
+    osm_session.queue(fakes.rows(), fakes.rows())
+
+    response = await client.get(f"{API}/mine", headers={"Accept-Encoding": "gzip"})
+
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert len(response.json()) == 10  # httpx decompresses transparently
+
+
+async def test_list_my_workspaces_rejects_a_non_boolean_gig_only(client, login):
+    login()
+    response = await client.get(f"{API}/mine", params={"gig_only": "maybe"})
+    assert response.status_code == 422
+
+
 async def test_list_my_workspaces_empty(client, login, task_session):
     login()
     task_session.queue(fakes.rows())
