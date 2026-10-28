@@ -85,11 +85,13 @@ class WorkspaceRepository:
             select(Workspace).where(
                 Workspace.tdeiProjectGroupId.in_(current_user.getProjectGroupIds())  # type: ignore[attr-defined]
             )
-            # The list response sends none of these, so don't load them: the
-            # geometry can be a large multipolygon, and the quest and imagery
+            # The list response (WorkspaceSummaryResponse) sends none of these,
+            # so don't load them: the geometry can be a large multipolygon, the
+            # TDEI metadata a whole dataset record, and the quest and imagery
             # definitions are otherwise joined in for every workspace.
             .options(
                 defer(Workspace.geometry),  # pyright: ignore[reportArgumentType]
+                defer(Workspace.tdeiMetadata),  # pyright: ignore[reportArgumentType]
                 noload(
                     Workspace.longFormQuestDef  # pyright: ignore[reportArgumentType]
                 ),

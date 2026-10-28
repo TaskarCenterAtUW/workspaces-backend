@@ -86,6 +86,7 @@ async def test_get_all_skips_geometry_and_definition_joins(user):
 
     sql = session.statements[-1]
     assert "geometry" not in sql
+    assert '"tdeiMetadata"' not in sql
     assert "JOIN" not in sql.upper()
 
 
