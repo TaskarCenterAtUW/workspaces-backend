@@ -21,6 +21,7 @@ import api.src.workspaces.routes as ws_routes
 from api.core.security import TdeiDataset, TdeiProjectGroupRole
 from api.src.users.schemas import WorkspaceUserRoleType
 from api.src.workspaces.jobs.schemas import Job
+from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.schemas import QuestDefinitionType, WorkspaceLongQuest
 from tests.support import factories, fakes
 
@@ -118,9 +119,45 @@ async def test_list_my_workspaces_is_gzipped_when_accepted(
     assert len(response.json()) == 10  # httpx decompresses transparently
 
 
-async def test_list_my_workspaces_rejects_a_non_boolean_gig_only(client, login):
+@pytest.mark.parametrize(
+    "params, expected",
+    [
+        ({}, False),
+        ({"external_only": "true"}, True),
+        ({"gig_only": "true"}, True),
+        ({"external_only": "false", "gig_only": "true"}, True),
+        ({"external_only": "true", "gig_only": "false"}, True),
+        ({"external_only": "false", "gig_only": "false"}, False),
+    ],
+)
+async def test_gig_only_is_a_synonym_for_external_only(
+    client, login, monkeypatch, params, expected
+):
+    seen = []
+
+    async def fake_get_all(self, current_user, external_only=False):
+        seen.append(external_only)
+        return []
+
+    monkeypatch.setattr(WorkspaceRepository, "getAll", fake_get_all)
     login()
-    response = await client.get(f"{API}/mine", params={"gig_only": "maybe"})
+
+    response = await client.get(f"{API}/mine", params=params)
+
+    assert response.status_code == 200
+    assert seen == [expected]
+
+
+async def test_only_external_only_is_in_the_api_docs(client):
+    spec = (await client.get("/openapi.json")).json()
+    params = spec["paths"]["/api/v1/workspaces/mine"]["get"]["parameters"]
+    assert [p["name"] for p in params] == ["external_only"]
+
+
+@pytest.mark.parametrize("name", ["external_only", "gig_only"])
+async def test_list_my_workspaces_rejects_a_non_boolean_filter(client, login, name):
+    login()
+    response = await client.get(f"{API}/mine", params={name: "maybe"})
     assert response.status_code == 422
 
 
