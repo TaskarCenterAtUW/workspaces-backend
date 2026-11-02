@@ -111,7 +111,8 @@ async def save_uploaded_dataset(workspace_id: int, upload: UploadFile) -> Path:
 # @test: Test that this method properly handles the case where the workspace does not exist and doesn't include it
 # @test: Test that this method properly handles inputs that match the schema in WorkspaceSummaryResponse, and that no item carries tdeiMetadata or kartaViewToken
 # @test: Test that this method's results match the values of the fetch-by-workspace-id method below; all workspaces in this list are retrievable via that method
-# @test: Test that gig_only=true returns only OSW workspaces with external app access, and that lat, lon and radius are accepted and ignored
+# @test: Test that external_only=true returns only OSW workspaces with external app access, and that lat, lon and radius are accepted and ignored
+# @test: Test that gig_only is a synonym for external_only, and that only external_only appears in the OpenAPI schema
 
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
@@ -119,20 +120,26 @@ async def save_uploaded_dataset(workspace_id: int, upload: UploadFile) -> Path:
 # The mobile apps also send lat, lon and radius. Those are deliberately not
 # applied: the apps get every workspace in the user's project groups, wherever
 # it is. FastAPI ignores undeclared query parameters, so they need no handling.
+#
+# gig_only is the older name for external_only. The mobile apps send it, so it
+# keeps working, but it's left out of the API docs.
 @router.get("/mine", response_model=list[WorkspaceSummaryResponse])
 async def get_my_workspaces(
-    gig_only: bool = Query(
+    external_only: bool = Query(
         False,
         description="Only OSW workspaces open to external apps, the ones the "
         "mobile apps (ScoutRoute) can use.",
     ),
+    gig_only: bool = Query(False, include_in_schema=False),
     repository: WorkspaceRepository = Depends(get_workspace_repository),
     user_repo: UserRepository = Depends(get_user_repository),
     project_repo: TaskingProjectRepository = Depends(get_project_repository),
     current_user: UserInfo = Depends(validate_token),
 ) -> list[WorkspaceSummaryResponse]:
     try:
-        workspaces = await repository.getAll(current_user, gig_only=gig_only)
+        workspaces = await repository.getAll(
+            current_user, external_only=external_only or gig_only
+        )
         workspace_ids = [ws.id for ws in workspaces if ws.id is not None]
 
         projects_counts = await project_repo.get_projects_counts(workspace_ids)
