@@ -69,10 +69,10 @@ async def test_get_all_returns_list(user):
     assert [w.id for w in result] == [1, 2]
 
 
-async def test_get_all_gig_only_filters_type_and_app_access(user):
+async def test_get_all_external_only_filters_type_and_app_access(user):
     session = fakes.FakeSession(fakes.rows(), record_statements=True)
 
-    await _repo(session).getAll(user, gig_only=True)
+    await _repo(session).getAll(user, external_only=True)
 
     sql = session.statements[-1]
     assert "workspaces.type = " in sql
@@ -90,7 +90,7 @@ async def test_get_all_skips_geometry_and_definition_joins(user):
     assert "JOIN" not in sql.upper()
 
 
-async def test_get_all_without_gig_only_has_no_type_or_access_filter(user):
+async def test_get_all_without_external_only_has_no_type_or_access_filter(user):
     session = fakes.FakeSession(fakes.rows(), record_statements=True)
 
     await _repo(session).getAll(user)

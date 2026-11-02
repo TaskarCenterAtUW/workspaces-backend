@@ -77,9 +77,9 @@ class WorkspaceRepository:
             raise NotFoundException(f"Workspace with id {workspace_id} not found")
         return workspace
 
-    # @test: Test that gig_only limits the list to OSW workspaces with external app access (public or project group), and that without it every type and access level is returned
+    # @test: Test that external_only limits the list to OSW workspaces with external app access (public or project group), and that without it every type and access level is returned
     async def getAll(
-        self, current_user: UserInfo, gig_only: bool = False
+        self, current_user: UserInfo, external_only: bool = False
     ) -> list[Workspace]:
         query = (
             select(Workspace).where(
@@ -100,7 +100,7 @@ class WorkspaceRepository:
         )
         # The mobile apps (ScoutRoute) only show OSW workspaces opened to
         # external apps, so filter here instead of sending the rest to discard.
-        if gig_only:
+        if external_only:
             is_osw = Workspace.type == WorkspaceType.OSW
             open_to_apps = (
                 Workspace.externalAppAccess != ExternalAppsDefinitionType.NONE
