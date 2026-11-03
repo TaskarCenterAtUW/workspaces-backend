@@ -40,7 +40,13 @@ jobs:
         - uses: actions/checkout@v4
           with:
             ref:  ${{ github.event.inputs.environment }}
-    
+
+        # The commit actually checked out, which differs from github.sha when
+        # the workflow is dispatched from a branch other than the environment's.
+        - name: Get commit
+          id: commit
+          run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
         - uses: docker/login-action@v3
           with:
             registry: ${{ vars.DOCKERHUB_REGISTRY }}
@@ -59,6 +65,12 @@ jobs:
             context: .
             push: true
             platforms: linux/amd64
+            build-args: |
+              CODE_VERSION=${{ steps.commit.outputs.sha }}
+            # Production isn't deployed from here. Deploy it by setting the
+            # container image to the commit's tag, not :prod: an unchanged
+            # image name leaves the config unchanged, so Azure neither pulls
+            # nor restarts and the old code keeps running.
             tags: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }},
-                  ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{github.sha}}
+                  ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ steps.commit.outputs.sha }}
         
