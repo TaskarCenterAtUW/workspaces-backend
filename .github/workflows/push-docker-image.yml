@@ -36,11 +36,19 @@ jobs:
     concurrency:
       group: build
       cancel-in-progress: true
+    outputs:
+        sha: ${{ steps.commit.outputs.sha }}
     steps:
         - uses: actions/checkout@v4
           with:
             ref:  ${{ github.event.inputs.environment }}
-    
+
+        # The commit actually checked out, which differs from github.sha when
+        # the workflow is dispatched from a branch other than the environment's.
+        - name: Get commit
+          id: commit
+          run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
         - uses: docker/login-action@v3
           with:
             registry: ${{ vars.DOCKERHUB_REGISTRY }}
@@ -60,9 +68,9 @@ jobs:
             push: true
             platforms: linux/amd64
             build-args: |
-              CODE_VERSION=${{ github.sha }}
+              CODE_VERSION=${{ steps.commit.outputs.sha }}
             tags: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }},
-                  ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{github.sha}}
+                  ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ steps.commit.outputs.sha }}
   deploy:
     runs-on: ubuntu-latest
     needs: [build,set-github-environment]
@@ -74,6 +82,9 @@ jobs:
         uses: azure/login@v2.0.0
         with:
           creds: ${{ secrets.TDEI_CORE_AZURE_CREDS }}
+      # Deploy the commit's tag, not the moving environment tag: an unchanged
+      # image name leaves the container config unchanged, so Azure neither
+      # pulls nor restarts and the old code keeps running.
       - name: Deploy to Azure
         uses: azure/webapps-deploy@v3
         with:
@@ -82,7 +93,7 @@ jobs:
             [
               {
                 "name": "main",
-                "image": "${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.set-github-environment.outputs.environment }}",
+                "image": "${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:${{ needs.build.outputs.sha }}",
                 "targetport": "8000",
                 "isMain": true
               }
