@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import sys
@@ -11,6 +12,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
+from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.background import BackgroundTask
 from starlette.middleware.gzip import GZipMiddleware
@@ -181,15 +183,48 @@ app.include_router(tasking_tasks_router, prefix="/api/v1")
 app.include_router(tasking_audit_router, prefix="/api/v1")
 
 
+_SCHEMA_REVISION_TIMEOUT = 3  # seconds
+
+
+async def _schema_revision(session: AsyncSession) -> str | None:
+    """The Alembic revision a database is at, or None if it can't be read.
+
+    None rather than an error: /health is a liveness check, and an unreachable
+    database shouldn't make it fail (and get the container restarted). The
+    timeout keeps a hung database from stalling it.
+    """
+    try:
+        result = await asyncio.wait_for(
+            session.execute(text("SELECT version_num FROM alembic_version")),
+            timeout=_SCHEMA_REVISION_TIMEOUT,
+        )
+    except Exception as e:
+        logger.warning(f"Could not read schema revision: {e!r}")
+        return None
+    return ",".join(sorted(result.scalars().all())) or None
+
+
 # @test: Test that /health reports the CODE_VERSION the image was built with, or "unknown"
+# @test: Test that /health reports each database's Alembic revision, and null for one it can't read while still returning 200
 @app.get("/health")
-async def health_check():
+async def health_check(
+    task_session: AsyncSession = Depends(get_task_session),
+    osm_session: AsyncSession = Depends(get_osm_session),
+):
     """Health check endpoint. Used for Docker.
 
     Also says which commit is running (`CODE_VERSION`, baked into the image by
-    the deploy workflow), so a deploy can be confirmed from outside.
+    the deploy workflow) and which Alembic revision each database's schema is
+    at, so a deploy and its migrations can be confirmed from outside.
     """
-    return {"status": "ok", "version": os.getenv("CODE_VERSION", "unknown")}
+    task_revision, osm_revision = await asyncio.gather(
+        _schema_revision(task_session), _schema_revision(osm_session)
+    )
+    return {
+        "status": "ok",
+        "version": os.getenv("CODE_VERSION", "unknown"),
+        "schema": {"task": task_revision, "osm": osm_revision},
+    }
 
 
 @app.get("/")
