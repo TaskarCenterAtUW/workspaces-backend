@@ -26,7 +26,6 @@ def make_user_info(
     accessible_workspace_ids: dict[str, list[int]] | None = None,
     osm_workspace_roles: dict[int, list] | None = None,
     poc_group_ids: tuple[str, ...] = (),
-    tdei_roles: list[TdeiProjectGroupRole] | None = None,
 ) -> UserInfo:
     """Build a ``UserInfo`` the way ``validate_token`` would have.
 
@@ -35,8 +34,6 @@ def make_user_info(
     ``osm_workspace_roles``      -- workspace_id -> roles (from the OSM DB).
     ``poc_group_ids``            -- subset of groups where the user is a POC
                                     (grants lead rights on owned workspaces).
-    ``tdei_roles``               -- TDEI roles for every non-POC group
-                                    (default: member only).
     """
     info = UserInfo()
     info.credentials = "test-token"
@@ -53,7 +50,7 @@ def make_user_info(
             tdeiRoles=(
                 [TdeiProjectGroupRole.POINT_OF_CONTACT]
                 if pg_id in poc_group_ids
-                else list(tdei_roles or [TdeiProjectGroupRole.MEMBER])
+                else [TdeiProjectGroupRole.MEMBER]
             ),
         )
         for pg_id in project_group_ids

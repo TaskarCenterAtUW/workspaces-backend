@@ -164,22 +164,6 @@ class WorkspaceNameCheckResponse(SQLModel):
     available: bool
 
 
-class WorkspaceCreateCheck(SQLModel):
-    """Fields used to ask whether the user may create a workspace, before
-    submitting the create form. Omit tdeiRecordId for a blank workspace."""
-
-    type: WorkspaceType
-    tdeiProjectGroupId: UUID
-    tdeiRecordId: Optional[UUID] = None
-
-
-class WorkspaceCreateCheckResponse(SQLModel):
-    """Whether creating that workspace would be allowed, and why not."""
-
-    canCreate: bool
-    reason: Optional[str] = None
-
-
 class WorkspaceCreateWithForm(WorkspaceCreate):
     """Fields the client may supply when creating a workspace via form"""
 
@@ -268,13 +252,10 @@ class ImagerySettingsPatch(SQLModel):
     definition: Optional[list[Any]] = None
 
 
-class WorkspaceSummaryResponse(SQLModel):
+class WorkspaceResponse(SQLModel):
     """
-    A workspace as listed by ``GET /workspaces/mine``. Includes the effective
-    role for the user making the request. Leaves out what only the
-    single-workspace GET needs (see `WorkspaceResponse`), above all
-    ``tdeiMetadata``, which for a workspace created from a TDEI dataset holds
-    the whole dataset record and made the list large.
+    Workspace serialized for API responses. Includes the effective role for the
+    user making the request.
     """
 
     id: int
@@ -284,77 +265,23 @@ class WorkspaceSummaryResponse(SQLModel):
     tdeiProjectGroupId: UUID
     tdeiRecordId: Optional[UUID] = None
     tdeiServiceId: Optional[UUID] = None
+    tdeiMetadata: Optional[Any] = None
     createdAt: datetime
     createdBy: UUID
     createdByName: str
     updatedAt: datetime
     externalAppAccess: ExternalAppsDefinitionType
+    kartaViewToken: Optional[str] = None
     autoFlagReview: bool = False
     overrideConflicts: bool = False
     role: str
     projectsCount: int = 0
     membersCount: int = 0
-    importStatus: Optional[str] = None
-
-    # @test: Test that this class serializes the listed fields, including the effective role for the user making the request, and has no tdeiMetadata, kartaViewToken, longFormQuestDef or imageryListDef
-
-    @classmethod
-    def _summary_fields(
-        cls,
-        workspace: "Workspace",
-        user: "UserInfo",
-        projects_count: int,
-        members_count: int,
-    ) -> dict[str, Any]:
-        assert workspace.id is not None  # persisted workspace always has an id
-        return dict(
-            id=workspace.id,
-            type=workspace.type,
-            title=workspace.title,
-            description=workspace.description,
-            tdeiProjectGroupId=workspace.tdeiProjectGroupId,
-            tdeiRecordId=workspace.tdeiRecordId,
-            tdeiServiceId=workspace.tdeiServiceId,
-            createdAt=workspace.createdAt,
-            createdBy=workspace.createdBy,
-            createdByName=workspace.createdByName,
-            updatedAt=workspace.updatedAt or workspace.createdAt,
-            externalAppAccess=workspace.externalAppAccess,
-            autoFlagReview=workspace.autoFlagReview,
-            overrideConflicts=workspace.overrideConflicts,
-            role=user.effective_role(workspace.id),
-            projectsCount=projects_count,
-            membersCount=members_count,
-            importStatus=workspace.importStatus,
-        )
-
-    @classmethod
-    def from_workspace(
-        cls,
-        workspace: "Workspace",
-        user: "UserInfo",
-        *,
-        projects_count: int = 0,
-        members_count: int = 0,
-    ) -> Self:
-        return cls(
-            **cls._summary_fields(workspace, user, projects_count, members_count)
-        )
-
-
-class WorkspaceResponse(WorkspaceSummaryResponse):
-    """
-    Workspace serialized for the single-workspace GET: everything in the list,
-    plus the TDEI metadata, the KartaView token and the mobile apps'
-    definitions.
-    """
-
-    tdeiMetadata: Optional[Any] = None
-    kartaViewToken: Optional[str] = None
     # Included in single-workspace GET for mobile app consumption. TODO: remove
     # this when the app fetches these from dedicated endpoints:
     longFormQuestDef: Optional[Any] = None
     imageryListDef: Optional[Any] = None
+    importStatus: Optional[str] = None
 
     # @test: Test that this class properly serializes the workspace data for API responses, including the effective role for the user making the request
     # @test: Test that the values are populated in this class match the expected values from the database and that the relationships are correctly serialized
@@ -370,12 +297,30 @@ class WorkspaceResponse(WorkspaceSummaryResponse):
         projects_count: int = 0,
         members_count: int = 0,
     ) -> Self:
+        assert workspace.id is not None  # persisted workspace always has an id
         return cls(
-            **cls._summary_fields(workspace, user, projects_count, members_count),
+            id=workspace.id,
+            type=workspace.type,
+            title=workspace.title,
+            description=workspace.description,
+            tdeiProjectGroupId=workspace.tdeiProjectGroupId,
+            tdeiRecordId=workspace.tdeiRecordId,
+            tdeiServiceId=workspace.tdeiServiceId,
             tdeiMetadata=workspace.tdeiMetadata,
+            createdAt=workspace.createdAt,
+            createdBy=workspace.createdBy,
+            createdByName=workspace.createdByName,
+            updatedAt=workspace.updatedAt or workspace.createdAt,
+            externalAppAccess=workspace.externalAppAccess,
             kartaViewToken=workspace.kartaViewToken,
+            autoFlagReview=workspace.autoFlagReview,
+            overrideConflicts=workspace.overrideConflicts,
+            role=user.effective_role(workspace.id),
+            projectsCount=projects_count,
+            membersCount=members_count,
             imageryListDef=imagery_list_def,
             longFormQuestDef=long_form_quest_def,
+            importStatus=workspace.importStatus,
         )
 
 
