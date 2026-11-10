@@ -9,6 +9,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     status,
@@ -40,12 +41,15 @@ from api.src.workspaces.schemas import (
     QuestSettingsPatch,
     QuestSettingsResponse,
     WorkspaceCreate,
+    WorkspaceCreateCheck,
+    WorkspaceCreateCheckResponse,
     WorkspaceCreateWithForm,
     WorkspaceImagery,
     WorkspaceNameCheck,
     WorkspaceNameCheckResponse,
     WorkspacePatch,
     WorkspaceResponse,
+    WorkspaceSummaryResponse,
 )
 
 # Set up logger for this module
@@ -105,20 +109,37 @@ async def save_uploaded_dataset(workspace_id: int, upload: UploadFile) -> Path:
 # @test: Test that this method properly handles numeric workspace_id input and invalid values for the same
 # @test: Test that this method properly checks permissions to see if the user has access to the workspace and if they don't, it doesn't appear in the list
 # @test: Test that this method properly handles the case where the workspace does not exist and doesn't include it
-# @test: Test that this method properly handles inputs that match the schema in WorkspaceResponse
+# @test: Test that this method properly handles inputs that match the schema in WorkspaceSummaryResponse, and that no item carries tdeiMetadata or kartaViewToken
 # @test: Test that this method's results match the values of the fetch-by-workspace-id method below; all workspaces in this list are retrievable via that method
+# @test: Test that external_only=true returns only OSW workspaces with external app access, and that lat, lon and radius are accepted and ignored
+# @test: Test that gig_only is a synonym for external_only, and that only external_only appears in the OpenAPI schema
 
 
 # Returns list of workspaces user has access to as JSON payload on success--returns empty JSON list if none
-@router.get("/mine", response_model=list[WorkspaceResponse])
+#
+# The mobile apps also send lat, lon and radius. Those are deliberately not
+# applied: the apps get every workspace in the user's project groups, wherever
+# it is. FastAPI ignores undeclared query parameters, so they need no handling.
+#
+# gig_only is the older name for external_only. The mobile apps send it, so it
+# keeps working, but it's left out of the API docs.
+@router.get("/mine", response_model=list[WorkspaceSummaryResponse])
 async def get_my_workspaces(
+    external_only: bool = Query(
+        False,
+        description="Only OSW workspaces open to external apps, the ones the "
+        "mobile apps (ScoutRoute) can use.",
+    ),
+    gig_only: bool = Query(False, include_in_schema=False),
     repository: WorkspaceRepository = Depends(get_workspace_repository),
     user_repo: UserRepository = Depends(get_user_repository),
     project_repo: TaskingProjectRepository = Depends(get_project_repository),
     current_user: UserInfo = Depends(validate_token),
-) -> list[WorkspaceResponse]:
+) -> list[WorkspaceSummaryResponse]:
     try:
-        workspaces = await repository.getAll(current_user)
+        workspaces = await repository.getAll(
+            current_user, external_only=external_only or gig_only
+        )
         workspace_ids = [ws.id for ws in workspaces if ws.id is not None]
 
         projects_counts = await project_repo.get_projects_counts(workspace_ids)
@@ -128,7 +149,7 @@ async def get_my_workspaces(
         for ws in workspaces:
             assert ws.id is not None  # persisted workspace always has an id
             responses.append(
-                WorkspaceResponse.from_workspace(
+                WorkspaceSummaryResponse.from_workspace(
                     ws,
                     current_user,
                     projects_count=projects_counts.get(ws.id, 0),
@@ -157,6 +178,35 @@ async def check_workspace_name(
         return WorkspaceNameCheckResponse(available=available)
     except Exception as e:
         logger.error(f"Failed to check workspace name: {str(e)}")
+        raise
+
+
+# @test: Test that this endpoint returns canCreate true when the user's role covers the type and the dataset is released or in the target project group
+# @test: Test that this endpoint returns canCreate false with a reason for a member-only user, an unknown dataset, a dataset of another data type, and an unreleased dataset from another project group
+# @test: Test that this endpoint returns 422 when type or tdeiProjectGroupId is missing
+# @test: Test that this endpoint returns 502 when the TDEI dataset lookup fails
+@router.post(
+    "/check-create",
+    response_model=WorkspaceCreateCheckResponse,
+    responses={
+        502: {
+            "description": "TDEI could not be reached or gave an unusable "
+            "answer while looking up tdeiRecordId; whether the user may "
+            "create is unknown"
+        }
+    },
+)
+async def check_workspace_create(
+    workspace_create_check: WorkspaceCreateCheck,
+    repository_ws: WorkspaceRepository = Depends(get_workspace_repository),
+    current_user: UserInfo = Depends(validate_token),
+) -> WorkspaceCreateCheckResponse:
+    try:
+        return await repository_ws.check_create_permission(
+            current_user, workspace_create_check
+        )
+    except Exception as e:
+        logger.error(f"Failed to check workspace create permission: {str(e)}")
         raise
 
 

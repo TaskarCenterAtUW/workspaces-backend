@@ -118,6 +118,43 @@ enforced at this layer; if required, it must be enforced downstream
 (`workspaces-openstreetmap-website/`, `workspaces-cgimap/`) — that has not been
 audited here.
 
+**Enforced here, TDEI-role-gated: Create Workspace.** Creation isn't in the
+matrix above because it happens before any workspace role exists. It is gated
+on the caller's TDEI roles *in the target project group*
+(`UserInfo.canCreateWorkspace`, via `_CREATABLE_WORKSPACE_TYPES` in
+`api/core/security.py`), and enforced in `WorkspaceRepository._authorize_create`
+(`api/src/workspaces/repository.py`) → 403:
+
+| TDEI role in the target PG | May create |
+|---|---|
+| `poc` | any workspace type |
+| `osw_data_generator` | OSW only |
+| `flex_data_generator` | Flex only |
+| `pathways_data_generator` | Pathways only |
+| `member` (alone) | nothing |
+
+* Roles are a list, so a `member` who also holds a qualifying role can create.
+* **`tdei-admin` gets no extra rights.** An admin can't be a POC, only a
+  member, so the member rule applies. It is not in `_CREATABLE_WORKSPACE_TYPES`.
+* **Creating from a TDEI dataset** (`tdeiRecordId` set) also looks the dataset
+  up on TDEI (`fetch_tdei_dataset`, against `TDEI_API_BACKEND_URL`, a required
+  setting with no default) and checks:
+  * the dataset exists and the caller can see it, or 404;
+  * its `data_type` matches the workspace type, or 403. Otherwise an OSW
+    generator could open a Flex/Pathways dataset as an OSW workspace;
+  * a **released** dataset (`status == "Publish"`) may come from any project
+    group, but an **unreleased** one only from the project group the workspace
+    is created in, or 403
+    (`UserInfo.canCreateWorkspaceFromDataset`).
+* Dataset and project-group ids are compared as parsed UUIDs (`same_uuid`), so
+  case and hyphens don't matter.
+* If TDEI is unreachable, rejects the token, or returns an unusable body, the
+  result is **502**, not 401. `validate_token` has already accepted the token,
+  so a TDEI rejection here is a config mismatch, not an expired session.
+* `POST /workspaces/check-create` runs the same `_authorize_create` as a
+  pre-flight and returns `{canCreate, reason}` instead of a 403/404. A TDEI
+  failure still propagates as 502, because "TDEI is down" isn't a denial.
+
 ## The OSM proxy layer: routing, auth, and user provisioning
 
 This service is a reverse proxy in front of `osm-web`, which in turn fronts the

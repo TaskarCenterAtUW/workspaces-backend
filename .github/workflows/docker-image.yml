@@ -33,5 +33,7 @@ jobs:
             context: .
             push: true
             platforms: linux/amd64
+            build-args: |
+              CODE_VERSION=${{ github.sha }}
             tags: ${{ vars.DOCKERHUB_REGISTRY }}/workspaces-backend-v2:dev
         

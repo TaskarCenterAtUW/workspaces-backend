@@ -22,6 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 import api.core.security as sec
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.schemas import WorkspaceType
 from tests.support import factories, fakes
 
 USER_ID = "22222222-2222-2222-2222-222222222222"
@@ -149,6 +150,39 @@ async def test_validate_token_populates_attributes(monkeypatch):
     assert info.accessibleWorkspaceIds == {pg_id: [5]}
     assert info.osmWorkspaceRoles == {5: ["lead"]}
     assert info.isWorkspaceLead(5) is True
+
+
+async def test_validate_token_normalizes_role_names(monkeypatch):
+    pg_id = "pg-1"
+    tdei = _FakeTdeiClient(
+        _FakeResp(
+            200,
+            [
+                {
+                    "tdei_project_group_id": pg_id,
+                    "project_group_name": "PG One",
+                    "roles": [" POC ", "OSW_Data_Generator"],
+                }
+            ],
+        )
+    )
+    task = fakes.FakeSession(fakes.mappings({"tdeiProjectGroupId": pg_id, "id": 5}))
+    osm = fakes.FakeSession(fakes.mappings())
+
+    info = await _run_validate(
+        monkeypatch,
+        payload={"sub": USER_ID, "jti": "j1", "preferred_username": "alice"},
+        tdei=tdei,
+        task=task,
+        osm=osm,
+    )
+
+    assert info.projectGroups[0].tdeiRoles == [
+        sec.TdeiProjectGroupRole.POINT_OF_CONTACT,
+        sec.TdeiProjectGroupRole.OSW_GENERATOR,
+    ]
+    assert info.isWorkspaceLead(5) is True
+    assert info.canCreateWorkspace(pg_id, WorkspaceType.FLEX) is True
 
 
 # --- validate_token: graceful failure handling -----------------------------
@@ -822,3 +856,118 @@ async def test_bearer_is_accepted_on_native_api_paths():
     )
     assert creds is not None
     assert creds.credentials == "a.valid.jwt"
+
+
+# --- fetch_tdei_dataset ------------------------------------------------------
+
+DATASET_ID = "33333333-3333-3333-3333-333333333333"
+
+
+class _RecordingTdeiClient(_FakeTdeiClient):
+    def __init__(self, resp=None, exc=None):
+        super().__init__(resp, exc)
+        self.calls: list[tuple[tuple, dict]] = []
+
+    async def get(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return await super().get(*args, **kwargs)
+
+
+async def test_fetch_tdei_dataset_returns_project_group_and_status(monkeypatch):
+    tdei = _RecordingTdeiClient(
+        _FakeResp(
+            200,
+            [
+                {
+                    "tdei_dataset_id": DATASET_ID,
+                    "status": "Pre-Release",
+                    "data_type": "osw",
+                    "project_group": {"tdei_project_group_id": "pg-1", "name": "PG"},
+                }
+            ],
+        )
+    )
+    monkeypatch.setattr(sec, "_tdei_api_client", tdei)
+
+    dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+
+    assert dataset is not None
+    assert dataset.project_group_id == "pg-1"
+    assert dataset.status == "Pre-Release"
+    assert dataset.data_type == "osw"
+    assert dataset.is_released is False
+    args, kwargs = tdei.calls[0]
+    assert args == ("datasets",)
+    # status=All, or TDEI would hide unreleased datasets.
+    assert kwargs["params"] == {"tdei_dataset_id": DATASET_ID, "status": "All"}
+    assert kwargs["headers"] == {"Authorization": "Bearer tok"}
+
+
+async def test_fetch_tdei_dataset_publish_is_released(monkeypatch):
+    monkeypatch.setattr(
+        sec,
+        "_tdei_api_client",
+        _FakeTdeiClient(
+            _FakeResp(
+                200,
+                [
+                    {
+                        "tdei_dataset_id": DATASET_ID,
+                        "status": "Publish",
+                        "project_group": {"tdei_project_group_id": "pg-1"},
+                    }
+                ],
+            )
+        ),
+    )
+
+    dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+
+    assert dataset is not None and dataset.is_released is True
+
+
+@pytest.mark.parametrize(
+    "dataset_id_from_tdei",
+    [DATASET_ID.upper(), DATASET_ID.replace("-", ""), "{" + DATASET_ID + "}"],
+)
+async def test_fetch_tdei_dataset_matches_id_in_any_uuid_format(
+    monkeypatch, dataset_id_from_tdei
+):
+    row = {"tdei_dataset_id": dataset_id_from_tdei, "status": "Publish"}
+    monkeypatch.setattr(sec, "_tdei_api_client", _FakeTdeiClient(_FakeResp(200, [row])))
+
+    dataset = await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+
+    assert dataset is not None and dataset.tdei_dataset_id == DATASET_ID
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [[], [{"tdei_dataset_id": "some-other-id", "status": "Publish"}], ["junk"]],
+)
+async def test_fetch_tdei_dataset_no_match_returns_none(monkeypatch, rows):
+    monkeypatch.setattr(sec, "_tdei_api_client", _FakeTdeiClient(_FakeResp(200, rows)))
+
+    assert await sec.fetch_tdei_dataset(DATASET_ID, "tok") is None
+
+
+@pytest.mark.parametrize(
+    "client, expected_status",
+    [
+        # validate_token already accepted the token: a TDEI 401 here is a
+        # config mismatch, and must not look like an expired session.
+        (_FakeTdeiClient(_FakeResp(401)), 502),
+        (_FakeTdeiClient(_FakeResp(500)), 502),
+        # A paginated wrapper or an error object sent with 200
+        (_FakeTdeiClient(_FakeResp(200, {"items": []})), 502),
+        (_FakeTdeiClient(_FakeResp(200, {"error": "x"})), 502),
+        (_FakeTdeiClient(_FakeResp(200, raises=True)), 502),
+        (_FakeTdeiClient(exc=httpx.ConnectError("x")), 502),
+    ],
+)
+async def test_fetch_tdei_dataset_failures(monkeypatch, client, expected_status):
+    monkeypatch.setattr(sec, "_tdei_api_client", client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await sec.fetch_tdei_dataset(DATASET_ID, "tok")
+    assert exc_info.value.status_code == expected_status

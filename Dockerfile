@@ -20,5 +20,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # set the environment variable for uvicorn to run the FastAPI app
 ENV UV_PROJECT_ENVIRONMENT=.uvenv
 
+# The commit this image was built from, reported to Sentry as the release.
+# Set by the deploy workflow; declared last so a new commit doesn't
+# invalidate the dependency layers above.
+ARG CODE_VERSION=unknown
+ENV CODE_VERSION=$CODE_VERSION
+
 # Run with uvicorn
 CMD ["uv", "run", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

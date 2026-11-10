@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.background import BackgroundTask
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.core import config
 from api.core.config import settings
@@ -38,21 +40,40 @@ from api.src.workspaces.repository import WorkspaceRepository
 from api.src.workspaces.routes import router as workspaces_router
 from api.utils.migrations import run_migrations
 
-sentry_sdk.init(
-    dsn=config.settings.SENTRY_DSN,
-    environment=os.getenv("ENV", "unknown"),
-    release=os.getenv("CODE_VERSION", "unknown"),
-    debug=settings.DEBUG,
-)
-
-# Kept alongside `release` for any dashboards that query the `version` tag.
-sentry_sdk.set_tag("version", os.getenv("CODE_VERSION", "unknown"))
-
 # Set up logging configuration
 setup_logging()
 
 # Set up logger for this module
 logger = get_logger(__name__)
+
+
+# @test: Test that a missing SENTRY_DSN logs a warning, and a set one logs the environment and release it reports under
+def init_sentry() -> None:
+    # With no DSN the SDK quietly sends nothing, so say at startup which it
+    # is. The App Services once ran without SENTRY_DSN and nobody could tell.
+    environment = os.getenv("ENV", "unknown")
+    release = os.getenv("CODE_VERSION", "unknown")
+
+    sentry_sdk.init(
+        dsn=config.settings.SENTRY_DSN,
+        environment=environment,
+        release=release,
+        debug=settings.DEBUG,
+    )
+
+    # Kept alongside `release` for any dashboards that query the `version` tag.
+    sentry_sdk.set_tag("version", release)
+
+    if config.settings.SENTRY_DSN:
+        logger.info(
+            f"Reporting errors to Sentry: environment={environment!r}, "
+            f"release={release!r}"
+        )
+    else:
+        logger.warning("SENTRY_DSN is not set, so errors are not reported to Sentry")
+
+
+init_sentry()
 
 # Shared HTTP client for OSM proxy. Reuses connection pool across requests:
 _osm_client: httpx.AsyncClient | None = None
@@ -108,6 +129,30 @@ app.add_middleware(
     max_age=100,
 )
 
+
+# @test: Test that a large /api/v1 response is gzipped for a client that accepts it, and that proxied OSM paths are passed through uncompressed
+class NativeApiGZipMiddleware:
+    """Gzip responses from this service's own API (``/api/v1/``) only.
+
+    The OSM proxy (`catch_all`) is left alone: it already negotiates
+    Accept-Encoding with the upstream (see `_UPSTREAM_ACCEPT_ENCODING`) and
+    streams its responses through as received.
+    """
+
+    def __init__(self, app: ASGIApp, prefix: str = "/api/v1/") -> None:
+        self.app = app
+        self.prefix = prefix
+        self.gzip = GZipMiddleware(app, minimum_size=1000)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"].startswith(self.prefix):
+            await self.gzip(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
+app.add_middleware(NativeApiGZipMiddleware)
+
 # Never log these header values verbatim (tokens/session identifiers):
 _SENSITIVE_LOG_HEADERS = frozenset({"authorization", "cookie", "set-cookie"})
 
@@ -136,10 +181,15 @@ app.include_router(tasking_tasks_router, prefix="/api/v1")
 app.include_router(tasking_audit_router, prefix="/api/v1")
 
 
+# @test: Test that /health reports the CODE_VERSION the image was built with, or "unknown"
 @app.get("/health")
 async def health_check():
-    """Health check endpoint. Used for Docker."""
-    return {"status": "ok"}
+    """Health check endpoint. Used for Docker.
+
+    Also says which commit is running (`CODE_VERSION`, baked into the image by
+    the deploy workflow), so a deploy can be confirmed from outside.
+    """
+    return {"status": "ok", "version": os.getenv("CODE_VERSION", "unknown")}
 
 
 @app.get("/")
