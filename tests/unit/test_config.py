@@ -6,7 +6,23 @@ Covers the @test comments on the Settings class:
 - strings / numbers / empty strings / URLs all load as the defaults exemplify
 """
 
+import pytest
+from pydantic import ValidationError
+
 from api.core.config import Settings
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_tdei_api_backend_url_is_required(monkeypatch, value):
+    # No default: a missing (or compose-blank) value must fail at startup
+    # rather than send tokens to the wrong TDEI environment.
+    if value is None:
+        monkeypatch.delenv("TDEI_API_BACKEND_URL", raising=False)
+    else:
+        monkeypatch.setenv("TDEI_API_BACKEND_URL", value)
+
+    with pytest.raises(ValidationError, match="TDEI_API_BACKEND_URL"):
+        Settings(_env_file=None)  # type: ignore[call-arg]  # pydantic-settings init kwarg
 
 
 def test_defaults_loaded_when_env_unset():

@@ -1,9 +1,11 @@
 import json
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Test outline:
+# @test: Test that startup fails when TDEI_API_BACKEND_URL is unset or empty
 # @test: Test that environment variables of the same name as the members of this class are correctly loaded into the members of this class.
 # @test: Test that any environment variables that are not set in the environment are correctly loaded into the members of this class with their default values.
 # @test: Test that strings and number values, empty strings and URLs are all correctly loaded as exemplified by the default values
@@ -28,6 +30,11 @@ class Settings(BaseSettings):
     )
 
     TDEI_BACKEND_URL: str = "https://portal-api-dev.tdei.us/api/v1/"
+    # TDEI's public API gateway (api[-dev|-stage].tdei.us), used to look up
+    # datasets when creating a workspace from one. Required, with no default:
+    # a dev default would quietly send prod tokens to dev. Must point at the
+    # same environment as TDEI_BACKEND_URL.
+    TDEI_API_BACKEND_URL: str = Field(min_length=1)
     TDEI_OIDC_URL: str = "https://account-dev.tdei.us/"
     TDEI_OIDC_REALM: str = "tdei"
 
@@ -113,4 +120,6 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+# Required fields (TDEI_API_BACKEND_URL) come from the environment, which
+# Pyright can't see.
+settings = Settings()  # pyright: ignore[reportCallIssue]

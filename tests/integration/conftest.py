@@ -615,6 +615,21 @@ def tdei_project_group_users(monkeypatch):
     return members
 
 
+@pytest.fixture(autouse=True)
+def tdei_datasets(monkeypatch):
+    """Stub `fetch_tdei_dataset`: tests add `TdeiDataset`s keyed by id; any
+    other id is "not found" in TDEI."""
+    datasets: dict = {}
+
+    async def _fake_fetch(dataset_id: str, bearer_token: str):
+        return datasets.get(dataset_id)
+
+    import api.src.workspaces.repository as ws_repo
+
+    monkeypatch.setattr(ws_repo, "fetch_tdei_dataset", _fake_fetch)
+    return datasets
+
+
 # ---------------------------------------------------------------------------
 # Per-test cleanup of tasking_* tables (opt-in).
 # ---------------------------------------------------------------------------

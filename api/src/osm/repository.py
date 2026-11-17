@@ -86,6 +86,53 @@ class OSMRepository:
 
         return list(result.mappings().all())
 
+    async def getFixmes(self, workspace_id: int) -> list:
+        """
+        Every current element with a non-empty `fixme` tag (the key in any case,
+        e.g. FIXME), newest first, with its tags and a location: a node's own, or
+        the middle of a way's nodes (none for a relation). The OSM API can't
+        search by tag, so this reads the workspace's tables directly.
+        """
+        await self._use_workspace_schema(workspace_id)
+        result = await self.session.execute(text("""
+                WITH fixmes AS (
+                    SELECT 'node' AS type, node_id AS id, k AS key, v AS note
+                    FROM current_node_tags WHERE lower(k) = 'fixme' AND v <> ''
+                    UNION ALL
+                    SELECT 'way', way_id, k, v
+                    FROM current_way_tags WHERE lower(k) = 'fixme' AND v <> ''
+                    UNION ALL
+                    SELECT 'relation', relation_id, k, v
+                    FROM current_relation_tags WHERE lower(k) = 'fixme' AND v <> ''
+                )
+                SELECT
+                    f.type, f.id, f.key, f.note,
+                    COALESCE(n.version, w.version, r.version) AS version,
+                    COALESCE(n.changeset_id, w.changeset_id, r.changeset_id) AS changeset,
+                    COALESCE(n."timestamp", w."timestamp", r."timestamp") AS "timestamp",
+                    CASE WHEN f.type = 'node' THEN n.latitude / 1e7 ELSE way_center.lat END AS lat,
+                    CASE WHEN f.type = 'node' THEN n.longitude / 1e7 ELSE way_center.lon END AS lon,
+                    CASE f.type
+                        WHEN 'node' THEN (SELECT jsonb_object_agg(k, v) FROM current_node_tags WHERE node_id = f.id)
+                        WHEN 'way' THEN (SELECT jsonb_object_agg(k, v) FROM current_way_tags WHERE way_id = f.id)
+                        ELSE (SELECT jsonb_object_agg(k, v) FROM current_relation_tags WHERE relation_id = f.id)
+                    END AS tags
+                FROM fixmes f
+                LEFT JOIN current_nodes n ON f.type = 'node' AND n.id = f.id
+                LEFT JOIN current_ways w ON f.type = 'way' AND w.id = f.id
+                LEFT JOIN current_relations r ON f.type = 'relation' AND r.id = f.id
+                LEFT JOIN LATERAL (
+                    SELECT AVG(cn.latitude) / 1e7 AS lat, AVG(cn.longitude) / 1e7 AS lon
+                    FROM current_way_nodes wn
+                    JOIN current_nodes cn ON cn.id = wn.node_id
+                    WHERE f.type = 'way' AND wn.way_id = f.id
+                ) way_center ON TRUE
+                WHERE COALESCE(n.visible, w.visible, r.visible)
+                ORDER BY "timestamp" DESC, f.type, f.id
+                """))
+
+        return list(result.mappings().all())
+
     async def resolveChangeset(
         self,
         current_user: UserInfo,

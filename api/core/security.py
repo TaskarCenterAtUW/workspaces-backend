@@ -21,6 +21,7 @@ from api.core.database import get_osm_session, get_task_session
 from api.core.jwt import validate_and_decode_token
 from api.core.logging import get_logger
 from api.src.users.schemas import WorkspaceUserRoleType
+from api.src.workspaces.schemas import WorkspaceType
 
 # Test outline:
 # @test: Test that the permissions structure here matches what is described in CLAUDE.md
@@ -108,21 +109,29 @@ _user_info_cache: cachetools.TTLCache[UUID, "UserInfo"] = cachetools.TTLCache(
 
 # Shared HTTP client for TDEI backend calls. Initialized by main.py lifespan.
 _tdei_client: httpx.AsyncClient | None = None
+_tdei_api_client: httpx.AsyncClient | None = None
 
 
 def init_tdei_client() -> None:
-    global _tdei_client
+    global _tdei_client, _tdei_api_client
     _tdei_client = httpx.AsyncClient(
         base_url=settings.TDEI_BACKEND_URL,
+        timeout=httpx.Timeout(connect=10, read=30, write=30, pool=10),
+    )
+    _tdei_api_client = httpx.AsyncClient(
+        base_url=settings.TDEI_API_BACKEND_URL,
         timeout=httpx.Timeout(connect=10, read=30, write=30, pool=10),
     )
 
 
 async def close_tdei_client() -> None:
-    global _tdei_client
+    global _tdei_client, _tdei_api_client
     if _tdei_client is not None:
         await _tdei_client.aclose()
         _tdei_client = None
+    if _tdei_api_client is not None:
+        await _tdei_api_client.aclose()
+        _tdei_api_client = None
 
 
 class TdeiProjectGroupUser:
@@ -221,6 +230,127 @@ async def fetch_project_group_users(
         page_no += 1
 
     return out
+
+
+def same_uuid(a: object, b: object) -> bool:
+    """True when both values parse to the same UUID.
+
+    TDEI ids are UUIDs, but nothing guarantees the canonical lowercase,
+    hyphenated form we get from ``str(UUID)``. Comparing parsed values avoids
+    a missed match on case or hyphens. Values that don't parse as UUIDs fall
+    back to exact string comparison.
+    """
+    try:
+        return UUID(str(a)) == UUID(str(b))
+    except ValueError:
+        return str(a) == str(b)
+
+
+class TdeiDataset:
+    """The fields of a TDEI dataset that workspace creation checks, as
+    returned by ``GET /datasets?tdei_dataset_id=...``.
+    """
+
+    # TDEI marks a released dataset "Publish"; unreleased ones are "Pre-Release".
+    RELEASED_STATUS = "Publish"
+
+    def __init__(
+        self,
+        *,
+        tdei_dataset_id: str,
+        project_group_id: str,
+        status: str,
+        data_type: str,
+    ) -> None:
+        self.tdei_dataset_id = tdei_dataset_id
+        self.project_group_id = project_group_id
+        self.status = status
+        # "osw", "flex" or "pathways" -- the WorkspaceType values
+        self.data_type = data_type
+
+    @property
+    def is_released(self) -> bool:
+        return self.status == self.RELEASED_STATUS
+
+    def matches_type(self, workspace_type: WorkspaceType) -> bool:
+        return self.data_type.strip().lower() == workspace_type.value
+
+
+# @test: Test that fetch_tdei_dataset returns the dataset's project group, status and data type, None when TDEI returns no match, and 502 when TDEI is unreachable, rejects the token, answers non-200, or returns a non-JSON or non-list body
+# @test: Test that fetch_tdei_dataset matches the dataset id regardless of case or hyphens
+async def fetch_tdei_dataset(
+    dataset_id: str,
+    bearer_token: str,
+) -> TdeiDataset | None:
+    """Look up one dataset via ``GET /datasets?tdei_dataset_id=...`` on TDEI.
+
+    Returns None when TDEI has no dataset with that id visible to the caller.
+    Raises 502 if TDEI is unreachable or answers with anything but a JSON
+    list -- including a 401: validate_token has already accepted the caller's
+    token, so a rejection here is a TDEI-side mismatch (e.g. a wrong
+    TDEI_API_BACKEND_URL), not an expired session the client should act on.
+    """
+    if _tdei_api_client is None:  # pragma: no cover — lifespan should init this
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI API client is not initialised",
+        )
+
+    try:
+        response = await _tdei_api_client.get(
+            "datasets",
+            headers={"Authorization": f"Bearer {bearer_token}"},
+            # status=All includes unreleased datasets, which TDEI omits by default
+            params={"tdei_dataset_id": dataset_id, "status": "All"},
+        )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach TDEI backend to fetch dataset details",
+        ) from None
+
+    if response.status_code == 401:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI rejected the bearer token when fetching dataset details",
+        )
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"TDEI returned {response.status_code} when fetching "
+                f"dataset {dataset_id}"
+            ),
+        )
+
+    try:
+        rows = response.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI returned a non-JSON body",
+        ) from None
+
+    if not isinstance(rows, list):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="TDEI returned an unexpected response shape for datasets",
+        )
+
+    for row in rows:
+        if not isinstance(row, dict) or not same_uuid(
+            row.get("tdei_dataset_id"), dataset_id
+        ):
+            continue
+        return TdeiDataset(
+            tdei_dataset_id=dataset_id,
+            project_group_id=str(
+                (row.get("project_group") or {}).get("tdei_project_group_id", "")
+            ),
+            status=str(row.get("status", "")),
+            data_type=str(row.get("data_type", "")),
+        )
+    return None
 
 
 def evict_user_from_cache(auth_uid: UUID) -> None:
@@ -422,6 +552,16 @@ class TdeiProjectGroupRole(StrEnum):
     PATHWAYS_GENERATOR = "pathways_data_generator"
 
 
+# Workspace types each TDEI project group role may create. MEMBER is absent:
+# members can edit workspace data but not create workspaces.
+_CREATABLE_WORKSPACE_TYPES: dict[TdeiProjectGroupRole, frozenset[WorkspaceType]] = {
+    TdeiProjectGroupRole.POINT_OF_CONTACT: frozenset(WorkspaceType),
+    TdeiProjectGroupRole.OSW_GENERATOR: frozenset({WorkspaceType.OSW}),
+    TdeiProjectGroupRole.FLEX_GENERATOR: frozenset({WorkspaceType.FLEX}),
+    TdeiProjectGroupRole.PATHWAYS_GENERATOR: frozenset({WorkspaceType.PATHWAYS}),
+}
+
+
 class UserInfoPGMembership:
     project_group_name: str
     project_group_id: str
@@ -463,6 +603,40 @@ class UserInfo:
             if withRole == "any" or pg.tdeiRoles.__contains__(withRole):
                 pgids.append(pg.project_group_id)
         return pgids
+
+    # Who can create a workspace of a given type in a PG: POC can create any
+    # type; a data generator only its own type (OSW generator -> OSW, Flex
+    # generator -> Flex, Pathways generator -> Pathways); a plain member
+    # cannot. Roles are a list, so a member who also holds a qualifying role
+    # can create.
+    # @test: Test that canCreateWorkspace is False for a PG the user only has "member" in, True when "member" is combined with a role that covers the workspace type, and False for a PG the user does not belong to
+    # @test: Test that POC can create every workspace type, and each data generator role only its own type (OSW -> OSW, Flex -> Flex, Pathways -> Pathways)
+    def canCreateWorkspace(
+        self, project_group_id: str, workspace_type: WorkspaceType
+    ) -> bool:
+        for pg in self.projectGroups:
+            if not same_uuid(pg.project_group_id, project_group_id):
+                continue
+            for role in pg.tdeiRoles:
+                if workspace_type in _CREATABLE_WORKSPACE_TYPES.get(role, ()):
+                    return True
+        return False
+
+    # Creating from a TDEI dataset additionally depends on the dataset: a
+    # released dataset may come from any PG (even one the user has no role
+    # in), an unreleased one only from the PG the workspace is created in.
+    # @test: Test that canCreateWorkspaceFromDataset allows a released dataset from any PG, allows an unreleased dataset only from the target PG, and is False whenever canCreateWorkspace is False
+    def canCreateWorkspaceFromDataset(
+        self,
+        project_group_id: str,
+        workspace_type: WorkspaceType,
+        dataset: TdeiDataset,
+    ) -> bool:
+        if not self.canCreateWorkspace(project_group_id, workspace_type):
+            return False
+        return dataset.is_released or same_uuid(
+            dataset.project_group_id, project_group_id
+        )
 
     # we get admin/lead rights in two ways:
     # 1. from OSM DB explicitly
@@ -520,7 +694,7 @@ def get_task_db_session(
     return session
 
 
-# @test:
+# @test: Test that TDEI project group role names are trimmed and lowercased, so "POC" or " poc " grant the same rights as "poc"
 
 
 async def validate_token(
@@ -868,7 +1042,14 @@ async def _validate_token_uncached(
             UserInfoPGMembership(
                 project_group_id=i["tdei_project_group_id"],
                 project_group_name=i["project_group_name"],
-                tdeiRoles=i["roles"],
+                # Normalized so "POC" or " poc" still match TdeiProjectGroupRole,
+                # as the frontend's hasCreationRole does. Roles we don't model
+                # (e.g. tdei-admin) grant nothing here, so they're dropped.
+                tdeiRoles=[
+                    TdeiProjectGroupRole(role)
+                    for r in i.get("roles") or []
+                    if (role := str(r).strip().lower()) in TdeiProjectGroupRole
+                ],
             )
         )
 

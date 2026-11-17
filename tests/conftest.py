@@ -12,9 +12,14 @@ Everything above that boundary -- routes, repositories, schemas, Pydantic
 serialization -- runs unmodified.
 """
 
+import os
 from collections.abc import Iterator
 from typing import Callable
 from uuid import UUID, uuid4
+
+# Required settings with no default must exist before `api.core.config` is
+# imported (it builds `settings` at import). Tests never call TDEI for real.
+os.environ.setdefault("TDEI_API_BACKEND_URL", "https://api-dev.tdei.us/api/v1/")
 
 import pytest
 import pytest_asyncio
