@@ -25,15 +25,30 @@ from api.core.config import settings
 
 class RecordingSession:
     """Async session stand-in that records (sql, params) and answers the two id
-    lookups: ``users`` (system vs caller, by auth_uid) and ``oauth_applications``."""
+    lookups: ``users`` (system vs caller, by auth_uid) and ``oauth_applications``.
 
-    def __init__(self, system_user_id=1, caller_user_id=42, app_id=7):
+    It also answers whether a display name is taken (``taken_names``, compared
+    case-insensitively) and whether the caller's display name is their email
+    (``email_display_name``), and raises on SQL containing ``fail_on``."""
+
+    def __init__(
+        self,
+        system_user_id=1,
+        caller_user_id=42,
+        app_id=7,
+        taken_names=(),
+        email_display_name=False,
+        fail_on=None,
+    ):
         self.calls: list[tuple[str, dict]] = []
         self.commits = 0
         self.rollbacks = 0
         self._system_user_id = system_user_id
         self._caller_user_id = caller_user_id
         self._app_id = app_id
+        self._taken_names = {n.lower() for n in taken_names}
+        self._email_display_name = email_display_name
+        self._fail_on = fail_on
 
     async def execute(self, statement, params=None):
         params = params or {}
@@ -47,6 +62,12 @@ class RecordingSession:
             def first(self):
                 return self._rows[0] if self._rows else None
 
+        if self._fail_on and self._fail_on in sql:
+            raise RuntimeError("db error")
+        if "NORMALIZE(display_name, NFKC)" in sql:
+            return _R([(1,)] if params["name"].lower() in self._taken_names else [])
+        if "lower(display_name) = lower(email)" in sql and sql.startswith("SELECT"):
+            return _R([(1,)] if self._email_display_name else [])
         if "SELECT id FROM users" in sql:
             if params.get("auth_uid") == settings.WS_OSM_SYSTEM_USER_AUTH_UID:
                 return _R([(self._system_user_id,)])
@@ -73,7 +94,7 @@ async def test_bridge_is_noop_when_disabled(monkeypatch):
     await security._bridge_token_to_osm(
         cast(AsyncSession, session),
         user_uuid=uuid4(),
-        user_name="alice",
+        name="Alice Example",
         email="alice@example.com",
         token="tok",
         exp=None,
@@ -96,7 +117,7 @@ async def test_bridge_provisions_app_users_and_token(monkeypatch):
     await security._bridge_token_to_osm(
         cast(AsyncSession, session),
         user_uuid=uid,
-        user_name="alice",
+        name="Alice Example",
         email="alice@example.com",
         token="jwt-token",
         exp=exp,
@@ -140,7 +161,7 @@ async def test_bridge_synthesises_email_when_absent(monkeypatch):
     await security._bridge_token_to_osm(
         cast(AsyncSession, session),
         user_uuid=uid,
-        user_name="alice",
+        name="Alice Example",
         email=None,
         token="jwt-token",
         exp=None,
@@ -168,7 +189,7 @@ async def test_bridge_is_best_effort_on_db_error(monkeypatch):
     await security._bridge_token_to_osm(
         cast(AsyncSession, session),
         user_uuid=uuid4(),
-        user_name="alice",
+        name="Alice Example",
         email=None,
         token="tok",
         exp=None,
@@ -217,3 +238,149 @@ async def test_revoke_is_best_effort_on_db_error(monkeypatch):
 
     assert session.rollbacks == 1
     assert session.commits == 0
+
+
+# --- display names: the person's name, never their email -------------------
+
+
+def _caller_insert(session, uid):
+    return next(
+        c for c in session.sql_for("INSERT INTO users") if c[1]["auth_uid"] == str(uid)
+    )
+
+
+async def _bridge(session, uid, name):
+    await security._bridge_token_to_osm(
+        cast(AsyncSession, session),
+        user_uuid=uid,
+        name=name,
+        email="alice@example.com",
+        token="jwt-token",
+        exp=None,
+    )
+
+
+def test_osm_display_name_keeps_a_name_osm_accepts():
+    assert security.osm_display_name_from("Alice Example") == "Alice Example"
+    assert security.osm_display_name_from("Audrey@T") == "Audrey@T"
+
+
+def test_osm_display_name_replaces_characters_osm_rejects():
+    assert security.osm_display_name_from("J. R. R. Tolkien") == "J R R Tolkien"
+    assert security.osm_display_name_from("  Smith,  Jr.  ") == "Smith Jr"
+    assert security.osm_display_name_from("a/b;c?d%e#f") == "a b c d e f"
+    # Control characters and the noncharacters OSM rejects, too.
+    assert security.osm_display_name_from("Alice\x07 \ufffeExample") == "Alice Example"
+
+
+def test_osm_display_name_rejects_unusable_names():
+    for name in [
+        None,
+        "",
+        "   ",
+        "alice@example.com",
+        " alice@example.com ",
+        "Al",
+        "J.",
+        "new",
+        "Suspended",
+        "user_12",
+    ]:
+        assert security.osm_display_name_from(name) is None, name
+
+
+async def test_choose_osm_display_name_uses_the_name_when_free():
+    session = RecordingSession()
+    name = await security.choose_osm_display_name(
+        cast(AsyncSession, session),
+        name="Alice Example",
+        auth_uid="1abfdb85-54c0-449b-965c-0abfd835d6fa",
+    )
+    assert name == "Alice Example"
+
+
+async def test_choose_osm_display_name_adds_part_of_the_id_when_taken():
+    session = RecordingSession(taken_names=["alice example"])
+    name = await security.choose_osm_display_name(
+        cast(AsyncSession, session),
+        name="Alice Example",
+        auth_uid="1abfdb85-54c0-449b-965c-0abfd835d6fa",
+    )
+    assert name == "Alice Example 1abfdb85"
+    # Other users' names are compared, not the caller's own row.
+    assert session.calls[0][1]["auth_uid"] == "1abfdb85-54c0-449b-965c-0abfd835d6fa"
+
+
+async def test_choose_osm_display_name_falls_back_without_a_usable_name():
+    session = RecordingSession()
+    name = await security.choose_osm_display_name(
+        cast(AsyncSession, session),
+        name="alice@example.com",
+        auth_uid="1abfdb85-54c0-449b-965c-0abfd835d6fa",
+    )
+    assert name == "TDEI user 1abfdb85"
+
+
+async def test_bridge_names_a_new_user_from_the_name_claim(monkeypatch):
+    monkeypatch.setattr(settings, "WS_OSM_TOKEN_BRIDGE_ENABLED", True)
+    uid = uuid4()
+    session = RecordingSession()
+
+    await _bridge(session, uid, "Alice Example")
+
+    assert _caller_insert(session, uid)[1]["name"] == "Alice Example"
+
+
+async def test_bridge_never_names_a_new_user_after_their_email(monkeypatch):
+    monkeypatch.setattr(settings, "WS_OSM_TOKEN_BRIDGE_ENABLED", True)
+    uid = uuid4()
+    session = RecordingSession()
+
+    await _bridge(session, uid, "alice@example.com")
+
+    name = _caller_insert(session, uid)[1]["name"]
+    assert name == f"TDEI user {uid.hex[:8]}"
+    assert "@" not in name
+
+
+async def test_bridge_replaces_an_email_display_name_after_the_token(monkeypatch):
+    monkeypatch.setattr(settings, "WS_OSM_TOKEN_BRIDGE_ENABLED", True)
+    uid = uuid4()
+    session = RecordingSession(email_display_name=True)
+
+    await _bridge(session, uid, "Alice Example")
+
+    updates = session.sql_for("UPDATE users SET display_name")
+    assert len(updates) == 1
+    sql, params = updates[0]
+    assert "lower(display_name) = lower(email)" in sql
+    assert params == {"display_name": "Alice Example", "auth_uid": str(uid)}
+    # Mirrored token first, then the rename, each committed.
+    sqls = [c[0] for c in session.calls]
+    token_at = next(i for i, s in enumerate(sqls) if "oauth_access_tokens" in s)
+    rename_at = next(i for i, s in enumerate(sqls) if "UPDATE users" in s)
+    assert token_at < rename_at
+    assert session.commits == 2
+
+
+async def test_bridge_keeps_a_display_name_that_is_not_the_email(monkeypatch):
+    monkeypatch.setattr(settings, "WS_OSM_TOKEN_BRIDGE_ENABLED", True)
+    session = RecordingSession(email_display_name=False)
+
+    await _bridge(session, uuid4(), "Alice Example")
+
+    assert session.sql_for("UPDATE users SET display_name") == []
+    assert session.commits == 1
+
+
+async def test_bridge_rename_failure_keeps_the_mirrored_token(monkeypatch):
+    monkeypatch.setattr(settings, "WS_OSM_TOKEN_BRIDGE_ENABLED", True)
+    session = RecordingSession(
+        email_display_name=True, fail_on="UPDATE users SET display_name"
+    )
+
+    await _bridge(session, uuid4(), "Alice Example")
+
+    assert session.sql_for("oauth_access_tokens")
+    assert session.commits == 1
+    assert session.rollbacks == 1

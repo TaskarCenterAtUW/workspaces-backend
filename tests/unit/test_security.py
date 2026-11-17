@@ -971,3 +971,40 @@ async def test_fetch_tdei_dataset_failures(monkeypatch, client, expected_status)
     with pytest.raises(HTTPException) as exc_info:
         await sec.fetch_tdei_dataset(DATASET_ID, "tok")
     assert exc_info.value.status_code == expected_status
+
+
+# --- fetch_project_group_users ----------------------------------------------
+
+
+async def test_fetch_project_group_users_names_members_from_first_and_last_name(
+    monkeypatch,
+):
+    tdei = _FakeTdeiClient(
+        _FakeResp(
+            200,
+            [
+                {
+                    "user_id": "u1",
+                    "email": "alice@example.com",
+                    "username": "alice@example.com",
+                    "first_name": " Alice ",
+                    "last_name": "Example",
+                },
+                {
+                    "user_id": "u2",
+                    "email": "bob@example.com",
+                    "username": "bob@example.com",
+                    "first_name": "",
+                    "last_name": None,
+                },
+            ],
+        )
+    )
+    monkeypatch.setattr(sec, "_tdei_client", tdei)
+
+    members = await sec.fetch_project_group_users("pg-1", "tok")
+
+    assert [(m.auth_uid, m.email, m.display_name) for m in members] == [
+        ("u1", "alice@example.com", "Alice Example"),
+        ("u2", "bob@example.com", None),
+    ]
