@@ -34,7 +34,7 @@ jobs:
     name: "Build"
     needs: set-github-environment
     concurrency:
-      group: build
+      group: build-${{ inputs.environment }}
       cancel-in-progress: true
     outputs:
         sha: ${{ steps.commit.outputs.sha }}
