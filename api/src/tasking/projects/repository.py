@@ -263,7 +263,7 @@ class TaskingProjectRepository:
         """
         from sqlalchemy import text
 
-        from api.core.security import fetch_project_group_users
+        from api.core.security import choose_osm_display_name, fetch_project_group_users
 
         try:
             members = await fetch_project_group_users(project_group_id, bearer_token)
@@ -313,6 +313,10 @@ class TaskingProjectRepository:
             member = by_uid.get(uid)
             if member is None:
                 continue
+            # A public name OSM accepts and no one else has, never the email.
+            display_name = await choose_osm_display_name(
+                self.session, name=member.display_name, auth_uid=uid
+            )
             await self.session.execute(
                 text(
                     "INSERT INTO users (auth_uid, email, display_name, auth_provider, status, pass_crypt, data_public, email_valid, terms_seen, creation_time, terms_agreed, tou_agreed) "
@@ -322,7 +326,7 @@ class TaskingProjectRepository:
                 params={
                     "uid": uid,
                     "email": member.email,
-                    "name": member.display_name,
+                    "name": display_name,
                     # OSM validates pass_crypt length 8..255; a too-short value
                     # makes the user invalid and breaks Rails ops that re-validate
                     # the author (changeset/note comments). TDEI manages auth, so

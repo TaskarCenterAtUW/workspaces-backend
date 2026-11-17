@@ -154,6 +154,7 @@ class TdeiProjectGroupUser:
         self.display_name = display_name
 
 
+# @test: Members are named from first_name and last_name, not username (their email); a member with neither has no name
 async def fetch_project_group_users(
     project_group_id: str,
     bearer_token: str,
@@ -217,11 +218,21 @@ async def fetch_project_group_users(
             uid = row.get("user_id")
             if not uid:
                 continue
+            # The person's name, not `username`: in TDEI that is their email,
+            # and this becomes their public OSM display name.
+            full_name = " ".join(
+                part
+                for part in (
+                    str(row.get("first_name") or "").strip(),
+                    str(row.get("last_name") or "").strip(),
+                )
+                if part
+            )
             out.append(
                 TdeiProjectGroupUser(
                     auth_uid=str(uid),
                     email=row.get("email"),
-                    display_name=(row.get("username")),
+                    display_name=full_name or None,
                 )
             )
 
@@ -764,6 +775,94 @@ async def validate_token(
     return user_info
 
 
+# What OSM's ``User`` model (workspaces-openstreetmap-website,
+# app/models/user.rb) accepts as a display_name. Rows this service inserts skip
+# those validations, but a row that fails them breaks Rails operations that
+# re-validate the user, and the website's own provisioning (``PUT
+# /api/0.6/user/{auth_uid}``) silently keeps the old name when the new one fails.
+# The url_safe characters, plus control characters:
+_OSM_DISPLAY_NAME_BAD_CHARS = re.compile(
+    r"[/;.,?%#\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffe\uffff]"
+)
+_OSM_RESERVED_DISPLAY_NAMES = frozenset(
+    {
+        "new",
+        "terms",
+        "save",
+        "confirm",
+        "confirm-email",
+        "go_public",
+        "reset-password",
+        "forgot-password",
+        "suspended",
+    }
+)
+_OSM_USER_N_DISPLAY_NAME = re.compile(r"^user_\d+$", re.IGNORECASE)
+_EMAIL_SHAPED = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+# @test: A person's name is used as is when OSM would accept it
+# @test: Characters OSM rejects in a display name (/;.,?%#) become spaces, and runs of whitespace collapse, e.g. "J. R. R. Tolkien" -> "J R R Tolkien"
+# @test: An email address, a missing or blank name, a name under 3 characters, a reserved word (e.g. "new") and "user_<n>" give None
+def osm_display_name_from(name: str | None) -> str | None:
+    """A display name OSM will accept, made from a person's name, or ``None``
+    if there is nothing usable. An email address never qualifies: the OSM
+    display name is public."""
+    if not name or _EMAIL_SHAPED.match(name.strip()):
+        return None
+    cleaned = " ".join(_OSM_DISPLAY_NAME_BAD_CHARS.sub(" ", name).split())
+    cleaned = cleaned[:255].rstrip()
+    if (
+        len(cleaned) < 3
+        or cleaned.lower() in _OSM_RESERVED_DISPLAY_NAMES
+        or _OSM_USER_N_DISPLAY_NAME.match(cleaned)
+    ):
+        return None
+    return cleaned
+
+
+def _osm_display_name_candidates(name: str | None, auth_uid: str) -> list[str]:
+    """Display names to try for a user, best first. The fallbacks add part of
+    the user's ``auth_uid`` (their TDEI id, not personal data) to stay unique."""
+    short_id = auth_uid.replace("-", "")[:8]
+    base = osm_display_name_from(name)
+    if base:
+        return [base, f"{base[:246]} {short_id}"]
+    return [f"TDEI user {short_id}", f"TDEI user {auth_uid}"]
+
+
+# @test: Returns the person's name when no other user has it
+# @test: Returns the name with part of the auth_uid added when another user has the name, compared case-insensitively
+# @test: Returns a "TDEI user <id>" name when there is no usable name, e.g. the name is an email address
+async def choose_osm_display_name(
+    session: AsyncSession, *, name: str | None, auth_uid: str
+) -> str:
+    """The display name to give a TDEI user's OSM ``users`` row: their name, if
+    OSM would accept it and no other user has it, else a fallback. Never their
+    email address.
+
+    ``display_name`` is unique, and OSM compares it case-insensitively after
+    NFKC normalisation (``normalized_uniqueness``), so this does too, with the
+    expression ``users_display_name_canonical_idx`` indexes."""
+    candidates = _osm_display_name_candidates(name, auth_uid)
+    for candidate in candidates:
+        taken = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM users "
+                    "WHERE lower(NORMALIZE(display_name, NFKC)) "
+                    "= lower(NORMALIZE(:name, NFKC)) "
+                    "AND auth_uid IS DISTINCT FROM :auth_uid LIMIT 1"
+                ),
+                {"name": candidate, "auth_uid": auth_uid},
+            )
+        ).first()
+        if taken is None:
+            return candidate
+    # The last candidate holds the whole auth_uid, so it is as good as unique.
+    return candidates[-1]
+
+
 async def _ensure_osm_user(
     session: AsyncSession,
     *,
@@ -869,11 +968,15 @@ async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
     return row[0]
 
 
+# @test: A new caller's users row gets a display name from the token's name claim, never the email, via choose_osm_display_name
+# @test: A caller whose display name is their own email address gets it replaced, after the token is committed
+# @test: A caller whose display name is not their email is left alone
+# @test: A failure while replacing an email display name is logged and rolled back without undoing the mirrored token
 async def _bridge_token_to_osm(
     session: AsyncSession,
     *,
     user_uuid: UUID,
-    user_name: str,
+    name: str | None,
     email: str | None,
     token: str,
     exp: int | None,
@@ -887,6 +990,12 @@ async def _bridge_token_to_osm(
     plaintext ``oauth_access_tokens`` row -- no manual OSM setup. Doorkeeper
     stores tokens plaintext (``SecretStoring::Plain``), so the raw JWT matches on
     lookup for both osm-rails and cgimap; ``expires_in`` tracks the JWT's ``exp``.
+
+    ``name`` is the token's ``name`` claim, the person's name. A new ``users``
+    row's display name comes from it (``choose_osm_display_name``), as the
+    frontend's provisioning does. It used to come from ``preferred_username``,
+    which in TDEI is the email address, so users who never signed in to the
+    website have their email as their public display name; this replaces it.
 
     No-op unless ``WS_OSM_TOKEN_BRIDGE_ENABLED``. Best-effort: a failure here
     must not break token validation -- the ``/api/v1`` routes keep working; only
@@ -903,8 +1012,11 @@ async def _bridge_token_to_osm(
                 "OSM token bridge: no doorkeeper application id; token not mirrored"
             )
             return
+        display_name = await choose_osm_display_name(
+            session, name=name, auth_uid=str(user_uuid)
+        )
         user_id = await _ensure_osm_user(
-            session, auth_uid=str(user_uuid), email=email, display_name=user_name
+            session, auth_uid=str(user_uuid), email=email, display_name=display_name
         )
         if user_id is None:
             logger.warning("OSM token bridge: no OSM user id; token not mirrored")
@@ -944,6 +1056,51 @@ async def _bridge_token_to_osm(
         # Never fail auth on a bridge error; the OSM row just won't exist yet.
         logger.warning(
             "Failed to bridge TDEI token into OSM oauth_access_tokens: %s", e
+        )
+        await session.rollback()
+        return
+
+    await _replace_email_display_name(session, auth_uid=str(user_uuid), name=name)
+
+
+async def _replace_email_display_name(
+    session: AsyncSession, *, auth_uid: str, name: str | None
+) -> None:
+    """Give a user whose OSM display name is their own email address a real
+    one. Only that case is touched, so a name set any other way (e.g. by the
+    frontend's provisioning) is kept. Runs after the token is committed and
+    never raises, so it can't stand in the way of OSM authentication."""
+    try:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM users "
+                    "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid "
+                    "AND lower(display_name) = lower(email)"
+                ),
+                {"auth_uid": auth_uid},
+            )
+        ).first()
+        if row is None:
+            return
+        display_name = await choose_osm_display_name(
+            session, name=name, auth_uid=auth_uid
+        )
+        await session.execute(
+            text(
+                "UPDATE users SET display_name = :display_name "
+                "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid "
+                "AND lower(display_name) = lower(email)"
+            ),
+            {"display_name": display_name, "auth_uid": auth_uid},
+        )
+        await session.commit()
+        logger.info("Replaced the email display name of OSM user %s", auth_uid)
+    except Exception as e:
+        logger.warning(
+            "Failed to replace the email display name of OSM user %s: %s",
+            auth_uid,
+            e,
         )
         await session.rollback()
 
@@ -1092,7 +1249,7 @@ async def _validate_token_uncached(
     await _bridge_token_to_osm(
         osm_db_session,
         user_uuid=user_uuid,
-        user_name=r.user_name,
+        name=payload.get("name"),
         email=payload.get("email"),
         token=token,
         exp=payload.get("exp"),
