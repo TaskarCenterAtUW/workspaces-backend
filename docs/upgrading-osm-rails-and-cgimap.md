@@ -139,9 +139,10 @@ Deploy to dev, then stage, then prod, through the usual `develop` → `staging` 
    `push-docker-image.yml` builds `:dev` on merge.
 2. Before migrating anything, run `bin/rails db:migrate:status` in the dev rails container. Every
    ported version should show `up`. A `down` version you didn't port means step 2 is incomplete.
-   - The fork's own migrations can collide with tables this backend created. For example, the
-     fork's `CreateTeam` and this backend's `teams`/`team_user` are defined differently. Guard
-     these with `table_exists?`.
+   - The fork's own migrations can collide with tables this backend owns. The fork's `CreateTeam`
+     (`20251028201000`) defines `teams` and `team_user` differently from this backend, and Rails
+     never uses them, so `6dafe2da5f69` records it as applied without running it. Do the same for
+     any future fork migration that creates a table this backend owns.
 3. Add new global models to Apartment's `excluded_models`.
 4. Promote `develop` → `staging` → `production`. Each `gateway-<env>` Container App picks up its
    new `:<env>` image only when its revision restarts.

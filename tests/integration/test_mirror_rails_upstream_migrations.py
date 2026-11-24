@@ -218,7 +218,7 @@ async def test_public_matches_upstream_structure_sql(_migrated_db):
 
         async with engine.begin() as conn:
             applied = await conn.run_sync(migration.apply_public)
-        assert applied == sorted(migration.VERSIONS)
+        assert applied == migration.ALL_VERSIONS
 
         async with engine.connect() as conn:
             for table, expected in EXPECTED_COLUMNS.items():
@@ -248,15 +248,24 @@ async def test_public_matches_upstream_structure_sql(_migrated_db):
                     "'trackable'::gpx_visibility_enum",
                 )
             ]
-            assert await _versions(conn, "public") == set(migration.VERSIONS)
+            assert await _versions(conn, "public") == set(migration.ALL_VERSIONS)
+
+            # CreateTeam is only recorded: `teams` keeps this service's
+            # definition (integer ids, no unique name index from Rails).
+            assert migration.CREATE_TEAM_VERSION in migration.ALL_VERSIONS
+            assert ("id", "integer", True) == (await _columns(conn, "public", "teams"))[
+                0
+            ][:3]
+            assert not any(
+                "UNIQUE" in i and "name" in i
+                for i in await _indexes(conn, "public", "teams")
+            )
 
         # Running it again changes nothing and does not fail.
         async with engine.begin() as conn:
-            assert await conn.run_sync(migration.apply_public) == sorted(
-                migration.VERSIONS
-            )
+            assert await conn.run_sync(migration.apply_public) == migration.ALL_VERSIONS
         async with engine.connect() as conn:
-            assert await _versions(conn, "public") == set(migration.VERSIONS)
+            assert await _versions(conn, "public") == set(migration.ALL_VERSIONS)
     finally:
         async with engine.begin() as conn:
             for statement in _RAILS_CLEANUP:
@@ -388,7 +397,7 @@ async def test_every_workspace_schema_gets_the_notification_tables(
                     assert await _matches_public(conn, schema, table), (schema, table)
             for schema in schemas[1:]:
                 versions = await _versions(conn, schema)
-                assert versions == set(migration.VERSIONS) | {"20250101000000"}
+                assert versions == set(migration.ALL_VERSIONS) | {"20250101000000"}
 
             elsewhere = (
                 await conn.execute(

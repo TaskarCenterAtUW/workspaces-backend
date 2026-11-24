@@ -25,10 +25,17 @@ notification whenever someone comments on a changeset or note through the API,
 and it does so inside the workspace (Apartment): the Noticed models are not in
 Apartment's excluded_models, so the tables must exist in each workspace schema.
 New workspaces get them when Apartment clones `public`; this adds them to the
-existing ones and records the nine versions there too, so Rails' per-tenant
+existing ones and records the versions there too, so Rails' per-tenant
 migrate does not try to apply them (`users` has no copy in a workspace schema,
 so `add_column :users` would fail there). The other changes stay in `public`:
 nothing that runs inside a workspace reads them.
+
+It also records the rails fork's own CreateTeam (20251028201000) as applied,
+without running it. This service owns `teams` and `team_user` (a1b2c3d4e5f6
+creates them; they are in SERVICE_TABLES), Rails never reads or writes them,
+and its definition differs (bigint ids, nullable columns, a unique
+(workspace_id, name) index). Left pending, `rails db:migrate` would fail on
+the existing tables and stop before every later migration.
 
 Every step checks before it changes anything, so this is safe on a database
 where Rails has already applied some or all of these, and on the integration
@@ -65,6 +72,12 @@ VERSIONS = [
     "20260604105008",
     "20260624101500",
 ]
+
+# The rails fork's CreateTeam: recorded as applied, never run (see above).
+CREATE_TEAM_VERSION = "20251028201000"
+
+# Every version this revision records.
+ALL_VERSIONS = sorted(VERSIONS + [CREATE_TEAM_VERSION])
 
 # Column lists are copied verbatim from upstream db/structure.sql.
 SPAMMY_PHRASES_COLUMNS = """
@@ -203,8 +216,8 @@ def _record_versions_sql(schema: str, versions: Sequence[str]) -> str:
 
 def apply_public(conn: Connection) -> list[str]:
     """Apply the nine migrations to `public`. Returns the versions now in
-    effect there (all nine, except on a database missing a Rails table or type
-    a migration needs, such as the integration tests' stub)."""
+    effect there (ALL_VERSIONS, except on a database missing a Rails table or
+    type a migration needs, such as the integration tests' stub)."""
     applied: list[str] = []
 
     # 20260113142804 enable_postgis. First: moderation_zones needs geometry.
@@ -291,6 +304,11 @@ def apply_public(conn: Connection) -> list[str]:
             _run(conn, _create_table_sql("public", table, columns, indexes))
     applied.append("20260223105922")
 
+    # The fork's CreateTeam: recorded, not run, once this service's own
+    # `teams` and `team_user` exist (see CREATE_TEAM_VERSION).
+    if _has_table(conn, "public", "teams") and _has_table(conn, "public", "team_user"):
+        applied.append(CREATE_TEAM_VERSION)
+
     if _has_table(conn, "public", "schema_migrations"):
         conn.execute(text(_record_versions_sql("public", sorted(applied))))
     return sorted(applied)
@@ -298,7 +316,7 @@ def apply_public(conn: Connection) -> list[str]:
 
 def _workspace_block(schema: str) -> str:
     """One round trip for one workspace schema: create whichever notification
-    table is missing, and record the nine versions if the schema has a
+    table is missing, and record ALL_VERSIONS if the schema has a
     schema_migrations copy."""
     s = _q(schema)
     parts: list[str] = []
@@ -311,7 +329,7 @@ def _workspace_block(schema: str) -> str:
         )
     parts.append(
         f"IF to_regclass('{s}.schema_migrations') IS NOT NULL THEN\n"
-        f"    {_record_versions_sql(schema, VERSIONS)};\n"
+        f"    {_record_versions_sql(schema, ALL_VERSIONS)};\n"
         f"  END IF;"
     )
     return "DO $mirror$\nBEGIN\n  " + "\n  ".join(parts) + "\nEND\n$mirror$"
