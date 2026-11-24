@@ -23,8 +23,8 @@ assert _spec and _spec.loader
 migration = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(migration)
 
-WITH_LOGINS = "workspace-910001"
-EMPTY = "workspace-910002"
+WITH_LOGINS = "workspace-920001"
+EMPTY = "workspace-920002"
 
 # Just the shape that matters here: tokens and grants reference applications.
 _OAUTH_DDL = [

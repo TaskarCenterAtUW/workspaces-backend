@@ -7,8 +7,10 @@ from api.core.security import UserInfo
 # This service's own tables and enum types in the OSM database's `public`
 # schema. Rails creates each workspace schema by cloning `public` (Apartment's
 # use_sql pg_dump), so a new workspace schema starts with copies of these too.
-# Keep in step with the b7d4e2a9c1f0 migration, which removed the copies made
-# before they were dropped at creation.
+# The database function public.drop_service_table_copies drops them, and holds
+# its own snapshot of these lists (alembic a7f3c9e2d1b8). When you add to
+# either list, add a revision that replaces that function:
+# test_drop_function_covers_every_service_table fails until you do.
 SERVICE_TABLES = [
     "alembic_version",
     "jobs",
@@ -178,14 +180,13 @@ class OSMRepository:
         The same move Rails makes for `users` right after creating the schema:
         a copy shadows the `public` table for anything whose search_path puts
         the workspace schema first, and nothing is meant to read it.
+
+        The drop is the database function public.drop_service_table_copies, so
+        the importer, which can create workspaces without this proxy, runs the
+        same code.
         """
-        schema = f'"workspace-{int(workspace_id)}"'
-
-        for table in SERVICE_TABLES:
-            await self.session.execute(
-                text(f"DROP TABLE IF EXISTS {schema}.{table} CASCADE")
-            )
-        for enum in SERVICE_ENUMS:
-            await self.session.execute(text(f"DROP TYPE IF EXISTS {schema}.{enum}"))
-
+        await self.session.execute(
+            text("SELECT public.drop_service_table_copies(:schema)"),
+            {"schema": f"workspace-{int(workspace_id)}"},
+        )
         await self.session.commit()
