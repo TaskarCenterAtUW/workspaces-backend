@@ -327,7 +327,7 @@ class TaskingTaskRepository:
         if not user_auth_uid:
             return None
         rs = await self.session.execute(
-            text("SELECT display_name FROM users WHERE auth_uid = :uid"),
+            text("SELECT display_name FROM public.users WHERE auth_uid = :uid"),
             {"uid": user_auth_uid},
         )
         return rs.scalar_one_or_none()
