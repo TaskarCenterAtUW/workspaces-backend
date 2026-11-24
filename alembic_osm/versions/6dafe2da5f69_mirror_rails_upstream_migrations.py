@@ -189,6 +189,13 @@ def _has_table(conn: Connection, schema: str, table: str) -> bool:
     ).scalar_one()
 
 
+def _has_extension(conn: Connection, name: str) -> bool:
+    return conn.execute(
+        text("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = :n)"),
+        {"n": name},
+    ).scalar_one()
+
+
 def _has_type(conn: Connection, schema: str, name: str) -> bool:
     return conn.execute(
         text("SELECT to_regtype(:n) IS NOT NULL"),
@@ -221,7 +228,12 @@ def apply_public(conn: Connection) -> list[str]:
     applied: list[str] = []
 
     # 20260113142804 enable_postgis. First: moderation_zones needs geometry.
-    conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public"))
+    # Only when missing (a1b2c3d4e5f6 already requires it, so it never is in
+    # a deployed database): Azure Database for PostgreSQL refuses CREATE
+    # EXTENSION postgis, even with IF NOT EXISTS, to roles outside
+    # azure_pg_admin, and stage's app role is one.
+    if not _has_extension(conn, "postgis"):
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public"))
     applied.append("20260113142804")
 
     # 20251121134648 create_spammy_phrases

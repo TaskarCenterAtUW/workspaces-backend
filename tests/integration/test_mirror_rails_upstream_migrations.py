@@ -12,7 +12,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 pytestmark = pytest.mark.integration
@@ -328,6 +328,42 @@ async def test_finishes_moderation_zones_after_a_partial_rails_run(_migrated_db)
                 )
             ).scalar_one()
             assert unended == 0
+    finally:
+        async with engine.begin() as conn:
+            for statement in _RAILS_CLEANUP:
+                await conn.execute(text(statement))
+        await engine.dispose()
+
+
+async def test_leaves_an_installed_postgis_alone(_migrated_db):
+    """Azure refuses CREATE EXTENSION postgis, even with IF NOT EXISTS, to a
+    role outside azure_pg_admin (stage's app role), so with the extension
+    already installed the migration must not issue it at all."""
+    _task_url, osm_url = _migrated_db
+    engine = create_async_engine(osm_url)
+    statements: list[str] = []
+
+    def record(_conn, _cursor, statement, *_args) -> None:
+        statements.append(statement)
+
+    try:
+        async with engine.begin() as conn:
+            for statement in _RAILS_PREREQUISITES:
+                await conn.execute(text(statement))
+            installed = (
+                await conn.execute(
+                    text("SELECT count(*) FROM pg_extension WHERE extname = 'postgis'")
+                )
+            ).scalar_one()
+            assert installed == 1
+
+        event.listen(engine.sync_engine, "before_cursor_execute", record)
+        async with engine.begin() as conn:
+            await conn.run_sync(migration.apply_public)
+        event.remove(engine.sync_engine, "before_cursor_execute", record)
+
+        assert statements, "the listener saw no statements"
+        assert [s for s in statements if "CREATE EXTENSION" in s.upper()] == []
     finally:
         async with engine.begin() as conn:
             for statement in _RAILS_CLEANUP:
