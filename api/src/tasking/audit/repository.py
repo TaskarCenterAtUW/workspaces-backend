@@ -81,7 +81,7 @@ class TaskingAuditRepository:
             return {}
         rows = await self.session.execute(
             text(
-                "SELECT auth_uid, display_name FROM users "
+                "SELECT auth_uid, display_name FROM public.users "
                 "WHERE auth_uid = ANY(:uids)"
             ),
             {"uids": list(auth_uids)},

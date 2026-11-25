@@ -849,7 +849,7 @@ async def choose_osm_display_name(
         taken = (
             await session.execute(
                 text(
-                    "SELECT 1 FROM users "
+                    "SELECT 1 FROM public.users "
                     "WHERE lower(NORMALIZE(display_name, NFKC)) "
                     "= lower(NORMALIZE(:name, NFKC)) "
                     "AND auth_uid IS DISTINCT FROM :auth_uid LIMIT 1"
@@ -875,7 +875,7 @@ async def _ensure_osm_user(
     and NOT NULL."""
     await session.execute(
         text(
-            "INSERT INTO users (auth_uid, email, display_name, auth_provider, "
+            "INSERT INTO public.users (auth_uid, email, display_name, auth_provider, "
             "status, pass_crypt, data_public, email_valid, terms_seen, "
             "creation_time, terms_agreed, tou_agreed) "
             "VALUES (:auth_uid, :email, :name, 'TDEI', 'active', :pass_crypt, "
@@ -898,7 +898,7 @@ async def _ensure_osm_user(
     row = (
         await session.execute(
             text(
-                "SELECT id FROM users "
+                "SELECT id FROM public.users "
                 "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid"
             ),
             {"auth_uid": auth_uid},
@@ -936,7 +936,7 @@ async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
         return None
     await session.execute(
         text(
-            "INSERT INTO oauth_applications (owner_type, owner_id, name, uid, "
+            "INSERT INTO public.oauth_applications (owner_type, owner_id, name, uid, "
             "secret, redirect_uri, scopes, confidential, created_at, updated_at) "
             "VALUES ('User', :owner_id, :name, :uid, :secret, "
             "'urn:ietf:wg:oauth:2.0:oob', :scopes, true, "
@@ -955,7 +955,7 @@ async def _ensure_osm_oauth_application(session: AsyncSession) -> int | None:
     )
     row = (
         await session.execute(
-            text("SELECT id FROM oauth_applications WHERE uid = :uid"),
+            text("SELECT id FROM public.oauth_applications WHERE uid = :uid"),
             {"uid": settings.WS_OSM_OAUTH_CLIENT_UID},
         )
     ).first()
@@ -1025,7 +1025,7 @@ async def _bridge_token_to_osm(
         expires_in = max(0, exp - int(time.time())) if exp else None
         await session.execute(
             text(
-                "INSERT INTO oauth_access_tokens (application_id, "
+                "INSERT INTO public.oauth_access_tokens (application_id, "
                 "resource_owner_id, token, scopes, created_at, expires_in) "
                 "VALUES (:app_id, :user_id, :token, :scopes, "
                 "(now() at time zone 'utc'), :expires_in) "
@@ -1074,7 +1074,7 @@ async def _replace_email_display_name(
         row = (
             await session.execute(
                 text(
-                    "SELECT 1 FROM users "
+                    "SELECT 1 FROM public.users "
                     "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid "
                     "AND lower(display_name) = lower(email)"
                 ),
@@ -1088,7 +1088,7 @@ async def _replace_email_display_name(
         )
         await session.execute(
             text(
-                "UPDATE users SET display_name = :display_name "
+                "UPDATE public.users SET display_name = :display_name "
                 "WHERE auth_provider = 'TDEI' AND auth_uid = :auth_uid "
                 "AND lower(display_name) = lower(email)"
             ),
@@ -1122,7 +1122,7 @@ async def _revoke_osm_token(session: AsyncSession, token: str) -> None:
     try:
         await session.execute(
             text(
-                "UPDATE oauth_access_tokens "
+                "UPDATE public.oauth_access_tokens "
                 "SET revoked_at = (now() at time zone 'utc') "
                 "WHERE token = :token AND revoked_at IS NULL"
             ),
