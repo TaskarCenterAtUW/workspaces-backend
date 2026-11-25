@@ -68,11 +68,11 @@ class RecordingSession:
             return _R([(1,)] if params["name"].lower() in self._taken_names else [])
         if "lower(display_name) = lower(email)" in sql and sql.startswith("SELECT"):
             return _R([(1,)] if self._email_display_name else [])
-        if "SELECT id FROM users" in sql:
+        if "SELECT id FROM public.users" in sql:
             if params.get("auth_uid") == settings.WS_OSM_SYSTEM_USER_AUTH_UID:
                 return _R([(self._system_user_id,)])
             return _R([(self._caller_user_id,)])
-        if "SELECT id FROM oauth_applications" in sql:
+        if "SELECT id FROM public.oauth_applications" in sql:
             return _R([(self._app_id,)])
         return _R([])
 
@@ -124,13 +124,13 @@ async def test_bridge_provisions_app_users_and_token(monkeypatch):
     )
 
     # System user provisioned (owns the app) and caller user provisioned.
-    user_inserts = session.sql_for("INSERT INTO users")
+    user_inserts = session.sql_for("INSERT INTO public.users")
     inserted_auth_uids = {c[1]["auth_uid"] for c in user_inserts}
     assert settings.WS_OSM_SYSTEM_USER_AUTH_UID in inserted_auth_uids
     assert str(uid) in inserted_auth_uids
 
     # Application created idempotently by uid, owned by the system user (id 1).
-    app_inserts = session.sql_for("INSERT INTO oauth_applications")
+    app_inserts = session.sql_for("INSERT INTO public.oauth_applications")
     assert app_inserts and "ON CONFLICT (uid)" in app_inserts[0][0]
     assert app_inserts[0][1]["uid"] == "workspaces-backend"
     assert app_inserts[0][1]["owner_id"] == 1
@@ -168,7 +168,9 @@ async def test_bridge_synthesises_email_when_absent(monkeypatch):
     )
 
     caller_insert = next(
-        c for c in session.sql_for("INSERT INTO users") if c[1]["auth_uid"] == str(uid)
+        c
+        for c in session.sql_for("INSERT INTO public.users")
+        if c[1]["auth_uid"] == str(uid)
     )
     assert caller_insert[1]["email"] == f"{uid}@tdei.invalid"
 
@@ -217,7 +219,7 @@ async def test_revoke_marks_only_the_superseded_token(monkeypatch):
 
     await security._revoke_osm_token(cast(AsyncSession, session), "old-token")
 
-    updates = session.sql_for("UPDATE oauth_access_tokens")
+    updates = session.sql_for("UPDATE public.oauth_access_tokens")
     assert updates and "revoked_at" in updates[0][0]
     assert "WHERE token = :token AND revoked_at IS NULL" in updates[0][0]
     assert updates[0][1]["token"] == "old-token"
@@ -245,7 +247,9 @@ async def test_revoke_is_best_effort_on_db_error(monkeypatch):
 
 def _caller_insert(session, uid):
     return next(
-        c for c in session.sql_for("INSERT INTO users") if c[1]["auth_uid"] == str(uid)
+        c
+        for c in session.sql_for("INSERT INTO public.users")
+        if c[1]["auth_uid"] == str(uid)
     )
 
 
@@ -350,7 +354,7 @@ async def test_bridge_replaces_an_email_display_name_after_the_token(monkeypatch
 
     await _bridge(session, uid, "Alice Example")
 
-    updates = session.sql_for("UPDATE users SET display_name")
+    updates = session.sql_for("UPDATE public.users SET display_name")
     assert len(updates) == 1
     sql, params = updates[0]
     assert "lower(display_name) = lower(email)" in sql
@@ -358,7 +362,7 @@ async def test_bridge_replaces_an_email_display_name_after_the_token(monkeypatch
     # Mirrored token first, then the rename, each committed.
     sqls = [c[0] for c in session.calls]
     token_at = next(i for i, s in enumerate(sqls) if "oauth_access_tokens" in s)
-    rename_at = next(i for i, s in enumerate(sqls) if "UPDATE users" in s)
+    rename_at = next(i for i, s in enumerate(sqls) if "UPDATE public.users" in s)
     assert token_at < rename_at
     assert session.commits == 2
 
@@ -369,14 +373,14 @@ async def test_bridge_keeps_a_display_name_that_is_not_the_email(monkeypatch):
 
     await _bridge(session, uuid4(), "Alice Example")
 
-    assert session.sql_for("UPDATE users SET display_name") == []
+    assert session.sql_for("UPDATE public.users SET display_name") == []
     assert session.commits == 1
 
 
 async def test_bridge_rename_failure_keeps_the_mirrored_token(monkeypatch):
     monkeypatch.setattr(settings, "WS_OSM_TOKEN_BRIDGE_ENABLED", True)
     session = RecordingSession(
-        email_display_name=True, fail_on="UPDATE users SET display_name"
+        email_display_name=True, fail_on="UPDATE public.users SET display_name"
     )
 
     await _bridge(session, uuid4(), "Alice Example")

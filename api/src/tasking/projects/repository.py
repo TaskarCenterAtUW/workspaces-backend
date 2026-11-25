@@ -278,7 +278,7 @@ class TaskingProjectRepository:
         by_uid = {m.auth_uid: m for m in members}
 
         """
-        INSERT INTO users (
+        INSERT INTO public.users (
                  email,
                  display_name,
                  auth_uid,
@@ -319,7 +319,7 @@ class TaskingProjectRepository:
             )
             await self.session.execute(
                 text(
-                    "INSERT INTO users (auth_uid, email, display_name, auth_provider, status, pass_crypt, data_public, email_valid, terms_seen, creation_time, terms_agreed, tou_agreed) "
+                    "INSERT INTO public.users (auth_uid, email, display_name, auth_provider, status, pass_crypt, data_public, email_valid, terms_seen, creation_time, terms_agreed, tou_agreed) "
                     "VALUES (:uid, :email, :name, 'TDEI', 'active', :pass_crypt, true, true, true, (now() at time zone 'utc'), (now() at time zone 'utc'), (now() at time zone 'utc')) "
                     "ON CONFLICT (auth_uid) DO NOTHING"
                 ),
@@ -356,7 +356,7 @@ class TaskingProjectRepository:
         from sqlalchemy import text
 
         rows = await self.session.execute(
-            text("SELECT auth_uid FROM users WHERE auth_uid = ANY(:uids)"),
+            text("SELECT auth_uid FROM public.users WHERE auth_uid = ANY(:uids)"),
             {"uids": [str(u) for u in uuids]},
         )
         existing = {row[0] for row in rows.all()}
@@ -1048,7 +1048,7 @@ class TaskingProjectRepository:
             text(
                 "SELECT r.user_auth_uid, u.display_name, r.role, r.updated_at "
                 "FROM tasking_project_roles r "
-                "LEFT JOIN users u ON u.auth_uid = r.user_auth_uid "
+                "LEFT JOIN public.users u ON u.auth_uid = r.user_auth_uid "
                 "WHERE r.project_id = :pid "
                 "ORDER BY r.updated_at DESC"
             ),
@@ -1391,7 +1391,7 @@ class TaskingProjectRepository:
             text(
                 "SELECT r.user_auth_uid, u.display_name, r.role, r.updated_at "
                 "FROM tasking_project_roles r "
-                "LEFT JOIN users u ON u.auth_uid = r.user_auth_uid "
+                "LEFT JOIN public.users u ON u.auth_uid = r.user_auth_uid "
                 "WHERE r.project_id = :pid AND r.user_auth_uid = :uid"
             ),
             {"pid": project_id, "uid": str(user_id)},
