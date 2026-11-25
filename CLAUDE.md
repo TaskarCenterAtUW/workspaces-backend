@@ -208,13 +208,19 @@ would then become one malformed origin. `api/main.py` therefore reads
 `settings.cors_origins_list`, which parses **both** a JSON array and a
 comma-separated string (and `*`); set `CORS_ORIGINS` in either form.
 
-### Two databases; `users` is owned by OSM Rails
+### Two databases; the OSM schema is defined by OSM Rails
 
 `TASK_DATABASE_URL` (`alembic_task` tree) holds workspaces / tasking-manager
 tables; `OSM_DATABASE_URL` (`alembic_osm` tree) holds OSM data, `users`, and the
-`tasking_*` tables. The **`users` table is owned by the OSM Rails website**, not
-either alembic tree — the trees only FK to it, and integration tests stub it
-(`tests/integration/conftest.py`). The backend provisions `users` rows itself
+`tasking_*` tables. The **OSM schema, `users` included, is defined by the OSM
+Rails website**: this service's own tables FK to `users`, and integration tests
+stub it (`tests/integration/conftest.py`). The deploy never runs Rails'
+migrations, so **`alembic_osm` ports each upstream Rails migration** —
+statement for statement from upstream `db/structure.sql` — and records its
+version in `schema_migrations` so Rails treats it as done (first:
+`6dafe2da5f69`). **Before upgrading osm-rails or cgimap from upstream, follow
+[docs/upgrading-osm-rails-and-cgimap.md](docs/upgrading-osm-rails-and-cgimap.md).**
+The backend provisions `users` rows itself
 via raw SQL with `auth_provider='TDEI'` and `auth_uid = str(<JWT sub>)` (the OSM
 `auth_uid` **is** the token's `sub` claim).
 
@@ -253,6 +259,9 @@ silently hits the copy.
   migration `b7d4e2a9c1f0` removed the ones made before that. **Add any new
   `public` table or enum type to `SERVICE_TABLES` / `SERVICE_ENUMS`** in
   `api/src/osm/repository.py`, or new workspaces will carry copies of it.
+  This is for this service's own tables only: tables ported from Rails stay
+  out of it, because Rails may use their workspace copies (the notification
+  tables in `6dafe2da5f69` must exist in every workspace schema).
 * **Gap:** workspaces created from TDEI or from a file get their schema from
   `workspaces-importer`, which calls osm-rails through the gateway
   (`osm.internal…`), not this proxy, so the drop does not run for them yet
